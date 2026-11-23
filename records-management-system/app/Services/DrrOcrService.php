@@ -137,7 +137,12 @@ class DrrOcrService
         } catch (\Throwable $e) {
             Log::warning('DRR OCR failed: ' . $e->getMessage());
 
-            return ['ok' => false, 'reason' => 'ocr_failed', 'message' => $e->getMessage(), 'pages' => []];
+            return [
+                'ok' => false,
+                'reason' => 'ocr_failed',
+                'message' => 'Could not read text from this scan. Try again or enter details manually.',
+                'pages' => [],
+            ];
         } finally {
             if ($tempOwned) {
                 Storage::disk('local')->delete($tempOwned);

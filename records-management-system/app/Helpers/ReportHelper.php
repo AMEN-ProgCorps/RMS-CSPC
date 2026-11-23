@@ -2799,8 +2799,19 @@ class ReportHelper
                 ->all();
         }
 
+        $printTpl = DcsPrintTemplateHelper::forReportSub($sub);
+        $printIdentity = DcsPrintTemplateHelper::identityVars($printTpl);
+        $printColumns = DcsPrintTemplateHelper::applyColumnsJson([
+            'columns' => $data['columns'] ?? [],
+            'group_headers' => $data['group_headers'] ?? [],
+        ], $printTpl);
+        if ($isMlPrint && ! empty($printColumns['columns'])) {
+            $data['columns'] = $printColumns['columns'];
+            $data['group_headers'] = $printColumns['group_headers'];
+        }
+
         $viewData = [
-            'title'              => $data['title'],
+            'title'              => $printIdentity['formTitle'] !== '' ? $printIdentity['formTitle'] : $data['title'],
             'columns'            => $data['columns'],
             'groupHeaders'       => $data['group_headers'] ?? [],
             'rows'               => $rows,
@@ -2821,15 +2832,23 @@ class ReportHelper
             'plainTable'         => $isPlainTable,
             'isMlInternal'       => $isMlPrint,
             'checkedType'        => $checkedType,
-            'republic'           => 'Republic of the Philippines',
-            'institutionName'    => 'Camarines Sur Polytechnic Colleges',
-            'institutionAddress' => 'Nabua, Camarines Sur',
-            'letterNumber'       => $this->letterNumberForReport($category, $sub),
-            'footerLeft'         => 'Effectivity Date:',
-            'footerCenter'       => 'Rev.',
+            'republic'           => $printIdentity['republic'],
+            'institutionName'    => $printIdentity['institutionName'],
+            'institutionAddress' => $printIdentity['institutionAddress'],
+            'letterNumber'       => $printIdentity['letterNumber'] !== ''
+                ? $printIdentity['letterNumber']
+                : $this->letterNumberForReport($category, $sub),
+            'footerLeft'         => $printIdentity['footerLeft'],
+            'footerCenter'       => $printIdentity['footerCenter'],
             'footerRight'        => '',
-            'footerEffectivity'  => in_array($sub, ['internal_forms', 'external_docs', 'forms', 'logbooks'], true) ? 'August 2021' : 'January 2025',
-            'footerRev'          => in_array($sub, ['internal_forms', 'external_docs', 'forms', 'logbooks'], true) ? '3' : '4',
+            'footerEffectivity'  => $printIdentity['footerEffectivity'] !== ''
+                ? $printIdentity['footerEffectivity']
+                : (in_array($sub, ['internal_forms', 'external_docs', 'forms', 'logbooks'], true) ? 'August 2021' : 'January 2025'),
+            'footerRev'          => $printIdentity['footerRev'] !== ''
+                ? $printIdentity['footerRev']
+                : (in_array($sub, ['internal_forms', 'external_docs', 'forms', 'logbooks'], true) ? '3' : '4'),
+            'logoSrc'            => $printIdentity['logoSrc'] !== '' ? $printIdentity['logoSrc'] : null,
+            'tableHeaderStyle'   => DcsPrintTemplateHelper::columnsPayload($printTpl)['style'],
         ];
 
         // ── CSV ──

@@ -2,6 +2,7 @@
 
 namespace App\Helpers;
 
+use App\Helpers\DcsPrintTemplateHelper;
 use App\Services\DocumentStorageService;
 use App\Services\DcsNotificationService;
 use Illuminate\Http\RedirectResponse;
@@ -13,7 +14,7 @@ use Illuminate\Support\Facades\Storage;
 use Illuminate\Validation\ValidationException;
 
 /**
- * Office Intake (non-RFIO DRF / DCN) — create once, then view / print / register handoff.
+ * Office Intake (non-RFIU DRF / DCN) — create once, then view / print / register handoff.
  *
  * LOCATION: app/Helpers/OfficeIntakeHelper.php (Composer-autoloaded). Do not move under resources/views.
  * UI callers: resources/views/pages/dcs/office-intake/* and Admin Request review pages.
@@ -21,7 +22,7 @@ use Illuminate\Validation\ValidationException;
  * Permission gate: RegisterQueryHelper::canAccessOfficeIntake() / canBrowseAllOfficeIntake().
  *
  * FLOW (happy path):
- *   storeDrf|storeDcn → RFIO listPendingOfficeRequests → beginRegister → RegisterPersistHelper::persist
+ *   storeDrf|storeDcn → RFIU listPendingOfficeRequests → beginRegister → RegisterPersistHelper::persist
  *   → markIntakeRegistered / notifyReadyForPrintSign → officeMayPrintIntake.
  *
  * DEBUG MAP (symptom → start here):
@@ -86,19 +87,32 @@ class OfficeIntakeHelper
     }
 
     /**
-     * Allows print/view for office creators and RFIO reviewers of an intake form.
+     * Allows print/view for office creators and RFIU reviewers of an intake form.
      *
      * DEBUG: print/view 403 → officeMayPrintIntake() and ownership asserts.
      */
-    public static function assertOfficeIntakePrintAllowed(): void
+    /**
+     * Stops with 403 when print is still locked (CSS/JS alone is not enough).
+     * RFIU/reviewers (canBrowseAllOfficeIntake) always pass via officeMayPrintIntake.
+     */
+    public static function assertOfficeIntakePrintAllowed(?object $record = null, bool $viewerMode = false): void
     {
-        // Allowed for office creators and RFIO review_intake operators.
+        self::assertCanAccessIntake();
+        if ($record === null) {
+            return;
+        }
+
+        abort_unless(
+            self::officeMayPrintIntake($record),
+            403,
+            'Print unlocks after RFIU confirms this form and notifies you to print and sign.'
+        );
     }
 
     /**
-     * Tells whether an office user may print this form (only after RFIO unlocks print).
+     * Tells whether an office user may print this form (only after RFIU unlocks print).
      *
-     * DEBUG: Print button locked after RFIO notice → rfio_print_notified_at + this method.
+     * DEBUG: Print button locked after RFIU notice → rfio_print_notified_at + this method.
      */
     public static function officeMayPrintIntake(?object $record): bool
     {
@@ -319,9 +333,9 @@ class OfficeIntakeHelper
      *
      * DEBUG: pagination/filter issues on My DRF → paginateMyIntakeRows.
      */
-    public static function paginateMyDrf(int $perPage = 25, bool $withSubmissionMeta = false)
+    public static function paginateMyDrf(int $perPage = 25, bool $withSubmissionMeta = false, string $search = '')
     {
-        return self::paginateMyIntakeRows('drf', $perPage, $withSubmissionMeta);
+        return self::paginateMyIntakeRows('drf', $perPage, $withSubmissionMeta, $search);
     }
 
     /**
@@ -329,9 +343,9 @@ class OfficeIntakeHelper
      *
      * DEBUG: My DCN index issues → paginateMyIntakeRows + hydrateIntakeOriginators.
      */
-    public static function paginateMyDcn(int $perPage = 25, bool $withSubmissionMeta = false)
+    public static function paginateMyDcn(int $perPage = 25, bool $withSubmissionMeta = false, string $search = '')
     {
-        return self::paginateMyIntakeRows('dcn', $perPage, $withSubmissionMeta);
+        return self::paginateMyIntakeRows('dcn', $perPage, $withSubmissionMeta, $search);
     }
 
     /**
@@ -468,12 +482,17 @@ class OfficeIntakeHelper
     /**
      * Lists or paginates data for paginate my intake rows.
      */
-    private static function paginateMyIntakeRows(string $type, int $perPage = 25, bool $withSubmissionMeta = false)
-    {
+    private static function paginateMyIntakeRows(
+        string $type,
+        int $perPage = 25,
+        bool $withSubmissionMeta = false,
+        string $search = ''
+    ) {
         $type = strtolower($type) === 'dcn' ? 'dcn' : 'drf';
         $table = $type === 'dcn' ? 'dcs_office_intake_dcn' : 'dcs_office_intake_drf';
         $alias = $type;
         $perPage = max(10, min(100, $perPage));
+        $search = trim($search);
 
         if (! Schema::hasTable($table)) {
             return new \Illuminate\Pagination\LengthAwarePaginator([], 0, $perPage);
@@ -483,12 +502,109 @@ class OfficeIntakeHelper
         self::reconcileClaimedIntakesWithRegistrations();
 
         $query = DB::table($table.' as '.$alias);
+        // Office boundary first — search only filters within the signed-in office.
         self::applyOwnOfficeIntakeScope($query, $alias, $type);
+        self::applyOfficeIntakeListSearch($query, $type, $alias, $table, $search);
         $paginator = $query->orderByDesc($alias.'.id')->paginate($perPage, self::intakeListColumns($type));
         $enriched = self::enrichIntakeListRows($type, collect($paginator->items()), $withSubmissionMeta);
         $paginator->setCollection($enriched);
 
         return $paginator;
+    }
+
+    /**
+     * Title / form-no / originator / registered doc-no search on My DRF and My DCN lists.
+     * Always applied after applyOwnOfficeIntakeScope — never searches other offices.
+     *
+     * DCN document_no = number stored on the form (usually the existing controlled doc).
+     * Registered masterlist doc_no = number assigned when RFIU completes the request.
+     */
+    private static function applyOfficeIntakeListSearch($query, string $type, string $alias, string $table, string $search): void
+    {
+        $search = trim($search);
+        if ($search === '') {
+            return;
+        }
+        $like = '%'.addcslashes(mb_strtolower($search), '%_\\').'%';
+        $query->where(function ($q) use ($type, $alias, $table, $like) {
+            if ($type === 'drf') {
+                $q->whereRaw('LOWER(COALESCE('.$alias.'.doc_title, \'\')) LIKE ?', [$like])
+                    ->orWhereRaw('LOWER(COALESCE('.$alias.'.drf_no, \'\')) LIKE ?', [$like]);
+                if (Schema::hasColumn($table, 'previous_document_no')) {
+                    $q->orWhereRaw('LOWER(COALESCE('.$alias.'.previous_document_no, \'\')) LIKE ?', [$like]);
+                }
+                if (Schema::hasColumn($table, 'originator_name')) {
+                    $q->orWhereRaw('LOWER(COALESCE('.$alias.'.originator_name, \'\')) LIKE ?', [$like]);
+                }
+            } else {
+                $started = false;
+                $add = function (string $column) use ($q, $alias, $like, &$started) {
+                    $sql = 'LOWER(COALESCE('.$alias.'.'.$column.', \'\')) LIKE ?';
+                    if (! $started) {
+                        $q->whereRaw($sql, [$like]);
+                        $started = true;
+                    } else {
+                        $q->orWhereRaw($sql, [$like]);
+                    }
+                };
+                if (Schema::hasColumn($table, 'document_title')) {
+                    $add('document_title');
+                }
+                if (Schema::hasColumn($table, 'document_no')) {
+                    $add('document_no');
+                }
+                if (Schema::hasColumn($table, 'previous_document_no')) {
+                    $add('previous_document_no');
+                }
+                if (Schema::hasColumn($table, 'dcn_no')) {
+                    $add('dcn_no');
+                }
+                if (Schema::hasColumn($table, 'originator_name')) {
+                    $add('originator_name');
+                }
+                if (! $started) {
+                    $q->whereRaw('1 = 0');
+                }
+            }
+
+            // After RFIU registers the request, also match the assigned masterlist document no.
+            if (
+                Schema::hasColumn($table, 'registered_request_id')
+                && Schema::hasTable('dcs_masterlist_registration')
+            ) {
+                $q->orWhereExists(function ($mlQ) use ($alias, $like) {
+                    $mlQ->select(DB::raw(1))
+                        ->from('dcs_masterlist_registration as ofi_ml_search')
+                        ->whereColumn('ofi_ml_search.request_id', $alias.'.registered_request_id')
+                        ->whereRaw('LOWER(COALESCE(ofi_ml_search.doc_no, \'\')) LIKE ?', [$like]);
+                });
+            }
+        });
+    }
+
+    /**
+     * Escape and wrap a list search term for LIKE matching.
+     */
+    private static function officeListSearchLike(string $search): string
+    {
+        return '%'.addcslashes(mb_strtolower(trim($search)), '%_\\').'%';
+    }
+
+    /**
+     * Filter distinct office document rows by doc no / title.
+     * Runs on an already office-scoped query (current office only).
+     */
+    private static function applyOfficeDocumentSearch($query, string $search): void
+    {
+        $search = trim($search);
+        if ($search === '') {
+            return;
+        }
+        $like = self::officeListSearchLike($search);
+        $query->where(function ($q) use ($like) {
+            $q->whereRaw('LOWER(COALESCE(doc_no, \'\')) LIKE ?', [$like])
+                ->orWhereRaw('LOWER(COALESCE(doc_title, \'\')) LIKE ?', [$like]);
+        });
     }
 
     /**
@@ -754,7 +870,7 @@ class OfficeIntakeHelper
         $userId = (int) auth()->id();
         $printedAt = $record->office_printed_at ?? null;
 
-        // RFIO review print must not clear the office dashboard action item.
+        // RFIU review print must not clear the office dashboard action item.
         if (RegisterQueryHelper::canBrowseAllOfficeIntake() && ! RegisterQueryHelper::isLimitedDcsUser()) {
             return [
                 'ok' => true,
@@ -888,8 +1004,8 @@ class OfficeIntakeHelper
                     'kind' => 'correction',
                     'type' => 'drf',
                     'title' => $row->doc_title ?: ($row->drf_no ?: 'Untitled DRF'),
-                    'meta' => $reason !== '' ? $reason : 'RFIO asked for corrections. Open the form, fix the noted items, then resubmit.',
-                    'meta_label' => $reason !== '' ? 'RFIO correction message' : 'What to do',
+                    'meta' => $reason !== '' ? $reason : 'RFIU asked for corrections. Open the form, fix the noted items, then resubmit.',
+                    'meta_label' => $reason !== '' ? 'RFIU correction message' : 'What to do',
                     'href' => route('dcs.office.drf.edit', $row->id, absolute: false),
                     'sort' => strtotime((string) ($row->edit_unlocked_at ?? $row->created_at ?? 'now')) ?: 0,
                 ]);
@@ -898,7 +1014,7 @@ class OfficeIntakeHelper
                     'kind' => 'print_ready',
                     'type' => 'drf',
                     'title' => $row->doc_title ?: ($row->drf_no ?: 'Untitled DRF'),
-                    'meta' => 'Print is unlocked — print, sign, then submit to RFIO',
+                    'meta' => 'Print is unlocked — print, sign, then submit to RFIU',
                     'meta_label' => null,
                     'href' => route('dcs.office.drf.show', $row->id, absolute: false),
                     'sort' => strtotime((string) ($row->rfio_print_notified_at ?? $row->created_at ?? 'now')) ?: 0,
@@ -914,8 +1030,8 @@ class OfficeIntakeHelper
                     'title' => $row->document_title
                         ?? $row->originator_name
                         ?? ($row->dcn_no ?: 'Untitled DCN'),
-                    'meta' => $reason !== '' ? $reason : 'RFIO asked for corrections. Open the form, fix the noted items, then resubmit.',
-                    'meta_label' => $reason !== '' ? 'RFIO correction message' : 'What to do',
+                    'meta' => $reason !== '' ? $reason : 'RFIU asked for corrections. Open the form, fix the noted items, then resubmit.',
+                    'meta_label' => $reason !== '' ? 'RFIU correction message' : 'What to do',
                     'href' => route('dcs.office.dcn.edit', $row->id, absolute: false),
                     'sort' => strtotime((string) ($row->edit_unlocked_at ?? $row->created_at ?? 'now')) ?: 0,
                 ]);
@@ -926,7 +1042,7 @@ class OfficeIntakeHelper
                     'title' => $row->document_title
                         ?? $row->originator_name
                         ?? ($row->dcn_no ?: 'Untitled DCN'),
-                    'meta' => 'Print is unlocked — print, sign, then submit to RFIO',
+                    'meta' => 'Print is unlocked — print, sign, then submit to RFIU',
                     'meta_label' => null,
                     'href' => route('dcs.office.dcn.show', $row->id, absolute: false),
                     'sort' => strtotime((string) ($row->rfio_print_notified_at ?? $row->created_at ?? 'now')) ?: 0,
@@ -975,11 +1091,11 @@ class OfficeIntakeHelper
     }
 
     /**
-     * Lists office intakes waiting in the Admin Request queue for RFIO.
+     * Lists office intakes waiting in the Admin Request queue for RFIU.
      * @return \Illuminate\Support\Collection<int, object>
      */
     // =====================================================================
-    // SECTION: RFIO REQUEST QUEUE — pending office forms awaiting registration
+    // SECTION: RFIU REQUEST QUEUE — pending office forms awaiting registration
     // =====================================================================
     
     public static function listPendingOfficeRequests(?string $typeFilter = null)
@@ -1236,7 +1352,7 @@ class OfficeIntakeHelper
     }
 
     /**
-     * Tells whether RFIO started registration but has not finished yet.
+     * Tells whether RFIU started registration but has not finished yet.
      *
      * DEBUG: unexpected allow/deny → check this predicate.
      */
@@ -1258,7 +1374,7 @@ class OfficeIntakeHelper
     }
 
     /**
-     * Where RFIO should land when opening an intake from a notification / deep link.
+     * Where RFIU should land when opening an intake from a notification / deep link.
      * Claimed-but-not-registered → continue Register (Proceed already ran).
      * Otherwise → Request review page.
      */
@@ -1301,7 +1417,7 @@ class OfficeIntakeHelper
             }
         }
 
-        // Prefer explicit RFIO registration stamp. Draft-linked request ids alone
+        // Prefer explicit RFIU registration stamp. Draft-linked request ids alone
         // never reach here; non-draft linked rows stay registered for legacy data.
         if (empty($registeredAt) && $registeredRequestId < 1) {
             return $empty;
@@ -1877,7 +1993,23 @@ class OfficeIntakeHelper
                     (int) ($row->doc_type_id ?? 0) ?: null,
                     (int) ($row->sub_type_id ?? 0) ?: null
                 ),
+            // Settings → office DCN reviewers/approvals for this catalog type.
+            'dcn_signatories' => self::dcnSignatoryPrefill(
+                $kind,
+                (int) ($row->doc_type_id ?? 0) ?: null,
+                (int) ($row->sub_type_id ?? 0) ?: null
+            ),
         ];
+        // Prefer approvals already on a registered DCN; else Settings DCN assignment.
+        if (($payload['approvals'] ?? []) === [] && is_array($payload['dcn_signatories'] ?? null)) {
+            $payload['approvals'] = array_values(array_filter(
+                (array) ($payload['dcn_signatories']['approvals'] ?? []),
+                fn ($row) => is_array($row) && (
+                    trim((string) ($row['position'] ?? '')) !== ''
+                    || trim((string) ($row['name'] ?? '')) !== ''
+                )
+            ));
+        }
         $docNo = (string) ($row->doc_no ?? '');
         $docTitle = (string) ($row->doc_title ?? '');
         $originLabel = trim((string) ($row->originator_label ?? ''));
@@ -1887,28 +2019,41 @@ class OfficeIntakeHelper
             $openDrf = self::findOpenDuplicateRecurringDrf($docNo, $docTitle, $exceptId);
             if ($openDrf) {
                 $payload['open_request_type'] = 'recurring_drf';
-                $payload['open_request_id'] = (int) $openDrf->id;
-                $payload['open_drf_id'] = (int) $openDrf->id;
-                $payload['open_request_url'] = route('dcs.office.drf.show', ['id' => (int) $openDrf->id], false);
                 $payload['open_request_message'] = self::duplicateRecurringDrfMessage($openDrf);
+                // Only expose open-form id/url when this user may open that record (no cross-office IDOR).
+                if (self::userCanAccessOfficeIntakeRecord($openDrf, 'drf')) {
+                    $payload['open_request_id'] = (int) $openDrf->id;
+                    $payload['open_drf_id'] = (int) $openDrf->id;
+                    $payload['open_request_url'] = route('dcs.office.drf.show', ['id' => (int) $openDrf->id], false);
+                } else {
+                    $payload['open_request_message'] = 'A Recurring DRF for this document is already submitted by another office and still waiting to be registered.';
+                }
             } else {
                 $openDcn = self::findOpenDuplicateDcn($docNo, $docTitle, '', [$originLabel], null);
                 if ($openDcn) {
                     $payload['open_request_type'] = 'dcn';
-                    $payload['open_request_id'] = (int) $openDcn->id;
-                    $payload['open_dcn_id'] = (int) $openDcn->id;
-                    $payload['open_request_url'] = route('dcs.office.dcn.show', ['id' => (int) $openDcn->id], false);
                     $payload['open_request_message'] = self::duplicateDcnBlocksRecurringMessage($openDcn);
+                    if (self::userCanAccessOfficeIntakeRecord($openDcn, 'dcn')) {
+                        $payload['open_request_id'] = (int) $openDcn->id;
+                        $payload['open_dcn_id'] = (int) $openDcn->id;
+                        $payload['open_request_url'] = route('dcs.office.dcn.show', ['id' => (int) $openDcn->id], false);
+                    } else {
+                        $payload['open_request_message'] = 'A Document Change Notice for this document is already submitted by another office and still waiting to be registered.';
+                    }
                 }
             }
         } else {
             $open = self::findOpenDuplicateDcn($docNo, $docTitle, '', [$originLabel], $exceptId);
         if ($open) {
                 $payload['open_request_type'] = 'dcn';
-                $payload['open_request_id'] = (int) $open->id;
-            $payload['open_dcn_id'] = (int) $open->id;
-                $payload['open_request_url'] = route('dcs.office.dcn.show', ['id' => (int) $open->id], false);
             $payload['open_request_message'] = self::duplicateDcnMessage($open);
+                if (self::userCanAccessOfficeIntakeRecord($open, 'dcn')) {
+                    $payload['open_request_id'] = (int) $open->id;
+                    $payload['open_dcn_id'] = (int) $open->id;
+                    $payload['open_request_url'] = route('dcs.office.dcn.show', ['id' => (int) $open->id], false);
+                } else {
+                    $payload['open_request_message'] = 'A Document Change Notice for this document is already submitted by another office and still waiting to be registered.';
+                }
             }
         }
         if ($found) {
@@ -2469,7 +2614,7 @@ class OfficeIntakeHelper
     }
 
     /**
-     * Another office DCN for this registered document that RFIO has not registered yet.
+     * Another office DCN for this registered document that RFIU has not registered yet.
      *
      * DEBUG: duplicate blocked or slipped through → check here.
      * @param  list<string>  $originators
@@ -3157,6 +3302,7 @@ class OfficeIntakeHelper
     {
         self::assertCanAccessIntake();
         $ids = array_values(array_filter(array_map('intval', (array) $request->input('distributeToOffice', []))));
+        $distributeOffices = self::officesForPreview($ids);
         $drf = (object) [
             'id' => 0,
             'doc_title' => trim((string) $request->input('drfTitle', '')),
@@ -3170,14 +3316,51 @@ class OfficeIntakeHelper
             'reviewed_by_designation' => trim((string) $request->input('reviewedByDesignation', '')),
             'approved_by_name' => trim((string) $request->input('approvedByName', '')),
             'approved_by_designation' => trim((string) $request->input('approvedByDesignation', '')),
-            'preview_distribute_offices' => self::officesForPreview($ids),
+            'preview_distribute_offices' => $distributeOffices,
         ];
         $logoSrc = self::printLogoSrc();
         $sourceOffices = collect();
         $viewerMode = false;
         $allowPrint = false;
 
-        return response()->view('pages.dcs.office.drf-print', compact('drf', 'logoSrc', 'sourceOffices', 'viewerMode', 'allowPrint'));
+        // Editable Form Templates layout drives office DRF print/preview.
+        $tpl = DcsPrintTemplateHelper::get('office_drf');
+        $identity = DcsPrintTemplateHelper::identityVars($tpl);
+        if (($identity['logoSrc'] ?? '') !== '') {
+            $logoSrc = $identity['logoSrc'];
+        }
+        $blocks = DcsPrintTemplateHelper::layoutBlocks($tpl);
+        if ($blocks === []) {
+            return response()->view('pages.dcs.office.drf-print', [
+                'drf' => $drf,
+                'logoSrc' => $logoSrc,
+                'sourceOffices' => $sourceOffices,
+                'viewerMode' => $viewerMode,
+                'allowPrint' => $allowPrint,
+                'printFormCode' => $identity['letterNumber'] !== '' ? $identity['letterNumber'] : 'CSPC-F-DCC-06',
+                'printFormTitle' => $identity['formTitle'] !== '' ? $identity['formTitle'] : 'Document Request Form',
+                'printRepublic' => $identity['republic'],
+                'printInstitution' => $identity['institutionName'],
+                'printAddress' => $identity['institutionAddress'],
+                'printFooterLeft' => $identity['footerLeft'] !== '' ? $identity['footerLeft'] : 'Effectivity Date:',
+                'printFooterCenter' => $identity['footerCenter'] !== '' ? $identity['footerCenter'] : 'Rev.',
+                'printFooterEffectivity' => $identity['footerEffectivity'] !== '' ? $identity['footerEffectivity'] : 'January 2018',
+                'printFooterRev' => $identity['footerRev'] !== '' ? $identity['footerRev'] : '0',
+            ]);
+        }
+
+        return response()->view('pages.dcs.reports.print-layout-renderer', [
+            'tpl' => $tpl,
+            'values' => DcsPrintTemplateHelper::drfLayoutValues($drf, $distributeOffices, $sourceOffices),
+            'distributeOffices' => $distributeOffices,
+            'logoSrcOverride' => $logoSrc,
+            'preview' => true,
+            'hideToolbar' => false,
+            'embed' => false,
+            'viewerMode' => $viewerMode,
+            'allowPrint' => false,
+            'printLockMessage' => 'Preview only — this is not a printable copy yet.',
+        ]);
     }
 
     /**
@@ -3208,6 +3391,10 @@ class OfficeIntakeHelper
         if ($storedNo === '') {
             $storedNo = trim((string) $request->input('finderDocumentNo', ''));
         }
+        $approvals = self::approvalsPayloadFromRequest([
+            'approvalPosition' => $request->input('approvalPosition', []),
+            'approvalName' => $request->input('approvalName', []),
+        ]);
         $dcn = (object) [
             'id' => 0,
             'document_no' => $storedNo,
@@ -3219,6 +3406,7 @@ class OfficeIntakeHelper
             'department_on' => $request->input('departmentDate') ?: null,
             'dcn_no' => '',
             'preview_reviewers' => $reviewers,
+            'preview_approvals' => $approvals,
             'preview_department_code' => $office['code'] ?? '',
             'preview_department' => $office['name'] ?? '',
         ];
@@ -3228,7 +3416,33 @@ class OfficeIntakeHelper
         $viewerMode = false;
         $allowPrint = false;
 
-        return response()->view('pages.dcs.office.dcn-print', compact('dcn', 'logoSrc', 'revisions', 'sourceOffices', 'viewerMode', 'allowPrint'));
+        // Official CSPC-F-DCC-01 blade + live canvas overrides (same as Form Templates preview).
+        $tpl = DcsPrintTemplateHelper::get('office_dcn');
+        $identity = DcsPrintTemplateHelper::identityVars($tpl);
+        if (($identity['logoSrc'] ?? '') !== '') {
+            $logoSrc = $identity['logoSrc'];
+        }
+        $layoutOverrides = DcsPrintTemplateHelper::dcnLiveLayoutOverrides();
+
+        return response()->view('pages.dcs.office.dcn-print', [
+            'dcn' => $dcn,
+            'logoSrc' => $logoSrc,
+            'revisions' => $revisions,
+            'sourceOffices' => $sourceOffices,
+            'viewerMode' => $viewerMode,
+            'allowPrint' => $allowPrint,
+            'printLockMessage' => 'Preview only — this is not a printable copy yet.',
+            'printFormCode' => $identity['letterNumber'] !== '' ? $identity['letterNumber'] : 'CSPC-F-DCC-01',
+            'printFormTitle' => $identity['formTitle'] !== '' ? $identity['formTitle'] : 'Document Change Notice',
+            'printRepublic' => $identity['republic'],
+            'printInstitution' => $identity['institutionName'],
+            'printAddress' => $identity['institutionAddress'],
+            'printFooterLeft' => $identity['footerLeft'] !== '' ? $identity['footerLeft'] : 'Effectivity Date:',
+            'printFooterCenter' => $identity['footerCenter'] !== '' ? $identity['footerCenter'] : 'Rev.',
+            'printFooterEffectivity' => $identity['footerEffectivity'] !== '' ? $identity['footerEffectivity'] : 'January 2018',
+            'printFooterRev' => $identity['footerRev'] !== '' ? $identity['footerRev'] : '1',
+            'layoutOverrides' => $layoutOverrides,
+        ]);
     }
 
     /**
@@ -3579,8 +3793,8 @@ class OfficeIntakeHelper
             ['drf_id' => $id, 'title' => (string) ($data['drfTitle'] ?? '')]
         );
 
-        // Always notify Document Controllers / RFIO review queue.
-        // Limited RFOIU staff also use office intake — do not skip when submitter office is RFIO/RFOIU.
+        // Always notify Document Controllers / RFIU review queue.
+        // Limited RFOIU staff also use office intake — do not skip when submitter office is RFIU/RFOIU.
         DcsNotificationService::notifyOfficeIntakeResubmitted(
             RegisterQueryHelper::rfioNotificationOfficeCode(),
             RegisterQueryHelper::currentUserDisplayName(),
@@ -3591,7 +3805,7 @@ class OfficeIntakeHelper
 
         return redirect()
             ->route('dcs.office.drf.show', $id)
-            ->with('success', 'Document Request Form updated and resubmitted to RFIO. This document is locked again.')
+            ->with('success', 'Document Request Form updated and resubmitted to RFIU. This document is locked again.')
             ->with('locked', true);
     }
 
@@ -3709,8 +3923,8 @@ class OfficeIntakeHelper
 
         DcsNotificationService::dismissOfficeIntakeNotifications('dcn', $id);
 
-        // Always notify Document Controllers / RFIO review queue.
-        // Limited RFOIU staff also use office intake — do not skip when submitter office is RFIO/RFOIU.
+        // Always notify Document Controllers / RFIU review queue.
+        // Limited RFOIU staff also use office intake — do not skip when submitter office is RFIU/RFOIU.
         RegisterPersistHelper::logAdminChange(
             'Updated office DCN #' . $id
             . ($docNo !== '' ? ' for ' . $docNo : '')
@@ -3735,7 +3949,7 @@ class OfficeIntakeHelper
 
         return redirect()
             ->route('dcs.office.dcn.show', $id)
-            ->with('success', 'Document Change Notice updated and resubmitted to RFIO. This document is locked again.')
+            ->with('success', 'Document Change Notice updated and resubmitted to RFIU. This document is locked again.')
             ->with('locked', true);
     }
 
@@ -4575,9 +4789,30 @@ class OfficeIntakeHelper
         }
         $q = DB::table('dcs_doc_types')->whereNull('parent_id');
         SettingsRecycleHelper::applyNotDeleted($q, 'dcs_doc_types');
-        $id = (int) ($q->whereRaw('LOWER(TRIM(doc_type_name)) = ?', [$kind])->value('id') ?? 0);
+        // Prefer exact catalog name (Internal / External).
+        $id = (int) ((clone $q)->whereRaw('LOWER(TRIM(doc_type_name)) = ?', [$kind])->value('id') ?? 0);
+        if ($id > 0) {
+            return $id;
+        }
 
-        return $id > 0 ? $id : null;
+        // Fallback: first parent whose name contains the kind token
+        // (e.g. "External Documents") so office intake still finds Settings rows.
+        $parents = (clone $q)->orderBy('doc_type_name')->get(['id', 'doc_type_name']);
+        foreach ($parents as $parent) {
+            $name = mb_strtolower(trim((string) ($parent->doc_type_name ?? '')));
+            if ($name === '') {
+                continue;
+            }
+            $isExternal = str_contains($name, 'external');
+            if ($kind === 'external' && $isExternal) {
+                return (int) $parent->id;
+            }
+            if ($kind === 'internal' && ! $isExternal && (str_contains($name, 'internal') || $name === 'internal')) {
+                return (int) $parent->id;
+            }
+        }
+
+        return null;
     }
 
     /**
@@ -4918,7 +5153,7 @@ class OfficeIntakeHelper
      * School years reserved by another *open* office DRF for the same course + sub-type.
      *
      * Registered syllabi packs are NOT treated as taken — a second faculty can still
-     * submit a DRF for that course/S/Y; RFIO Proceed opens the existing registration
+     * submit a DRF for that course/S/Y; RFIU Proceed opens the existing registration
      * (edit + intake stamp) instead of creating a new pack.
      *
      * Key: "{college_id}:{program_id}:{semester_id}:{course_id}:{sub_type_id}" → list of school_year_id.
@@ -5494,6 +5729,73 @@ class OfficeIntakeHelper
     }
 
     /**
+     * DCN reviewers + approvals from Settings for a catalog type (sub-type → parent).
+     *
+     * @return array{reviewers: list<array{name: string}>, approvals: list<array{position: string, name: string}>}|null
+     */
+    public static function dcnSignatoryPrefill(
+        string $docTypeKind = 'internal',
+        ?int $docTypeId = null,
+        ?int $subTypeId = null
+    ): ?array {
+        $kind = in_array($docTypeKind, ['internal', 'external'], true) ? $docTypeKind : 'internal';
+
+        if ($kind === 'external' && (! $docTypeId || $docTypeId < 1) && (! $subTypeId || $subTypeId < 1)) {
+            $externalId = self::catalogParentIdForKind('external');
+            if (! $externalId) {
+                return null;
+            }
+            $template = self::signatoryTemplate('dcn', 'external', $externalId, null, false, false);
+        } else {
+            $resolved = self::resolveIntakeCatalogSelection($docTypeId, $subTypeId);
+            $lookupId = $resolved['sub_type_id'] ?: $resolved['doc_type_id'];
+            if (! $lookupId) {
+                // Fall back to kind parent (e.g. External whole type) when the row has no ids.
+                $lookupId = self::catalogParentIdForKind($kind);
+            }
+            if (! $lookupId) {
+                return null;
+            }
+            $kind = in_array($docTypeKind, ['internal', 'external'], true)
+                ? $docTypeKind
+                : ($resolved['doc_type_kind'] ?? $kind);
+            $template = self::signatoryTemplate('dcn', $kind, $lookupId, null, false, true);
+        }
+
+        if (! is_array($template)) {
+            return null;
+        }
+
+        $reviewers = [];
+        foreach ((array) ($template['reviewers'] ?? []) as $row) {
+            $name = trim((string) (is_array($row) ? ($row['name'] ?? '') : $row));
+            if ($name !== '') {
+                $reviewers[] = ['name' => $name];
+            }
+        }
+        $approvals = [];
+        foreach ((array) ($template['approvals'] ?? []) as $row) {
+            if (! is_array($row)) {
+                continue;
+            }
+            $position = trim((string) ($row['position'] ?? ''));
+            $name = trim((string) ($row['name'] ?? ''));
+            if ($position === '' && $name === '') {
+                continue;
+            }
+            $approvals[] = ['position' => $position, 'name' => $name];
+        }
+        if ($reviewers === [] && $approvals === []) {
+            return null;
+        }
+
+        return [
+            'reviewers' => $reviewers,
+            'approvals' => $approvals,
+        ];
+    }
+
+    /**
      * DRF signatory payload from Settings for a catalog selection only (no personal fallback).
      * @return array<string, string>|null
      */
@@ -5554,6 +5856,7 @@ class OfficeIntakeHelper
     {
         $byDocTypeId = [];
         $byDocTypeCollege = [];
+        $byKind = [];
         $syllabiLikeDocTypeIds = [];
         $parentKind = [];
         $externalParentId = self::catalogParentIdForKind('external');
@@ -5567,6 +5870,9 @@ class OfficeIntakeHelper
             $name = trim((string) ($parent->doc_type_name ?? ''));
             $kind = str_contains(mb_strtolower($name), 'external') ? 'external' : 'internal';
             $parentKind[(string) $pid] = $kind;
+            if ($kind === 'external' && (! $externalParentId || $externalParentId < 1)) {
+                $externalParentId = $pid;
+            }
             if (RegisterQueryHelper::isSyllabiLikeName($name)) {
                 $syllabiLikeDocTypeIds[] = (string) $pid;
             }
@@ -5580,13 +5886,20 @@ class OfficeIntakeHelper
                 $parentKind[(string) $sid] = $subKind;
                 if (RegisterQueryHelper::isSyllabiLikeName($subName)) {
                     $syllabiLikeDocTypeIds[] = (string) $sid;
+                }
             }
-        }
         }
         $syllabiLikeDocTypeIds = array_values(array_unique($syllabiLikeDocTypeIds));
 
         if (! Schema::hasTable('dcs_signatory_templates')) {
-            return compact('byDocTypeId', 'byDocTypeCollege', 'syllabiLikeDocTypeIds', 'parentKind', 'externalParentId');
+            return compact(
+                'byDocTypeId',
+                'byDocTypeCollege',
+                'byKind',
+                'syllabiLikeDocTypeIds',
+                'parentKind',
+                'externalParentId'
+            );
         }
 
         $day = now()->toDateString();
@@ -5615,7 +5928,7 @@ class OfficeIntakeHelper
             if ($docTypeId < 1) {
                 continue;
             }
-                $key = (string) $docTypeId;
+            $key = (string) $docTypeId;
             $rowCollegeId = $hasCollegeCol ? (int) data_get($row, 'college_id', 0) : 0;
             if ($rowCollegeId > 0) {
                 if (! isset($byDocTypeCollege[$key])) {
@@ -5630,7 +5943,56 @@ class OfficeIntakeHelper
             }
         }
 
-        return compact('byDocTypeId', 'byDocTypeCollege', 'syllabiLikeDocTypeIds', 'parentKind', 'externalParentId');
+        // Convenience keys for External / Internal whole-type radio (no catalog pickers).
+        if ($externalParentId && isset($byDocTypeId[(string) $externalParentId])) {
+            $byKind['external'] = $byDocTypeId[(string) $externalParentId];
+        } else {
+            foreach ($parentKind as $id => $kind) {
+                if ($kind === 'external' && isset($byDocTypeId[$id])) {
+                    $byKind['external'] = $byDocTypeId[$id];
+                    if (! $externalParentId || $externalParentId < 1) {
+                        $externalParentId = (int) $id;
+                    }
+                    break;
+                }
+            }
+        }
+        // If External still missing (catalog rename / soft-delete edge), resolve from assignment rows.
+        if (! isset($byKind['external']) && $byDocTypeId !== [] && Schema::hasTable('dcs_doc_types')) {
+            $typeIds = array_map('intval', array_keys($byDocTypeId));
+            $typeRows = DB::table('dcs_doc_types')
+                ->whereIn('id', $typeIds)
+                ->whereNull('parent_id')
+                ->get(['id', 'doc_type_name']);
+            foreach ($typeRows as $typeRow) {
+                $name = mb_strtolower(trim((string) ($typeRow->doc_type_name ?? '')));
+                if ($name === '' || ! str_contains($name, 'external')) {
+                    continue;
+                }
+                $key = (string) (int) $typeRow->id;
+                if (! isset($byDocTypeId[$key])) {
+                    continue;
+                }
+                $byKind['external'] = $byDocTypeId[$key];
+                if (! $externalParentId || $externalParentId < 1) {
+                    $externalParentId = (int) $typeRow->id;
+                }
+                break;
+            }
+        }
+        $internalParentId = self::catalogParentIdForKind('internal');
+        if ($internalParentId && isset($byDocTypeId[(string) $internalParentId])) {
+            $byKind['internal'] = $byDocTypeId[(string) $internalParentId];
+        }
+
+        return compact(
+            'byDocTypeId',
+            'byDocTypeCollege',
+            'byKind',
+            'syllabiLikeDocTypeIds',
+            'parentKind',
+            'externalParentId'
+        );
     }
 
     /**
@@ -6140,7 +6502,7 @@ class OfficeIntakeHelper
         }
 
         if (preg_match('#/dcs/(?:requests|register/requests|office)/(drf|dcn)/(\d+)(/edit)?(?:/|$|\?)#', (string) $path, $matches)) {
-            // Success notices use ?registered=1 — not an open RFIO review item.
+            // Success notices use ?registered=1 — not an open RFIU review item.
             if (! empty($params['registered'])) {
                 return null;
             }
@@ -6260,7 +6622,7 @@ class OfficeIntakeHelper
 
     /**
      * Find a controlled masterlist request that matches this office intake title
-     * (created at/after the intake), used to close orphaned RFIO review items.
+     * (created at/after the intake), used to close orphaned RFIU review items.
      */
     private static function findMatchingControlledRequestId(string $type, object $record): int
     {
@@ -6339,7 +6701,7 @@ class OfficeIntakeHelper
     }
 
     /**
-     * Starts RFIO “Proceed to Register”: claims the intake and returns the Register URL.
+     * Starts RFIU “Proceed to Register”: claims the intake and returns the Register URL.
      *
      * DEBUG: Proceed disabled / wrong register URL → isIntakeClaimedPending + registerContinueUrl.
      */
@@ -6532,7 +6894,7 @@ class OfficeIntakeHelper
     /**
      * A claimed office form stays "Submitted" when the registration save did not
      * carry the intake id. Link it once a controlled copy of that document
-     * exists from the moment RFIO started registration.
+     * exists from the moment RFIU started registration.
      */
     public static function reconcileClaimedIntakesWithRegistrations(): void
     {
@@ -6882,7 +7244,7 @@ class OfficeIntakeHelper
 
     /**
      * Link office intake → draft/registration request without notifying the office.
-     * Used when RFIO saves a draft from Proceed to Registration.
+     * Used when RFIU saves a draft from Proceed to Registration.
      */
     public static function linkIntakeToRegistrationRequest(string $type, int $intakeId, int $requestId): void
     {
@@ -7156,7 +7518,7 @@ class OfficeIntakeHelper
             }
         }
 
-        // Include RFIO/RFOIU when the submitter belongs there (limited intake staff).
+        // Include RFIU/RFOIU when the submitter belongs there (limited intake staff).
         // Other offices are unaffected — this list is only the creator's office.
         return collect($codes)
             ->map(fn ($c) => strtoupper(trim((string) $c)))
@@ -7234,7 +7596,7 @@ class OfficeIntakeHelper
     }
 
     /**
-     * RFIO returns an incorrect office intake so the submitting office can edit it.
+     * RFIU returns an incorrect office intake so the submitting office can edit it.
      * @return array<string, mixed>
      */
     public static function unlockForEdit(string $type, int $id, string $reason): array
@@ -7275,7 +7637,7 @@ class OfficeIntakeHelper
         $formLabel = $type === 'dcn' ? 'Document Change Notice' : 'Document Request Form';
         $title = trim((string) ($type === 'dcn' ? ($record->document_title ?? '') : ($record->doc_title ?? '')));
         $titlePart = $title !== '' ? " \"{$title}\"" : '';
-        $message = "RFIO returned your {$formLabel}{$titlePart} for correction: {$reason}. You can edit and resubmit it now.";
+        $message = "RFIU returned your {$formLabel}{$titlePart} for correction: {$reason}. You can edit and resubmit it now.";
         $url = '/dcs/office/' . $type . '/' . $id . '/edit';
 
         foreach (self::intakeOfficeCodes($type, $id, $record) as $officeCode) {
@@ -7341,7 +7703,7 @@ class OfficeIntakeHelper
         $peer = self::linkedIntakePeer($type, $id);
         $peerAlsoNotified = false;
 
-        // Linked DCN+DRF: one RFIO confirm marks both forms ready and sends a single pair notice.
+        // Linked DCN+DRF: one RFIU confirm marks both forms ready and sends a single pair notice.
         // Hold only when the peer is still unlocked for correction.
         if ($peer !== null && empty($peer['record']->rfio_print_notified_at ?? null)) {
             if (! empty($peer['record']->edit_unlocked_at)) {
@@ -7520,7 +7882,7 @@ class OfficeIntakeHelper
         }
         $rfioCodes = array_values(array_unique($rfioCodes));
 
-        // Prefer non-RFIO client offices. If the submitter is in RFIO/RFOIU (same office
+        // Prefer non-RFIU client offices. If the submitter is in RFIU/RFOIU (same office
         // as Document Controllers), still notify that office — limited-DCS staff see it;
         // full Document Controllers have client notices filtered from their bell.
         $withoutRfio = $codes
@@ -7783,8 +8145,8 @@ class OfficeIntakeHelper
             'id' => $id,
             'title' => 'Office DCN Submission',
             'subtitle' => $registered
-                ? 'Already registered / controlled — this RFIO review item is closed.'
-                : 'Review only — submitted by another office for RFIO processing.',
+                ? 'Already registered / controlled — this RFIU review item is closed.'
+                : 'Review only — submitted by another office for RFIU processing.',
             'html' => view('pages.dcs.office.partials.review-submission-dcn', [
                 'dcn' => $dcn,
                 'docNo' => $docNo,
@@ -7824,8 +8186,8 @@ class OfficeIntakeHelper
             'id' => $id,
             'title' => 'Office DRF Submission',
             'subtitle' => $registered
-                ? 'Already registered / controlled — this RFIO review item is closed.'
-                : 'Review only — submitted by another office for RFIO processing.',
+                ? 'Already registered / controlled — this RFIU review item is closed.'
+                : 'Review only — submitted by another office for RFIU processing.',
             'html' => view('pages.dcs.office.partials.review-submission-drf', [
                 'drf' => $drf,
                 'distributeOffices' => self::drfDistributeOffices($drf),
@@ -7959,7 +8321,7 @@ class OfficeIntakeHelper
     }
 
     /**
-     * Undo "I have received the signed printed form…" so RFIO can return it for correction instead.
+     * Undo "I have received the signed printed form…" so RFIU can return it for correction instead.
      * @return array<string, mixed>
      */
     public static function clearReceived(string $type, int $id): array
@@ -9191,24 +9553,28 @@ class OfficeIntakeHelper
         ?int $officeId = null,
         string $receiptFilter = 'all',
         int $perPage = 25,
-        ?int $page = null
+        ?int $page = null,
+        string $search = ''
     ): \Illuminate\Pagination\LengthAwarePaginator {
         $officeId = $officeId ?? RegisterQueryHelper::currentOfficeId();
         $perPage = max(10, min(100, $perPage));
         $page = max(1, (int) ($page ?? request()->input('page', 1)));
+        $search = trim($search);
 
         if (! $officeId) {
             return new \Illuminate\Pagination\LengthAwarePaginator([], 0, $perPage, $page);
         }
 
-        $cacheKey = 'page.v2.' . $receiptFilter . '.' . ($groupKey === '' ? 'all' : $groupKey)
-            . '.' . (int) $officeId . '.' . $perPage . '.' . $page;
+        $cacheKey = 'page.v3.' . $receiptFilter . '.' . ($groupKey === '' ? 'all' : $groupKey)
+            . '.' . (int) $officeId . '.' . $perPage . '.' . $page
+            . '.q.' . md5(mb_strtolower($search));
 
         /** @var array{total:int,page:int,rows:list<array<string,mixed>>} $payload */
         $payload = self::rememberOfficeInventory(
             $cacheKey,
-            function () use ($groupKey, $officeId, $receiptFilter, $perPage, $page) {
+            function () use ($groupKey, $officeId, $receiptFilter, $perPage, $page, $search) {
                 $distinct = self::officeDocumentsDistinctQuery($groupKey, (int) $officeId, $receiptFilter);
+                self::applyOfficeDocumentSearch($distinct, $search);
                 $total = (int) (clone $distinct)->count();
                 $lastPage = max(1, (int) ceil(max(0, $total) / $perPage));
                 $page = min($page, $lastPage);
@@ -9226,7 +9592,7 @@ class OfficeIntakeHelper
                     'rows' => self::mapOfficeDocumentRows($records, (int) $officeId, (($page - 1) * $perPage) + 1),
                 ];
             },
-            60
+            $search !== '' ? 15 : 60
         );
 
         $page = max(1, (int) ($payload['page'] ?? $page));
@@ -9257,11 +9623,13 @@ class OfficeIntakeHelper
         string $groupKey,
         ?int $officeId = null,
         int $perPage = 25,
-        ?int $page = null
+        ?int $page = null,
+        string $search = ''
     ): array {
         $officeId = $officeId ?? RegisterQueryHelper::currentOfficeId();
         $perPage = max(10, min(100, $perPage));
         $page = max(1, (int) ($page ?? request()->input('page', 1)));
+        $search = trim($search);
 
         if (! $officeId) {
             $empty = new \Illuminate\Pagination\LengthAwarePaginator([], 0, $perPage, 1);
@@ -9275,15 +9643,20 @@ class OfficeIntakeHelper
             ];
         }
 
-        $cacheKey = 'incoming.page.v2.' . ($groupKey === '' ? 'all' : $groupKey)
-            . '.' . (int) $officeId . '.' . $perPage . '.' . $page;
+        $cacheKey = 'incoming.page.v3.' . ($groupKey === '' ? 'all' : $groupKey)
+            . '.' . (int) $officeId . '.' . $perPage . '.' . $page
+            . '.q.' . md5(mb_strtolower($search));
 
         /** @var array{total:int,page:int,pending_total:int,appraisal_total:int,rows:list<array<string,mixed>>} $payload */
         $payload = self::rememberOfficeInventory(
             $cacheKey,
-            function () use ($groupKey, $officeId, $perPage, $page) {
-                $pendingTotal = (int) self::officeDocumentsDistinctQuery($groupKey, (int) $officeId, 'pending')->count();
-                $appraisalTotal = (int) self::officeDocumentsDistinctQuery($groupKey, (int) $officeId, 'received_for_appraisal')->count();
+            function () use ($groupKey, $officeId, $perPage, $page, $search) {
+                $pendingQ = self::officeDocumentsDistinctQuery($groupKey, (int) $officeId, 'pending');
+                self::applyOfficeDocumentSearch($pendingQ, $search);
+                $appraisalQ = self::officeDocumentsDistinctQuery($groupKey, (int) $officeId, 'received_for_appraisal');
+                self::applyOfficeDocumentSearch($appraisalQ, $search);
+                $pendingTotal = (int) (clone $pendingQ)->count();
+                $appraisalTotal = (int) (clone $appraisalQ)->count();
                 $total = $pendingTotal + $appraisalTotal;
                 $lastPage = max(1, (int) ceil(max(0, $total) / $perPage));
                 $page = min($page, $lastPage);
@@ -9294,7 +9667,7 @@ class OfficeIntakeHelper
 
                 if ($offset < $pendingTotal) {
                     $take = min($perPage, $pendingTotal - $offset);
-                    $pendingRecords = self::officeDocumentsDistinctQuery($groupKey, (int) $officeId, 'pending')
+                    $pendingRecords = (clone $pendingQ)
                         ->orderByRaw("CASE WHEN COALESCE(TRIM(doc_no), '') = '' THEN 1 ELSE 0 END")
                         ->orderBy('doc_no')
                         ->orderByDesc('revise_no')
@@ -9309,7 +9682,7 @@ class OfficeIntakeHelper
                 if ($filled < $perPage && $appraisalTotal > 0) {
                     $appraisalOffset = max(0, $offset - $pendingTotal);
                     $appraisalTake = $perPage - $filled;
-                    $appraisalRecords = self::officeDocumentsDistinctQuery($groupKey, (int) $officeId, 'received_for_appraisal')
+                    $appraisalRecords = (clone $appraisalQ)
                         ->orderByRaw("CASE WHEN COALESCE(TRIM(doc_no), '') = '' THEN 1 ELSE 0 END")
                         ->orderBy('doc_no')
                         ->orderByDesc('revise_no')
@@ -9351,7 +9724,7 @@ class OfficeIntakeHelper
                     'rows' => $rows,
                 ];
             },
-            45
+            $search !== '' ? 15 : 45
         );
 
         $page = max(1, (int) ($payload['page'] ?? $page));
@@ -9648,7 +10021,7 @@ class OfficeIntakeHelper
             }
 
             // Do not office-broadcast "marked as received" to distribution / intake offices.
-            // Creating offices must not see peer receive notices — RFIO / Document Controllers only.
+            // Creating offices must not see peer receive notices — RFIU / Document Controllers only.
         }
 
         DcsNotificationService::notifyAdminOfficeReceivedDocument(

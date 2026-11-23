@@ -42,13 +42,16 @@ DCS file: Adds and removes reviewer rows on the office DCN.
         addBtn.hidden = items.length >= max;
     }
 
-    addBtn.addEventListener('click', function () {
+    addBtn.addEventListener('click', function (e) {
         if (rows().length >= max) return;
         const node = tpl.content.cloneNode(true);
         list.appendChild(node);
         renumber();
-        const focus = list.querySelector('[data-reviewer-row]:last-child input[name="reviewedByName[]"]');
-        if (focus) focus.focus();
+        // Skip focus when Find document fills reviewers programmatically.
+        if (e && e.isTrusted) {
+            const focus = list.querySelector('[data-reviewer-row]:last-child input[name="reviewedByName[]"]');
+            if (focus) focus.focus();
+        }
     });
 
     list.addEventListener('click', function (e) {

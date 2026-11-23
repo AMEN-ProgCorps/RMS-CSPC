@@ -1,5 +1,5 @@
 {{--
-  DCS PAGE: RFIO office-intake request queue
+  DCS PAGE: RFIU office-intake request queue
   FILE: resources/views/pages/dcs/register/requests/index.blade.php
   DEBUG: OfficeIntakeHelper::listPendingOfficeRequests
 --}}
@@ -20,6 +20,9 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
     #[Url]
     public string $filter = 'all';
 
+    #[Url]
+    public string $search = '';
+
     public int $page = 1;
 
     /**
@@ -39,6 +42,11 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
      * @return void
      */
     public function updatedFilter(): void
+    {
+        $this->page = 1;
+    }
+
+    public function updatedSearch(): void
     {
         $this->page = 1;
     }
@@ -65,6 +73,25 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
         $filtered = $this->filter === 'all'
             ? $allRows
             : $allRows->where('type', $this->filter)->values();
+        $search = trim($this->search);
+        if ($search !== '') {
+            $needle = mb_strtolower($search);
+            $filtered = $filtered->filter(function ($row) use ($needle) {
+                $haystacks = [
+                    (string) ($row->title ?? ''),
+                    (string) ($row->submitter_name ?? ''),
+                    (string) ($row->submitting_office ?? ''),
+                    (string) ($row->type ?? ''),
+                ];
+                foreach ($haystacks as $hay) {
+                    if ($hay !== '' && mb_stripos($hay, $needle) !== false) {
+                        return true;
+                    }
+                }
+
+                return false;
+            })->values();
+        }
         $perPage = 20;
         $total = $filtered->count();
         $lastPage = max(1, (int) ceil($total / $perPage));
@@ -73,6 +100,7 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
         return [
             'rows' => $filtered->slice(($page - 1) * $perPage, $perPage)->values(),
             'filter' => $this->filter,
+            'search' => $this->search,
             'page' => $page,
             'lastPage' => $lastPage,
             'filteredTotal' => $total,
@@ -131,11 +159,38 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
                 DCN <span>{{ $dcnCount }}</span>
             </button>
         </div>
+        <div class="ofi-list-search ofi-request-search">
+            <label class="ofi-list-search-field" for="ofiRequestSearch">
+                <i class="fa-solid fa-magnifying-glass" aria-hidden="true"></i>
+                <input
+                    type="text"
+                    id="ofiRequestSearch"
+                    class="ofi-list-search-input"
+                    wire:model.live.debounce.400ms="search"
+                    placeholder="Search by title, requestor, or office…"
+                    autocomplete="off"
+                    aria-label="Search by title, requestor, or office"
+                >
+                @if(trim((string) ($search ?? '')) !== '')
+                    <button
+                        type="button"
+                        class="ofi-list-search-clear"
+                        wire:click="$set('search', '')"
+                        wire:loading.attr="disabled"
+                        wire:target="search"
+                        title="Clear search"
+                        aria-label="Clear search"
+                    >
+                        <i class="fa-solid fa-xmark" aria-hidden="true"></i>
+                    </button>
+                @endif
+            </label>
+        </div>
     </div>
 
-    <div class="upd-table-card ofi-request-card" style="position:relative;" wire:loading.class="is-loading" wire:target="filter">
-        {{-- Overlay only on intentional filter changes — silent on wire:poll background refresh --}}
-        <div class="dcs-loading-overlay" wire:loading.flex wire:target="filter">
+    <div class="upd-table-card ofi-request-card" style="position:relative;" wire:loading.class="is-loading" wire:target="filter,search">
+        {{-- Overlay only on intentional filter/search changes — silent on wire:poll background refresh --}}
+        <div class="dcs-loading-overlay" wire:loading.flex wire:target="filter,search">
             <div class="dcs-loading-spinner" aria-hidden="true"></div>
             <h4>Loading requests…</h4>
             <p>Fetching records and preparing the list.</p>
@@ -190,7 +245,11 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
                             <td colspan="7" class="ofi-empty">
                                 <div class="ofi-request-empty">
                                     <i class="fa-regular fa-inbox"></i>
-                                    <p>No pending office requests{{ $filter !== 'all' ? ' for ' . strtoupper($filter) : '' }}.</p>
+                                    @if(trim((string) ($search ?? '')) !== '')
+                                        <p>No requests match “{{ $search }}”{{ $filter !== 'all' ? ' in ' . strtoupper($filter) : '' }}.</p>
+                                    @else
+                                        <p>No pending office requests{{ $filter !== 'all' ? ' for ' . strtoupper($filter) : '' }}.</p>
+                                    @endif
                                 </div>
                             </td>
                         </tr>

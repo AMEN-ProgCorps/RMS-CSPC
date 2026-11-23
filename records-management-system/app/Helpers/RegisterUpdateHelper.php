@@ -344,14 +344,19 @@ class RegisterUpdateHelper
 
         try {
             $now = now();
+            $userId = (int) (auth()->id() ?? 0);
+            // Deleted accounts leave orphaned created_by FKs; heal before any row updates.
+            self::repairOrphanedAccountFks($requestId, $userId);
+
             $approvalStatus = $request->input('approval_status', $docRequest->approval_status);
+            $safeUpdatedBy = self::resolveValidAccountId($userId);
             $requestUpdate = [
                 'version_id' => $docRequest->version_id,
                 'doc_type_id' => $docRequest->doc_type_id,
                 'sub_type_id' => $resolvedSubTypeId,
                 'approval_status' => $approvalStatus,
                 'is_draft' => RegisterQueryHelper::supportsDrafts() ? $saveAsDraft : null,
-                'updated_by' => auth()->id(),
+                'updated_by' => $safeUpdatedBy,
                 'updated_at' => $now,
             ];
             // Client rule: every registered document needs appraisal.
@@ -364,7 +369,7 @@ class RegisterUpdateHelper
             ));
 
             $docTypeId = $docRequest->doc_type_id;
-            $userId = auth()->id();
+            $userId = $safeUpdatedBy ?: $userId;
 
             if ($approvalStatus !== 'applicable') {
                 DB::table('dcs_approval_records')->where('request_id', $requestId)->delete();
@@ -1051,7 +1056,10 @@ class RegisterUpdateHelper
                 DocumentStorageService::deleteDcsScan($file);
             }
             $refId = uniqid('err_');
-            Log::error("Document update failed [{$refId}]: " . $e->getMessage());
+            Log::error("Document update failed [{$refId}]: " . $e->getMessage(), [
+                'exception' => $e,
+                'request_id' => $id,
+            ]);
 
             if (str_contains($e->getMessage(), 'dcs_ml_doc_no_revise_type_active_unique')) {
                 return back()->withInput()->with(
@@ -1060,11 +1068,92 @@ class RegisterUpdateHelper
                 );
             }
 
+            if (str_contains($e->getMessage(), 'created_by_foreign')
+                || str_contains($e->getMessage(), 'updated_by_foreign')) {
+                return RegisterPersistHelper::draftErrorResponse(
+                    $request,
+                    'Could not save because this document still points at a deleted user account. Reload and try again. (ref: ' . $refId . ')',
+                    500
+                );
+            }
+
             return RegisterPersistHelper::draftErrorResponse(
                 $request,
                 'Failed to update document. Please try again. (ref: ' . $refId . ')',
                 500
             );
+        }
+    }
+
+    /**
+     * Live account table name (sys_account after rename, else legacy account).
+     */
+    private static function accountTable(): string
+    {
+        return Schema::hasTable('sys_account') ? 'sys_account' : 'account';
+    }
+
+    /**
+     * Returns a live sys_account id, preferring $preferred when it still exists.
+     */
+    private static function resolveValidAccountId(int $preferred = 0): ?int
+    {
+        $accountTable = self::accountTable();
+        if (! Schema::hasTable($accountTable)) {
+            return null;
+        }
+        if ($preferred > 0 && DB::table($accountTable)->where('id', $preferred)->exists()) {
+            return $preferred;
+        }
+        $fallback = (int) (DB::table($accountTable)->orderBy('id')->value('id') ?? 0);
+
+        return $fallback > 0 ? $fallback : null;
+    }
+
+    /**
+     * Re-points orphaned created_by / updated_by on this request + masterlist
+     * so edits do not fail after accounts were removed from sys_account.
+     */
+    private static function repairOrphanedAccountFks(int $requestId, int $fallbackUserId): void
+    {
+        if ($requestId < 1) {
+            return;
+        }
+        $fallback = self::resolveValidAccountId($fallbackUserId);
+        if (! $fallback) {
+            return;
+        }
+        $accountTable = self::accountTable();
+
+        if (Schema::hasColumn('dcs_document_requests', 'created_by')) {
+            $createdBy = (int) (DB::table('dcs_document_requests')->where('id', $requestId)->value('created_by') ?? 0);
+            if ($createdBy > 0 && ! DB::table($accountTable)->where('id', $createdBy)->exists()) {
+                DB::table('dcs_document_requests')->where('id', $requestId)->update(['created_by' => $fallback]);
+            }
+        }
+        if (Schema::hasColumn('dcs_document_requests', 'updated_by')) {
+            $updatedBy = (int) (DB::table('dcs_document_requests')->where('id', $requestId)->value('updated_by') ?? 0);
+            if ($updatedBy > 0 && ! DB::table($accountTable)->where('id', $updatedBy)->exists()) {
+                DB::table('dcs_document_requests')->where('id', $requestId)->update(['updated_by' => $fallback]);
+            }
+        }
+
+        if (! Schema::hasColumn('dcs_masterlist_registration', 'created_by')) {
+            return;
+        }
+        $orphanMlIds = DB::table('dcs_masterlist_registration as ml')
+            ->where('ml.request_id', $requestId)
+            ->whereNotNull('ml.created_by')
+            ->whereNotExists(function ($q) use ($accountTable) {
+                $q->select(DB::raw(1))
+                    ->from($accountTable . ' as a')
+                    ->whereColumn('a.id', 'ml.created_by');
+            })
+            ->pluck('ml.id');
+        if ($orphanMlIds->isNotEmpty()) {
+            DB::table('dcs_masterlist_registration')
+                ->whereIn('id', $orphanMlIds->all())
+                ->update(['created_by' => $fallback]);
         }
     }
 

@@ -2,7 +2,7 @@
 Distributions sent to your office that are not yet received, plus rows that are received but still awaiting Appraisal.
 
 > [!NOTE]
-> RFIO / admin accounts are redirected away from this page. Incoming is per receiving office.
+> RFIU / admin accounts are redirected away from this page. Incoming is per receiving office.
 
 ## On this page
 - Office header: Names your office and links to Masterlist.

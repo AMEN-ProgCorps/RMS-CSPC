@@ -4,6 +4,15 @@
  * Livewire failures also dispatch a document event named rms:error.
  */
 (function () {
+    function escapeHtml(value) {
+        return String(value == null ? '' : value)
+            .replace(/&/g, '&amp;')
+            .replace(/</g, '&lt;')
+            .replace(/>/g, '&gt;')
+            .replace(/"/g, '&quot;')
+            .replace(/'/g, '&#39;');
+    }
+
     function readBody(content) {
         if (content && typeof content === 'object') {
             return content;
@@ -672,20 +681,21 @@
         var isRepeat = !!info.isRepeat;
         var headerLabel = isRepeat ? 'Access Blocked: Error Page' : 'Page Temporarily Unavailable';
         var badge = info.ticket ? ('Ticket ' + info.ticket) : (info.ref ? ('Ref ' + info.ref) : 'Active Incident');
+        var safePath = escapeHtml(info.path || '');
         var message = isRepeat
             ? 'You are attempting to access an error page. Please wait for an administrator to fix it before trying again.'
             : (info.type === 'modal'
                 ? 'This feature is temporarily unavailable due to an active system error. Please wait for an admin to resolve it.'
-                : 'The page <code style="background:#f1f5f9;padding:2px 5px;border-radius:4px;font-size:11px;color:#dc2626;">' + (info.path || '') + '</code> encountered an automated crash. Reverted to current page to prevent interruption.');
+                : 'The page <code style="background:#f1f5f9;padding:2px 5px;border-radius:4px;font-size:11px;color:#dc2626;">' + safePath + '</code> encountered an automated crash. Reverted to current page to prevent interruption.');
 
         card.innerHTML =
             '<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:6px;">' +
                 '<div style="display:flex;align-items:center;gap:7px;">' +
                     '<span style="width:8px;height:8px;border-radius:50%;background:#ef4444;box-shadow:0 0 6px #ef4444;display:inline-block;"></span>' +
-                    '<strong style="font-size:12.5px;color:#b91c1c;">' + headerLabel + '</strong>' +
+                    '<strong style="font-size:12.5px;color:#b91c1c;">' + escapeHtml(headerLabel) + '</strong>' +
                 '</div>' +
                 '<div style="display:flex;align-items:center;gap:6px;">' +
-                    '<span style="background:#fee2e2;color:#991b1b;font-size:10px;font-weight:700;padding:2px 6px;border-radius:999px;">' + badge + '</span>' +
+                    '<span style="background:#fee2e2;color:#991b1b;font-size:10px;font-weight:700;padding:2px 6px;border-radius:999px;">' + escapeHtml(badge) + '</span>' +
                     '<button type="button" id="rms-side-error-close" style="border:none;background:transparent;color:#94a3b8;font-size:16px;line-height:1;cursor:pointer;padding:0 2px;">&times;</button>' +
                 '</div>' +
             '</div>' +
@@ -785,19 +795,15 @@
 
         // Persist clear so returning to this page is not blocked by a fixed crash ticket.
         try {
-            var csrf = document.querySelector('meta[name="csrf-token"]');
-            fetch('/api/errors/clear-page-guard', {
-                method: 'POST',
+            fetch('/api/errors/clear-page-guard?path=' + encodeURIComponent(path), {
+                method: 'GET',
                 credentials: 'same-origin',
                 cache: 'no-store',
                 headers: {
-                    'Content-Type': 'application/json',
                     'Accept': 'application/json',
-                    'X-CSRF-TOKEN': csrf ? csrf.getAttribute('content') : '',
                     'X-Requested-With': 'XMLHttpRequest'
-                },
-                body: JSON.stringify({ path: path })
-            }).then(function (r) { return r.json(); }).then(function (data) {
+                }
+            }).then(function (r) { return r.ok ? r.json() : null; }).then(function (data) {
                 if (data && data.guards && typeof data.guards === 'object') {
                     window.__rmsActiveGuards = data.guards;
                 }

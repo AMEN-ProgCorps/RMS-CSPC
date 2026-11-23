@@ -145,7 +145,8 @@ new class extends Component {
             }
         }
 
-        $allowedSubsystems = \App\Helpers\RegisterQueryHelper::scopeBellSubsystemsForRequest($allowedSubsystems);
+        // Do not page-scope the bell list here. Tabs (All / DCS / DTS / RDP) need the full
+        // accessible set; scoping via Livewire Referer caused the badge to flicker (e.g. 64↔22).
 
         // Fetch notifications list, combining with read/unread statuses in notification_div table
         $sessionId = session()->getId();

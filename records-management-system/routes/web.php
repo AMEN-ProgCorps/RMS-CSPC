@@ -289,7 +289,7 @@ Volt::route('/track-document', 'pages.portal.track-document')
 Volt::route('/tracked', 'pages.portal.tracked')
     ->name('tracked');
 
-// Auto-capture client error page popouts & runtime exceptions (public endpoint, rate-limited)
+// Auto-capture client error popouts (auth required; rate-limited)
 Route::post('/api/errors/auto-capture', function (\Illuminate\Http\Request $request) {
     $data = $request->validate([
         'reference' => 'nullable|string|max:32',
@@ -331,20 +331,40 @@ Route::post('/api/errors/auto-capture', function (\Illuminate\Http\Request $requ
         'ticket_number' => $ticket?->ticket_number ?? ($data['reference'] ?? null),
         'source' => $ticket?->source ?? 'auto',
     ]);
-})->name('api.errors.auto-capture');
+})->middleware('auth')->name('api.errors.auto-capture');
 
 // Active automated error guards for client-side circuit breaking and modal interception
 Route::get('/api/errors/active-guards', function () {
     return response()->json(\App\Services\ErrorTicketRecorder::getActiveGuards());
-})->name('api.errors.active-guards');
+})->middleware('auth')->name('api.errors.active-guards');
 
 // Successful page render clears the circuit-breaker for that path (page was fixed / recovered).
-Route::post('/api/errors/clear-page-guard', function () {
-    $path = request()->input('path') ?: request()->headers->get('Referer');
-    if (is_string($path) && str_contains($path, '://')) {
-        $path = parse_url($path, PHP_URL_PATH) ?: '';
+// GET+POST: some clients/proxies reject POST here with 405; clearing a guard is idempotent.
+// Only the Referer path (the page the user actually loaded) may be cleared — not an arbitrary query path.
+Route::match(['GET', 'POST'], '/api/errors/clear-page-guard', function () {
+    $referer = request()->headers->get('Referer');
+    $refererPath = '';
+    if (is_string($referer) && $referer !== '') {
+        $refererPath = (string) (parse_url($referer, PHP_URL_PATH) ?: '');
     }
-    $resolved = \App\Services\ErrorTicketRecorder::resolveGuardsForPath(is_string($path) ? $path : null);
+
+    $clientPath = request()->input('path');
+    if (is_string($clientPath) && str_contains($clientPath, '://')) {
+        $clientPath = parse_url($clientPath, PHP_URL_PATH) ?: '';
+    }
+    $clientPath = is_string($clientPath) ? $clientPath : '';
+
+    // Reject forged clears: client path must match the page that made the request.
+    if ($refererPath !== '' && $clientPath !== '' && $refererPath !== $clientPath) {
+        return response()->json([
+            'ok' => true,
+            'resolved' => 0,
+            'guards' => \App\Services\ErrorTicketRecorder::getActiveGuards(),
+        ]);
+    }
+
+    $path = $refererPath !== '' ? $refererPath : $clientPath;
+    $resolved = \App\Services\ErrorTicketRecorder::resolveGuardsForPath($path !== '' ? $path : null);
 
     return response()->json([
         'ok' => true,
@@ -664,6 +684,66 @@ Route::middleware(['auth'])
         Volt::route('/admin/rdp/record-series', 'pages.admin.rdp.record-series')->name('admin.rdp.record-series');
         Volt::route('/admin/rdp/brackets', 'pages.admin.rdp.brackets')->name('admin.rdp.brackets');
         Volt::route('/admin/rdp/remark-key-triggers', 'pages.admin.rdp.remark-key-triggers')->name('admin.rdp.remark-key-triggers');
+
+        Route::redirect('/admin/dcs', '/admin/dcs/form-templates')->name('admin.dcs.index');
+        Volt::route('/admin/dcs/form-templates', 'pages.admin.dcs.form-templates')->name('admin.dcs.form-templates');
+        Route::get('/admin/dcs/form-templates/live-preview', function () {
+            $perms = auth()->user()?->permissions;
+            if (! $perms || (! $perms->is_sadm && ! ($perms->can_access_dcs_admin ?? false))) {
+                abort(403);
+            }
+            $html = session('dcs_print_tpl_live_preview_html');
+            if (! is_string($html) || trim($html) === '') {
+                return response(
+                    '<!DOCTYPE html><html><body style="font-family:Arial;padding:24px;color:#64748b">No preview yet. Open the Preview tab again.</body></html>',
+                    200,
+                    ['Content-Type' => 'text/html; charset=UTF-8']
+                );
+            }
+
+            return response($html, 200, [
+                'Content-Type' => 'text/html; charset=UTF-8',
+                'Cache-Control' => 'no-store, no-cache, must-revalidate',
+            ]);
+        })->name('admin.dcs.form-templates.live-preview');
+
+        Route::get('/admin/dcs/form-templates/{key}/preview', function (string $key) {
+            $perms = auth()->user()?->permissions;
+            if (! $perms || (! $perms->is_sadm && ! ($perms->can_access_dcs_admin ?? false))) {
+                abort(403);
+            }
+            $tpl = \App\Helpers\DcsPrintTemplateHelper::get($key);
+            // Blank preview only — distribute grid / ruled lines still render empty cells.
+            $sample = [
+                'request_no' => '',
+                'drf_date' => '',
+                'originator' => '',
+                'doc_title' => '',
+                'doc_type' => '',
+                'description' => '',
+                'distribute_to' => '',
+                'prepared_by_name' => '',
+                'reviewed_by_name' => '',
+                'approved_by_name' => '',
+                'dcn_no' => '',
+                'document_no' => '',
+                'document_title' => '',
+                'change_from' => '',
+                'change_to' => '',
+                'justification' => '',
+                'department' => '',
+                'reviewed_by' => '',
+                'approved_by' => '',
+            ];
+
+            return response()->view('pages.dcs.reports.print-layout-renderer', [
+                'tpl' => $tpl,
+                'values' => $sample,
+                'preview' => true,
+                'hideToolbar' => true,
+                'embed' => true,
+            ]);
+        })->where('key', '^(?!live-preview$).+')->name('admin.dcs.form-templates.preview');
 
         Volt::route('/admin/subsystems/add', 'pages.admin.subsystems.add')->name('admin.subsystems.add');
         Volt::route('/admin/subsystems/activate', 'pages.admin.subsystems.activate')->name('admin.subsystems.activate');
@@ -1123,18 +1203,54 @@ Route::middleware(['auth'])
             Volt::route('/office/drf/{id}', 'pages.dcs.office.drf-show')->name('office.drf.show');
             Route::get('/office/drf/{id}/print', function (int $id) {
                 OfficeIntakeHelper::assertCanAccessIntake();
-                OfficeIntakeHelper::assertOfficeIntakePrintAllowed();
                 $drf = OfficeIntakeHelper::findOfficeDrf($id);
                 abort_unless($drf, 404);
                 OfficeIntakeHelper::assertOwnsDrf($drf);
-                $logoPath = public_path('images/logo.png');
-                $logoSrc = file_exists($logoPath) ? ('data:image/png;base64,' . base64_encode(file_get_contents($logoPath))) : '';
-                $sourceOffices = OfficeIntakeHelper::drfSourceOffices($id);
                 $viewerMode = request()->boolean('view');
+                OfficeIntakeHelper::assertOfficeIntakePrintAllowed($drf, $viewerMode);
+                $tpl = \App\Helpers\DcsPrintTemplateHelper::get('office_drf');
+                $identity = \App\Helpers\DcsPrintTemplateHelper::identityVars($tpl);
+                $logoSrc = $identity['logoSrc'] !== ''
+                    ? $identity['logoSrc']
+                    : (file_exists(public_path('images/logo.png'))
+                        ? ('data:image/png;base64,' . base64_encode(file_get_contents(public_path('images/logo.png'))))
+                        : '');
+                $sourceOffices = OfficeIntakeHelper::drfSourceOffices($id);
                 $allowPrint = OfficeIntakeHelper::officeMayPrintIntake($drf);
-                $printLockMessage = 'Print unlocks after RFIO confirms this form and notifies you to print and sign.';
+                $printLockMessage = 'Print unlocks after RFIU confirms this form and notifies you to print and sign.';
+                $blocks = \App\Helpers\DcsPrintTemplateHelper::layoutBlocks($tpl);
+                $distributeOffices = OfficeIntakeHelper::drfDistributeOffices($drf);
 
-                return response()->view('pages.dcs.office.drf-print', compact('drf', 'logoSrc', 'sourceOffices', 'viewerMode', 'allowPrint', 'printLockMessage'));
+                if ($blocks === []) {
+                    $printFormCode = $identity['letterNumber'] !== '' ? $identity['letterNumber'] : 'CSPC-F-DCC-06';
+                    $printFormTitle = $identity['formTitle'] !== '' ? $identity['formTitle'] : 'Document Request Form';
+                    $printRepublic = $identity['republic'];
+                    $printInstitution = $identity['institutionName'];
+                    $printAddress = $identity['institutionAddress'];
+                    $printFooterLeft = $identity['footerLeft'] !== '' ? $identity['footerLeft'] : 'Effectivity Date:';
+                    $printFooterCenter = $identity['footerCenter'] !== '' ? $identity['footerCenter'] : 'Rev.';
+                    $printFooterEffectivity = $identity['footerEffectivity'] !== '' ? $identity['footerEffectivity'] : 'January 2018';
+                    $printFooterRev = $identity['footerRev'] !== '' ? $identity['footerRev'] : '0';
+
+                    return response()->view('pages.dcs.office.drf-print', compact(
+                        'drf', 'logoSrc', 'sourceOffices', 'viewerMode', 'allowPrint', 'printLockMessage',
+                        'printFormCode', 'printFormTitle', 'printRepublic', 'printInstitution', 'printAddress',
+                        'printFooterLeft', 'printFooterCenter', 'printFooterEffectivity', 'printFooterRev'
+                    ));
+                }
+
+                return response()->view('pages.dcs.reports.print-layout-renderer', [
+                    'tpl' => $tpl,
+                    'values' => \App\Helpers\DcsPrintTemplateHelper::drfLayoutValues($drf, $distributeOffices, $sourceOffices),
+                    'distributeOffices' => $distributeOffices,
+                    'logoSrcOverride' => $logoSrc,
+                    'preview' => false,
+                    'hideToolbar' => false,
+                    'embed' => false,
+                    'viewerMode' => $viewerMode,
+                    'allowPrint' => $allowPrint,
+                    'printLockMessage' => $printLockMessage,
+                ]);
             })->name('office.drf.print');
             Route::match(['put', 'patch', 'post'], '/office/drf/{id}', function (Request $request, int $id) {
                 return OfficeIntakeHelper::updateDrf($request, $id);
@@ -1149,19 +1265,41 @@ Route::middleware(['auth'])
             Volt::route('/office/dcn/{id}', 'pages.dcs.office.dcn-show')->name('office.dcn.show');
             Route::get('/office/dcn/{id}/print', function (int $id) {
                 OfficeIntakeHelper::assertCanAccessIntake();
-                OfficeIntakeHelper::assertOfficeIntakePrintAllowed();
                 $dcn = OfficeIntakeHelper::findOfficeDcn($id);
                 abort_unless($dcn, 404);
                 OfficeIntakeHelper::assertOwnsDcn($dcn);
-                $logoPath = public_path('images/logo.png');
-                $logoSrc = file_exists($logoPath) ? ('data:image/png;base64,' . base64_encode(file_get_contents($logoPath))) : '';
+                $viewerMode = request()->boolean('view');
+                OfficeIntakeHelper::assertOfficeIntakePrintAllowed($dcn, $viewerMode);
+                $tpl = \App\Helpers\DcsPrintTemplateHelper::get('office_dcn');
+                $identity = \App\Helpers\DcsPrintTemplateHelper::identityVars($tpl);
+                $logoSrc = $identity['logoSrc'] !== ''
+                    ? $identity['logoSrc']
+                    : (file_exists(public_path('images/logo.png'))
+                        ? ('data:image/png;base64,' . base64_encode(file_get_contents(public_path('images/logo.png'))))
+                        : '');
                 $revisions = OfficeIntakeHelper::dcnRevisions($id);
                 $sourceOffices = OfficeIntakeHelper::dcnSourceOffices($id);
-                $viewerMode = request()->boolean('view');
                 $allowPrint = OfficeIntakeHelper::officeMayPrintIntake($dcn);
-                $printLockMessage = 'Print unlocks after RFIO confirms this form and notifies you to print and sign.';
+                $printLockMessage = 'Print unlocks after RFIU confirms this form and notifies you to print and sign.';
+                // Official live DCN form — branding + canvas overrides from Form Templates live_json.
+                $printFormCode = $identity['letterNumber'] !== '' ? $identity['letterNumber'] : 'CSPC-F-DCC-01';
+                $printFormTitle = $identity['formTitle'] !== '' ? $identity['formTitle'] : 'Document Change Notice';
+                $printRepublic = $identity['republic'];
+                $printInstitution = $identity['institutionName'];
+                $printAddress = $identity['institutionAddress'];
+                $printFooterLeft = $identity['footerLeft'] !== '' ? $identity['footerLeft'] : 'Effectivity Date:';
+                $printFooterCenter = $identity['footerCenter'] !== '' ? $identity['footerCenter'] : 'Rev.';
+                $printFooterEffectivity = $identity['footerEffectivity'] !== '' ? $identity['footerEffectivity'] : 'January 2018';
+                $printFooterRev = $identity['footerRev'] !== '' ? $identity['footerRev'] : '1';
+                // Official CSPC-F-DCC-01 blade + live canvas overrides (labels, moves, freeform tables).
+                $layoutOverrides = \App\Helpers\DcsPrintTemplateHelper::dcnLiveLayoutOverrides();
 
-                return response()->view('pages.dcs.office.dcn-print', compact('dcn', 'logoSrc', 'revisions', 'sourceOffices', 'viewerMode', 'allowPrint', 'printLockMessage'));
+                return response()->view('pages.dcs.office.dcn-print', compact(
+                    'dcn', 'logoSrc', 'revisions', 'sourceOffices', 'viewerMode', 'allowPrint', 'printLockMessage',
+                    'printFormCode', 'printFormTitle', 'printRepublic', 'printInstitution', 'printAddress',
+                    'printFooterLeft', 'printFooterCenter', 'printFooterEffectivity', 'printFooterRev',
+                    'layoutOverrides'
+                ));
             })->name('office.dcn.print');
             Route::match(['put', 'patch', 'post'], '/office/dcn/{id}', function (Request $request, int $id) {
                 return OfficeIntakeHelper::updateDcn($request, $id);
@@ -1310,7 +1448,7 @@ Route::middleware(['auth'])
                 });
 
                 // Request queue lives under /register/requests (Document Registration nav)
-                // but is not gated by dcs.module:register — RFIO review clearance is enough.
+                // but is not gated by dcs.module:register — RFIU review clearance is enough.
                 Volt::route('/register/requests', 'pages.dcs.register.requests.index')->name('requests.index');
                 Volt::route('/register/requests/{type}/{id}', 'pages.dcs.register.requests.show')
                     ->whereIn('type', ['drf', 'dcn'])

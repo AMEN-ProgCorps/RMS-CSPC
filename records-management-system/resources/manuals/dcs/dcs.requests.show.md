@@ -6,7 +6,7 @@ Review one office DRF or DCN, unlock print/sign, receive the signed hard copy, t
 - Print preview iframe (and tabs when both DRF/DCN previews apply)
 - Title of the submission as the page heading
 
-## RFIO action steps (in order)
+## RFIU action steps (in order)
 1. **Notify client to print & sign** (or **Resend print & sign notice**)
 2. Checkbox: **I have received the signed …**
 3. **Return for correction** / **Enable edit for office** — available before receive; hides after receive

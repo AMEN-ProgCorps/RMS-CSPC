@@ -12,7 +12,24 @@ DCS file: Print shell for a generated report. Masterlist rows are rendered by ex
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>{{ !empty($autoPrint) || !empty($embed) ? '' : ($title ?? 'Report') }}</title>
+    @php
+        $ths = is_array($tableHeaderStyle ?? null) ? $tableHeaderStyle : [];
+        $hdrBg = (string) ($ths['header_row_bg'] ?? '#8db3e2');
+        $hdrFg = (string) ($ths['header_row_color'] ?? '#000000');
+        $hdrFf = (string) ($ths['header_font_family'] ?? 'Arial');
+        $hdrFs = (float) ($ths['header_font_size_pt'] ?? 10);
+        $hdrFw = (int) ($ths['header_font_weight'] ?? 700);
+        $hdrFi = (string) ($ths['header_font_style'] ?? 'normal');
+    @endphp
     <style>
+        :root {
+            --dcs-thead-bg: {{ $hdrBg }};
+            --dcs-thead-fg: {{ $hdrFg }};
+            --dcs-thead-ff: {{ $hdrFf }}, Helvetica, sans-serif;
+            --dcs-thead-fs: {{ $hdrFs }}pt;
+            --dcs-thead-fw: {{ $hdrFw }};
+            --dcs-thead-fi: {{ $hdrFi }};
+        }
         * { margin: 0; padding: 0; box-sizing: border-box; }
         body {
             font-family: Arial, sans-serif;
@@ -147,15 +164,16 @@ DCS file: Print shell for a generated report. Masterlist rows are rendered by ex
             font-size: 10pt;
         }
         .data-table th {
-            background: #8db3e2;
+            background: var(--dcs-thead-bg, #8db3e2);
             -webkit-print-color-adjust: exact;
             print-color-adjust: exact;
-            font-family: Arial, sans-serif;
-            font-size: 10pt;
-            font-weight: 700;
+            font-family: var(--dcs-thead-ff, Arial, sans-serif);
+            font-size: var(--dcs-thead-fs, 10pt);
+            font-weight: var(--dcs-thead-fw, 700);
+            font-style: var(--dcs-thead-fi, normal);
             text-transform: none;
             letter-spacing: normal;
-            color: #000;
+            color: var(--dcs-thead-fg, #000);
             padding: 6px 4px;
             border: 1px solid #000;
             text-align: center;

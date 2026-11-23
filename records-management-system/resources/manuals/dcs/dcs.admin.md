@@ -2,7 +2,7 @@
 Admin / full DCS home for registrations, inventory lookups, office request attention, and calendar.
 
 > [!NOTE]
-> Office Intake users see a different home on `/dcs`. This guide is for **RFIO / Document Controllers** and other full DCS roles.
+> Office Intake users see a different home on `/dcs`. This guide is for **RFIU / Document Controllers** and other full DCS roles.
 
 ## Overview chips & stats
 - **Total / Latest / Superseded / Obsolete** — open Inventory (Database module) when you have access.

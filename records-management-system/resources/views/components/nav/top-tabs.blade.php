@@ -393,7 +393,7 @@
                 ];
             }
         }
-        // 2. Document Registration (+ Request for RFIO)
+        // 2. Document Registration (+ Request for RFIU)
         elseif (request()->routeIs('dcs.register.*') || request()->routeIs('dcs.requests.*')) {
             $sectionTitle = 'Document Registration';
             $tabs = [
@@ -752,6 +752,17 @@
                     'label' => 'Remark Key Triggers',
                     'url' => route('admin.rdp.remark-key-triggers'),
                     'active' => request()->routeIs('admin.rdp.remark-key-triggers'),
+                ],
+            ];
+        }
+        // 8b. Document Control System Section
+        elseif (request()->routeIs('admin.dcs.*')) {
+            $sectionTitle = 'Document Control System';
+            $tabs = [
+                [
+                    'label' => 'Form Templates',
+                    'url' => route('admin.dcs.form-templates'),
+                    'active' => request()->routeIs('admin.dcs.form-templates'),
                 ],
             ];
         }

@@ -25,6 +25,10 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
     public ?int $parentId = null;
 
     public string $docTypeName = '';
+    /** @var list<array{name: string}> Optional sub-types when creating a top-level document type */
+    public array $docTypeSubRows = [
+        ['name' => ''],
+    ];
     public string $originatorName = '';
     public string $facultyName = '';
     /** @var list<string> Multi-college membership for faculty modal */
@@ -464,6 +468,7 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
         $this->facultyCollegeIds = [];
         $this->schoolYearIsActive = false;
         $this->collegeProgramRows = [['code' => '', 'name' => '']];
+        $this->docTypeSubRows = [['name' => '']];
         $this->courseRows = [['code' => '', 'name' => '']];
         $this->bulkRows = [];
         $this->csvFile = null;
@@ -483,6 +488,7 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
     {
         $this->resetFormFor('docType', $id);
         $this->parentId = $parentId;
+        $this->docTypeSubRows = [['name' => '']];
         if ($id) {
             $row = DB::table('dcs_doc_types')->where('id', $id)->first();
             abort_unless($row, 404);
@@ -501,6 +507,28 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
     public function openSubType(int $parentId): void
     {
         $this->openDocType(null, $parentId);
+    }
+
+    /**
+     * Adds another blank sub-type row in the Add Document Type modal.
+     */
+    public function addDocTypeSubRow(): void
+    {
+        $this->docTypeSubRows[] = ['name' => ''];
+    }
+
+    /**
+     * Removes a sub-type row from the Add Document Type modal.
+     */
+    public function removeDocTypeSubRow(int $index): void
+    {
+        if (count($this->docTypeSubRows) <= 1) {
+            $this->docTypeSubRows = [['name' => '']];
+
+            return;
+        }
+        unset($this->docTypeSubRows[$index]);
+        $this->docTypeSubRows = array_values($this->docTypeSubRows);
     }
 
     /**
@@ -1067,9 +1095,58 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
             return;
         }
 
-        DB::table('dcs_doc_types')->insert(array_merge($payload, [
+        // Creating a top-level type: optional sub-types in the same modal (like college + programs).
+        $subRows = [];
+        if ($parentId === null) {
+            foreach ($this->docTypeSubRows as $i => $row) {
+                $name = trim((string) ($row['name'] ?? ''));
+                if ($name === '') {
+                    continue;
+                }
+                if (mb_strlen($name) > 255) {
+                    $this->addError("docTypeSubRows.{$i}.name", 'Sub-type name may not be greater than 255 characters.');
+                    continue;
+                }
+                $subRows[] = ['index' => $i, 'name' => $name];
+            }
+            if ($this->getErrorBag()->isNotEmpty()) {
+                return;
+            }
+
+            $namesSeen = [];
+            foreach ($subRows as $entry) {
+                $key = mb_strtolower($entry['name']);
+                if (isset($namesSeen[$key])) {
+                    $this->addError("docTypeSubRows.{$entry['index']}.name", 'Duplicate sub-type name in this list.');
+                    continue;
+                }
+                $namesSeen[$key] = true;
+            }
+            if ($this->getErrorBag()->isNotEmpty()) {
+                return;
+            }
+        }
+
+        $newId = (int) DB::table('dcs_doc_types')->insertGetId(array_merge($payload, [
             'parent_id' => $parentId,
         ]));
+
+        if ($parentId === null && $newId > 0 && $subRows !== []) {
+            DB::table('dcs_doc_types')->insert(array_map(
+                fn (array $entry) => [
+                    'doc_type_name' => $entry['name'],
+                    'parent_id' => $newId,
+                ],
+                $subRows
+            ));
+            $count = count($subRows);
+            $this->done($count === 1
+                ? 'Document type and sub-type added.'
+                : "Document type and {$count} sub-types added.");
+
+            return;
+        }
+
         $this->done($parentId ? 'Sub-type added.' : 'Document type added.');
     }
 
@@ -2577,11 +2654,18 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
     private function catalog(): array
     {
         // Opening/editing a modal should not reload courses + signatory history.
+        // Exception: course add/edit keeps the modal open and bumps courseListEpoch,
+        // which remounts the wire:ignore table — still load courses so that remount
+        // is not rendered empty ("No courses yet").
         $modalLite = $this->modalKind !== '';
         $needsFaculties = ! $modalLite || in_array($this->modalKind, ['faculty', 'importFaculties'], true);
         $needsOriginators = ! $modalLite || in_array($this->modalKind, ['originator', 'importOriginators'], true);
         $needsSignatories = ! $modalLite;
-        $needsCourses = ! $modalLite;
+        $needsCourses = ! $modalLite || in_array($this->modalKind, [
+            'programCourse',
+            'programCoursesBulk',
+            'programCourse:delete',
+        ], true);
 
         $docTypeParentsQ = DB::table('dcs_doc_types')->whereNull('parent_id')->orderBy('doc_type_name');
         \App\Helpers\SettingsRecycleHelper::applyNotDeleted($docTypeParentsQ, 'dcs_doc_types');
@@ -3087,7 +3171,7 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
                         </div>
                     </div>
 
-                    <div class="sig-section">
+                    <div class="sig-section" wire:key="sig-people-{{ $sigFormKind }}-{{ $sigParentTypeId }}-{{ $sigSubTypeId }}-{{ $sigCollegeId }}">
                         <div class="sig-section-head">
                             <span class="sig-section-num">2</span>
                             <div>
@@ -3126,11 +3210,16 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
                                         <span>Reviewers</span>
                                         <button type="button" class="sig-link-btn" wire:click="addSigReviewerRow"><i class="fa-solid fa-plus"></i> Add</button>
                                     </div>
+                                    <div class="sig-dcn-colhead" aria-hidden="true">
+                                        <span></span>
+                                        <span>Name</span>
+                                        <span></span>
+                                    </div>
                                     <div class="sig-dcn-rows">
                                         @foreach($sigReviewers as $i => $row)
                                             <div class="sig-dcn-row" wire:key="sig-rev-{{ $i }}">
                                                 <span class="sig-dcn-index">{{ $i + 1 }}</span>
-                                                <input class="st-input" type="text" wire:model="sigReviewers.{{ $i }}.name" placeholder="Reviewer name" maxlength="255">
+                                                <input class="st-input" type="text" wire:model="sigReviewers.{{ $i }}.name" placeholder="e.g. Juan Dela Cruz" maxlength="255" aria-label="Reviewer {{ $i + 1 }} name">
                                                 <button type="button" class="icon-btn icon-btn-danger" wire:click="removeSigReviewerRow({{ $i }})" title="Remove" @disabled(count($sigReviewers) < 2)><i class="fa-solid fa-trash"></i></button>
                                             </div>
                                         @endforeach
@@ -3141,12 +3230,18 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
                                         <span>Approvals</span>
                                         <button type="button" class="sig-link-btn" wire:click="addSigApprovalRow"><i class="fa-solid fa-plus"></i> Add</button>
                                     </div>
+                                    <div class="sig-dcn-colhead sig-dcn-colhead-approval" aria-hidden="true">
+                                        <span></span>
+                                        <span>Position</span>
+                                        <span>Name</span>
+                                        <span></span>
+                                    </div>
                                     <div class="sig-dcn-rows">
                                         @foreach($sigApprovals as $i => $row)
                                             <div class="sig-dcn-row sig-dcn-row-approval" wire:key="sig-apr-{{ $i }}">
                                                 <span class="sig-dcn-index">{{ $i + 1 }}</span>
-                                                <input class="st-input" type="text" wire:model="sigApprovals.{{ $i }}.position" placeholder="Position" maxlength="255">
-                                                <input class="st-input" type="text" wire:model="sigApprovals.{{ $i }}.name" placeholder="Name" maxlength="255">
+                                                <input class="st-input" type="text" wire:model="sigApprovals.{{ $i }}.position" placeholder="e.g. College Dean" maxlength="255" aria-label="Approval {{ $i + 1 }} position">
+                                                <input class="st-input" type="text" wire:model="sigApprovals.{{ $i }}.name" placeholder="e.g. Juan Dela Cruz" maxlength="255" aria-label="Approval {{ $i + 1 }} name">
                                                 <button type="button" class="icon-btn icon-btn-danger" wire:click="removeSigApprovalRow({{ $i }})" title="Remove" @disabled(count($sigApprovals) < 2)><i class="fa-solid fa-trash"></i></button>
                                             </div>
                                         @endforeach
@@ -3733,13 +3828,15 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
              wire:ignore keeps the heavy courses DOM stable while other modals open (lite catalog). --}}
         <div class="table-wrap" wire:key="course-names-{{ $courseListEpoch }}-{{ $courseListCollegeId }}-{{ $courseListProgramId }}" wire:ignore>
             <table class="settings-table">
-                <thead><tr><th>College</th><th>Program</th><th>Semester</th><th>Year Level</th><th>Course Type</th><th>Course Code</th><th>Course Name</th><th style="width:140px;">Actions</th></tr></thead>
+                <thead><tr><th>College</th><th>Program</th><th>Year Level</th><th>Course Code</th><th>Course Name</th><th style="width:140px;">Actions</th></tr></thead>
                 <tbody>
                     @if($programCourses->isEmpty())
-                        <tr wire:key="course-names-empty"><td colspan="8" class="empty-cell">No courses yet.</td></tr>
+                        <tr wire:key="course-names-empty"><td colspan="6" class="empty-cell">No courses yet.</td></tr>
                     @else
                     @php
                         $knownYears = \App\Helpers\SyllabiMonitoringHelper::YEAR_LEVELS;
+                        $knownTypes = \App\Helpers\SyllabiMonitoringHelper::COURSE_TYPES;
+                        $typeOrder = array_flip($knownTypes);
                         $coursesByYear = [];
                         foreach ($knownYears as $yearKey) {
                             $coursesByYear[$yearKey] = collect();
@@ -3763,33 +3860,70 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
                             $yearKeySlug = $yearKey !== '' ? \Illuminate\Support\Str::slug($yearKey) : 'none';
                         @endphp
                         <tr class="st-year-header" wire:key="year-header-{{ $yearKeySlug }}">
-                            <td colspan="8">
+                            <td colspan="6">
                                 <span>Year Level · {{ $yearLabel }}</span>
                                 <span class="st-year-count">{{ $yearCount }} {{ $yearCount === 1 ? 'course' : 'courses' }}</span>
                             </td>
                         </tr>
-                        @foreach($yearCourses as $course)
+                        @php
+                            // Preserve query order (semester_id) via first-seen group keys.
+                            $coursesBySem = $yearCourses->groupBy(fn ($c) => trim((string) ($c->semester_name ?? '')));
+                        @endphp
+                        @foreach($coursesBySem as $semKey => $semCourses)
                             @php
-                                $isInstitutional = $course->program_id === null
-                                    && \App\Helpers\CourseTypeRules::isSharedType($course->course_type ?? null);
+                                $semLabel = $semKey !== '' ? $semKey : 'No semester';
+                                $semCount = $semCourses->count();
+                                $semKeySlug = $semKey !== '' ? \Illuminate\Support\Str::slug($semKey) : 'none';
                             @endphp
-                            <tr wire:key="pc-{{ $course->id }}" class="st-course-data" data-id="{{ $course->id }}">
-                                <td data-label="College">{{ $isInstitutional ? 'All colleges' : ($course->college_name ?? '—') }}</td>
-                                <td data-label="Program">{{ $isInstitutional ? 'Institutional' : ($course->program_name ?? '—') }}</td>
-                                <td data-label="Semester">{{ $course->semester_name ?? '—' }}</td>
-                                <td data-label="Year Level">{{ $course->year_level ?? '—' }}</td>
-                                <td data-label="Course Type">{{ $course->course_type ?? '—' }}</td>
-                                <td data-label="Code">{{ $course->course_code ?: '—' }}</td>
-                                <td data-label="Course Name">{{ $course->course_name }}</td>
-                                <td>
-                                    <div class="row-actions">
-                                        <button type="button" class="icon-btn" title="Edit" wire:click="openProgramCourse({{ $course->id }})"><i class="fa-solid fa-pen"></i></button>
-                                        @if(!empty($canSoftDelete))
-                                        <button type="button" class="icon-btn icon-btn-danger" title="Delete" wire:click="confirmDelete('programCourse', {{ $course->id }}, 'Delete Course', 'This course will be moved to the Admin Console Recycle Bin.')"><i class="fa-solid fa-trash"></i></button>
-                                        @endif
-                                    </div>
+                            <tr class="st-sem-header" wire:key="sem-header-{{ $yearKeySlug }}-{{ $semKeySlug }}">
+                                <td colspan="6">
+                                    <span>Semester · {{ $semLabel }}</span>
+                                    <span class="st-year-count">{{ $semCount }} {{ $semCount === 1 ? 'course' : 'courses' }}</span>
                                 </td>
                             </tr>
+                            @php
+                                $coursesByType = $semCourses->groupBy(fn ($c) => trim((string) ($c->course_type ?? '')));
+                                $coursesByType = $coursesByType->sortBy(fn ($rows, $typeKey) => $typeOrder[$typeKey] ?? 99);
+                            @endphp
+                            @foreach($coursesByType as $typeKey => $typeCourses)
+                                @php
+                                    $typeLabel = match ($typeKey) {
+                                        'Major' => 'Major Courses',
+                                        'NSTP' => 'NSTP Courses',
+                                        '' => 'No course type',
+                                        default => $typeKey,
+                                    };
+                                    $typeCount = $typeCourses->count();
+                                    $typeKeySlug = $typeKey !== '' ? \Illuminate\Support\Str::slug($typeKey) : 'none';
+                                @endphp
+                                <tr class="st-type-header" wire:key="type-header-{{ $yearKeySlug }}-{{ $semKeySlug }}-{{ $typeKeySlug }}">
+                                    <td colspan="6">
+                                        <span>{{ $typeLabel }}</span>
+                                        <span class="st-year-count">{{ $typeCount }} {{ $typeCount === 1 ? 'course' : 'courses' }}</span>
+                                    </td>
+                                </tr>
+                                @foreach($typeCourses as $course)
+                                    @php
+                                        $isInstitutional = $course->program_id === null
+                                            && \App\Helpers\CourseTypeRules::isSharedType($course->course_type ?? null);
+                                    @endphp
+                                    <tr wire:key="pc-{{ $course->id }}" class="st-course-data" data-id="{{ $course->id }}">
+                                        <td data-label="College">{{ $isInstitutional ? 'All colleges' : ($course->college_name ?? '—') }}</td>
+                                        <td data-label="Program">{{ $isInstitutional ? 'Institutional' : ($course->program_name ?? '—') }}</td>
+                                        <td data-label="Year Level">{{ $course->year_level ?? '—' }}</td>
+                                        <td data-label="Code">{{ $course->course_code ?: '—' }}</td>
+                                        <td data-label="Course Name">{{ $course->course_name }}</td>
+                                        <td>
+                                            <div class="row-actions">
+                                                <button type="button" class="icon-btn" title="Edit" wire:click="openProgramCourse({{ $course->id }})"><i class="fa-solid fa-pen"></i></button>
+                                                @if(!empty($canSoftDelete))
+                                                <button type="button" class="icon-btn icon-btn-danger" title="Delete" wire:click="confirmDelete('programCourse', {{ $course->id }}, 'Delete Course', 'This course will be moved to the Admin Console Recycle Bin.')"><i class="fa-solid fa-trash"></i></button>
+                                                @endif
+                                            </div>
+                                        </td>
+                                    </tr>
+                                @endforeach
+                            @endforeach
                         @endforeach
                     @endforeach
                     @endif
@@ -3831,7 +3965,7 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
     x-on:click.self="dismiss()"
     style="display: none;"
 >
-    <div class="modal{{ $modalKind === 'college' ? ' modal--college' : '' }}{{ in_array($modalKind, ['programCourse', 'programCoursesBulk'], true) ? ' modal--courses' : '' }}{{ $modalKind === 'programCoursesBulk' ? ' modal--courses-bulk' : '' }}" id="settingsModalBox" x-on:click.stop>
+    <div class="modal{{ $modalKind === 'college' ? ' modal--college' : '' }}{{ $modalKind === 'faculty' ? ' modal--faculty' : '' }}{{ ($modalKind === 'docType' && ! $editingId && ! $parentId) ? ' modal--doc-type' : '' }}{{ in_array($modalKind, ['programCourse', 'programCoursesBulk'], true) ? ' modal--courses' : '' }}{{ $modalKind === 'programCoursesBulk' ? ' modal--courses-bulk' : '' }}" id="settingsModalBox" x-on:click.stop>
         @if(str_ends_with($modalKind, ':delete'))
             <div class="st-modal delete-modal">
                 <div class="st-modal-top">
@@ -3864,24 +3998,26 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
                 </div>
             </div>
         @else
-            <form class="st-modal" wire:submit.prevent="{{ str_starts_with($modalKind, 'import') ? 'runCsvImport' : 'save' }}">
+            <form class="st-modal{{ $modalKind === 'faculty' ? ' st-modal--faculty' : '' }}" wire:submit.prevent="{{ str_starts_with($modalKind, 'import') ? 'runCsvImport' : 'save' }}">
                 <div class="st-modal-top">
-                    <div class="st-modal-icon"><i class="fa-solid {{ str_starts_with($modalKind, 'import') ? 'fa-file-csv' : 'fa-pen-to-square' }}"></i></div>
-                    <button type="button" class="st-modal-close" x-on:click="dismiss()"><i class="fa-solid fa-xmark"></i></button>
-                </div>
-                <div class="st-modal-title">
-                    @if($modalKind === 'docType') {{ $editingId ? 'Edit Document Type' : ($parentId ? 'Add Sub-type' : 'Add Document Type') }}
-                    @elseif($modalKind === 'originator') {{ $editingId ? 'Edit Originator' : 'Add Originator' }}
-                    @elseif($modalKind === 'faculty') {{ $editingId ? 'Edit Faculty' : 'Add Faculty' }}
-                    @elseif($modalKind === 'importOriginators') Import Originators (CSV)
-                    @elseif($modalKind === 'importFaculties') Import Faculties (CSV)
-                    @elseif($modalKind === 'college') {{ $editingId ? 'Edit College' : 'Add College' }}
-                    @elseif($modalKind === 'program') {{ $editingId ? 'Edit Program' : 'Add Program' }}
-                    @elseif($modalKind === 'semester') {{ $editingId ? 'Edit Semester' : 'Add Semester' }}
-                    @elseif($modalKind === 'schoolYear') {{ $editingId ? 'Edit School Year' : 'Add School Year' }}
-                    @elseif($modalKind === 'programCourse') {{ $editingId ? 'Edit Course' : 'Add Courses' }}
-                    @elseif($modalKind === 'programCoursesBulk') Edit courses by program
-                    @endif
+                    <div class="st-modal-heading">
+                        <div class="st-modal-icon"><i class="fa-solid {{ $modalKind === 'faculty' ? 'fa-chalkboard-user' : (str_starts_with($modalKind, 'import') ? 'fa-file-csv' : 'fa-pen-to-square') }}"></i></div>
+                        <div class="st-modal-title">
+                            @if($modalKind === 'docType') {{ $editingId ? 'Edit Document Type' : ($parentId ? 'Add Sub-type' : 'Add Document Type') }}
+                            @elseif($modalKind === 'originator') {{ $editingId ? 'Edit Originator' : 'Add Originator' }}
+                            @elseif($modalKind === 'faculty') {{ $editingId ? 'Edit Faculty' : 'Add Faculty' }}
+                            @elseif($modalKind === 'importOriginators') Import Originators (CSV)
+                            @elseif($modalKind === 'importFaculties') Import Faculties (CSV)
+                            @elseif($modalKind === 'college') {{ $editingId ? 'Edit College' : 'Add College' }}
+                            @elseif($modalKind === 'program') {{ $editingId ? 'Edit Program' : 'Add Program' }}
+                            @elseif($modalKind === 'semester') {{ $editingId ? 'Edit Semester' : 'Add Semester' }}
+                            @elseif($modalKind === 'schoolYear') {{ $editingId ? 'Edit School Year' : 'Add School Year' }}
+                            @elseif($modalKind === 'programCourse') {{ $editingId ? 'Edit Course' : 'Add Courses' }}
+                            @elseif($modalKind === 'programCoursesBulk') Edit courses by program
+                            @endif
+                        </div>
+                    </div>
+                    <button type="button" class="st-modal-close" x-on:click="dismiss()" aria-label="Close"><i class="fa-solid fa-xmark"></i></button>
                 </div>
 
                 @if($modalKind === 'importOriginators' || $modalKind === 'importFaculties')
@@ -3900,10 +4036,55 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
                     </div>
                 @elseif($modalKind === 'docType')
                     <div class="st-field">
-                        <label class="st-label">Name</label>
-                        <input type="text" class="st-input @error('docTypeName') error @enderror" wire:model="docTypeName" placeholder="e.g. Internal, Syllabi">
+                        <label class="st-label" for="stDocTypeName">{{ $parentId ? 'Sub-type name' : 'Document type name' }}</label>
+                        <input
+                            id="stDocTypeName"
+                            type="text"
+                            class="st-input @error('docTypeName') error @enderror"
+                            wire:model="docTypeName"
+                            placeholder="{{ $parentId ? 'e.g. Memo, Circular' : 'e.g. Internal, Syllabi' }}"
+                        >
                         @error('docTypeName') <div class="field-error">{{ $message }}</div> @enderror
                     </div>
+                    @if(! $editingId && ! $parentId)
+                        <div class="st-college-program-block">
+                            <div class="st-college-program-title">Sub-types <span class="st-optional">optional</span></div>
+                            <p class="st-faculty-hint" style="margin-top:0;">Add one or more sub-types for this document type now, or leave blank and add them later from the list.</p>
+                            <div class="st-course-rows st-doc-type-sub-rows">
+                                <div class="st-course-row st-course-row-head st-doc-type-sub-head">
+                                    <span>Sub-type name</span>
+                                    <span></span>
+                                </div>
+                                @foreach($docTypeSubRows as $i => $row)
+                                    <div class="st-course-row st-doc-type-sub-row" wire:key="doc-type-sub-row-{{ $i }}">
+                                        <div>
+                                            <input
+                                                type="text"
+                                                class="st-input @error('docTypeSubRows.'.$i.'.name') error @enderror"
+                                                wire:model="docTypeSubRows.{{ $i }}.name"
+                                                placeholder="e.g. Memo, Circular"
+                                                wire:keydown.enter.prevent="addDocTypeSubRow"
+                                            >
+                                            @error('docTypeSubRows.'.$i.'.name') <div class="field-error">{{ $message }}</div> @enderror
+                                        </div>
+                                        <button
+                                            type="button"
+                                            class="icon-btn icon-btn-danger"
+                                            title="Remove row"
+                                            wire:click="removeDocTypeSubRow({{ $i }})"
+                                            @disabled(count($docTypeSubRows) <= 1)
+                                        >
+                                            <i class="fa-solid fa-trash"></i>
+                                        </button>
+                                    </div>
+                                @endforeach
+                            </div>
+                            <button type="button" class="st-add-row-btn" wire:click="addDocTypeSubRow">
+                                <i class="fa-solid fa-plus"></i> Add another sub-type
+                            </button>
+                            @error('docTypeSubRows') <div class="field-error">{{ $message }}</div> @enderror
+                        </div>
+                    @endif
                 @elseif($modalKind === 'originator')
                     <div class="st-field">
                         <label class="st-label">Originator Name</label>
@@ -3912,29 +4093,68 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
                     </div>
                 @elseif($modalKind === 'faculty')
                     <div class="st-field">
-                        <label class="st-label">Faculty Name</label>
-                        <input type="text" class="st-input @error('facultyName') error @enderror" wire:model="facultyName">
+                        <label class="st-label" for="stFacultyName">Faculty name</label>
+                        <input
+                            id="stFacultyName"
+                            type="text"
+                            class="st-input @error('facultyName') error @enderror"
+                            wire:model="facultyName"
+                            placeholder="e.g. Juan Dela Cruz"
+                            autocomplete="name"
+                        >
                         @error('facultyName') <div class="field-error">{{ $message }}</div> @enderror
                     </div>
-                    <div class="st-field">
-                        <label class="st-label">Colleges</label>
+                    <div class="st-field st-field-colleges" x-data="{ q: '' }">
+                        <div class="st-label-row">
+                            <label class="st-label" style="margin-bottom:0;">Colleges</label>
+                            @if($colleges->isNotEmpty())
+                                <span class="st-faculty-count">{{ count($facultyCollegeIds) }} selected</span>
+                            @endif
+                        </div>
+                        @if($colleges->isNotEmpty())
+                            <div class="st-faculty-search">
+                                <i class="fa-solid fa-magnifying-glass" aria-hidden="true"></i>
+                                <input
+                                    type="search"
+                                    class="st-input"
+                                    placeholder="Filter colleges…"
+                                    x-model="q"
+                                    @keydown.enter.prevent
+                                    aria-label="Filter colleges"
+                                >
+                            </div>
+                        @endif
                         <div class="st-faculty-picks @error('facultyCollegeIds') error @enderror" role="group" aria-label="Colleges">
                             @forelse($colleges as $college)
-                                <label class="st-faculty-pick">
+                                @php
+                                    $collegeLabel = trim((string) $college->college_name);
+                                    $collegeCode = trim((string) ($college->college_code ?? ''));
+                                    $filterKey = mb_strtolower(trim($collegeLabel.' '.$collegeCode));
+                                @endphp
+                                <label
+                                    class="st-faculty-pick"
+                                    data-label="{{ $filterKey }}"
+                                    x-show="!q.trim() || ($el.dataset.label || '').includes(q.trim().toLowerCase())"
+                                >
                                     <input
                                         type="checkbox"
                                         value="{{ $college->id }}"
-                                        wire:model="facultyCollegeIds"
+                                        wire:model.live="facultyCollegeIds"
                                     >
-                                    <span>{{ $college->college_name }}{{ $college->college_code ? ' (' . $college->college_code . ')' : '' }}</span>
+                                    <span class="st-faculty-pick-body">
+                                        <span class="st-faculty-pick-name">{{ $collegeLabel !== '' ? $collegeLabel : 'Untitled college' }}</span>
+                                        @if($collegeCode !== '')
+                                            <span class="st-faculty-pick-code">{{ $collegeCode }}</span>
+                                        @endif
+                                    </span>
                                 </label>
                             @empty
-                                <p class="st-faculty-hint" style="margin:0;">Add colleges first.</p>
+                                <p class="st-faculty-empty">Add colleges first, then assign this instructor.</p>
                             @endforelse
                         </div>
                         @error('facultyCollegeIds') <div class="field-error">{{ $message }}</div> @enderror
                         @error('facultyCollegeIds.*') <div class="field-error">{{ $message }}</div> @enderror
-                        <p class="st-faculty-hint">Select every college where this instructor teaches (e.g. CAS for GE and CCS for a major course).</p>
+                        <p class="st-faculty-hint">Select every college where this instructor teaches (for example CAS for GE and CCS for a major course).</p>
                     </div>
                 @elseif($modalKind === 'college')
                     <div class="st-field">
@@ -3946,7 +4166,7 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
                             @endforeach
                         </select>
                         @error('officeId') <div class="field-error">{{ $message }}</div> @enderror
-                        <p class="st-faculty-hint">Leave this blank for offices that are not colleges (Cashier, ICTU, RFIO, and similar). Pick an office only for college units such as CCS or CEA.</p>
+                        <p class="st-faculty-hint">Leave this blank for offices that are not colleges (Cashier, ICTU, RFIU, and similar). Pick an office only for college units such as CCS or CEA.</p>
                     </div>
                     <div class="st-field">
                         <label class="st-label">College Name</label>

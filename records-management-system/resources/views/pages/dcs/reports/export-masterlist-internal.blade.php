@@ -12,11 +12,28 @@ DCS file: Masterlist print table. Document number, revision, title, and effectiv
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>{{ !empty($autoPrint) || !empty($embed) ? '' : 'Document Masterlist' }}</title>
+    @php
+        $ths = is_array($tableHeaderStyle ?? null) ? $tableHeaderStyle : [];
+        $hdrBg = (string) ($ths['header_row_bg'] ?? '#8db3e2');
+        $hdrFg = (string) ($ths['header_row_color'] ?? '#000000');
+        $hdrFf = (string) ($ths['header_font_family'] ?? 'Arial');
+        $hdrFs = (float) ($ths['header_font_size_pt'] ?? 10);
+        $hdrFw = (int) ($ths['header_font_weight'] ?? 700);
+        $hdrFi = (string) ($ths['header_font_style'] ?? 'normal');
+    @endphp
     <style>
         /*
          * CSPC-F-DCC-03 Document Masterlist (Internal) — short bond 8.5 × 11
          * Line spacing 1.0. Print dialog: Margins → None.
          */
+        :root {
+            --dcs-thead-bg: {{ $hdrBg }};
+            --dcs-thead-fg: {{ $hdrFg }};
+            --dcs-thead-ff: {{ $hdrFf }}, Helvetica, sans-serif;
+            --dcs-thead-fs: {{ $hdrFs }}pt;
+            --dcs-thead-fw: {{ $hdrFw }};
+            --dcs-thead-fi: {{ $hdrFi }};
+        }
         @page {
             size: 8.5in 11in;
             margin: 0 !important;
@@ -333,17 +350,21 @@ DCS file: Masterlist print table. Document number, revision, title, and effectiv
         }
         .ml-thead th {
             height: 0.49in;
-            background: #8db3e2;
+            background: var(--dcs-thead-bg, #8db3e2);
+            color: var(--dcs-thead-fg, #000);
             border: 0 !important;
             border-right: 0.5pt solid #000 !important;
             border-bottom: 0.5pt solid #000 !important;
-            font-family: Arial, Helvetica, sans-serif;
-            font-size: 10pt;
-            font-weight: 700;
+            font-family: var(--dcs-thead-ff, Arial, Helvetica, sans-serif);
+            font-size: var(--dcs-thead-fs, 10pt);
+            font-weight: var(--dcs-thead-fw, 700);
+            font-style: var(--dcs-thead-fi, normal);
             line-height: 1;
             text-align: center;
             vertical-align: middle;
             padding: 0 2px;
+            -webkit-print-color-adjust: exact;
+            print-color-adjust: exact;
         }
         .ml-thead th:last-child { border-right: 0 !important; }
         .ml-thead tr:last-child th { border-bottom: 0 !important; }
@@ -362,7 +383,7 @@ DCS file: Masterlist print table. Document number, revision, title, and effectiv
         .ml-table td:last-child { border-right: 0 !important; }
         .ml-table tr:last-child td { border-bottom: 0 !important; }
         .ml-table tr.series-sep td {
-            background: #8db3e2 !important;
+            background: var(--dcs-thead-bg, #8db3e2) !important;
             border-right: 0 !important;
             border-bottom: 0.5pt solid #000 !important;
             font-family: Arial, Helvetica, sans-serif !important;
@@ -394,6 +415,25 @@ DCS file: Masterlist print table. Document number, revision, title, and effectiv
             font-weight: 700 !important;
         }
         .ml-empty { text-align: center; font-style: italic; padding: 0.2in; }
+
+        /* Form Templates preview: 1.0 line spacing; JS pads rows to the footer */
+        body.is-preview-pad .ml-table {
+            line-height: 1 !important;
+        }
+        body.is-preview-pad .ml-table td {
+            line-height: 1 !important;
+            padding: 0 0.04in !important;
+            height: 1em;
+            vertical-align: middle;
+        }
+        body.is-preview-pad .ml-table tr {
+            height: 1em;
+            line-height: 1;
+        }
+        body.is-embed .ml-sheet {
+            margin: 0 auto 12px;
+            box-shadow: none;
+        }
 
         /* Footer band — same geometry for on-screen preview and PDF export. */
         .ml-footer {
@@ -652,12 +692,15 @@ DCS file: Masterlist print table. Document number, revision, title, and effectiv
             overflow: hidden;
         }
         body.is-pdf .pdf-table th {
-            background: #8db3e2;
+            background: var(--dcs-thead-bg, #8db3e2);
+            color: var(--dcs-thead-fg, #000);
             border: 0;
             border-right: 0.5pt solid #000;
             border-bottom: 0.5pt solid #000;
-            font-size: 10pt;
-            font-weight: 700;
+            font-family: var(--dcs-thead-ff, Arial, Helvetica, sans-serif);
+            font-size: var(--dcs-thead-fs, 10pt);
+            font-weight: var(--dcs-thead-fw, 700);
+            font-style: var(--dcs-thead-fi, normal);
             text-align: center;
             vertical-align: middle;
             height: 0.49in;
@@ -690,7 +733,7 @@ DCS file: Masterlist print table. Document number, revision, title, and effectiv
         body.is-pdf .pdf-table td.is-doc-no,
         body.is-pdf .pdf-table td.is-doc-no b { font-weight: 700; }
         body.is-pdf .pdf-table tr.series-sep td {
-            background: #8db3e2 !important;
+            background: var(--dcs-thead-bg, #8db3e2) !important;
             border-right: 0 !important;
             border-bottom: 0.5pt solid #000 !important;
             font-family: Arial, Helvetica, sans-serif !important;
@@ -932,7 +975,13 @@ DCS file: Masterlist print table. Document number, revision, title, and effectiv
         }
     </style>
 </head>
-<body class="{{ !empty($isPdf) ? 'is-pdf' : '' }}{{ !empty($forcePrintLayout) ? ' is-print-export' : '' }}{{ !empty($isDompdf) ? ' is-dompdf' : '' }}">
+<body class="{{ trim(implode(' ', array_filter([
+        ! empty($isPdf) ? 'is-pdf' : null,
+        ! empty($forcePrintLayout) ? 'is-print-export' : null,
+        ! empty($isDompdf) ? 'is-dompdf' : null,
+        ! empty($embed) ? 'is-embed' : null,
+        ! empty($previewPadRows) ? 'is-preview-pad' : null,
+    ]))) }}">
     @if(empty($embed))
     <div class="print-toolbar" id="toolbar">
         <button class="btn-pdf" type="button" id="btnPdf" title="Opens the print dialog — choose Save as PDF for a file identical to this preview">Save as PDF</button>
@@ -944,19 +993,25 @@ DCS file: Masterlist print table. Document number, revision, title, and effectiv
     @php
         $logoPath = public_path('images/logo.png');
         $logoSrc = file_exists($logoPath) ? ('data:image/png;base64,' . base64_encode(file_get_contents($logoPath))) : '';
-        $asOfLabel = !empty($asOf)
-            ? \Carbon\Carbon::parse($asOf)->format('F j, Y')
-            : now('Asia/Manila')->format('F j, Y');
+        $isPreviewPad = ! empty($previewPadRows);
+        $asOfLabel = $isPreviewPad
+            ? '________'
+            : (! empty($asOf)
+                ? \Carbon\Carbon::parse($asOf)->format('F j, Y')
+                : now('Asia/Manila')->format('F j, Y'));
         $footerEffectivity = $footerEffectivity ?? 'January 2025';
         $footerRev = $footerRev ?? '4';
         $letterNumber = $letterNumber ?? 'CSPC-F-DCC-03';
-        $checkedType = $checkedType ?? 'internal';
+        // Form Templates preview: no type check. Live reports still default to internal.
+        $checkedType = $isPreviewPad ? '' : ($checkedType ?? 'internal');
         $activeSub = $activeSub ?? '';
         $showAsOf = ! in_array($activeSub, ['internal_forms', 'external_docs', 'forms', 'logbooks'], true);
         $showFilterRule = in_array($activeSub, ['internal_forms', 'external_docs'], true);
         $showFilterBox = in_array($activeSub, ['forms', 'logbooks'], true);
         $allRows = collect($rows ?? [])->values()->all();
-        $pageChunks = $allRows === [] ? [[]] : array_chunk($allRows, 18);
+        // Form Templates preview: keep one sheet so JS can pad empty rows to the footer.
+        $chunkSize = ! empty($previewPadRows) ? max(40, count($allRows) ?: 1) : 18;
+        $pageChunks = $allRows === [] ? [[]] : array_chunk($allRows, $chunkSize);
         $totalPages = max(1, count($pageChunks));
         $colgroup = '<colgroup><col class="c1"><col class="c2"><col class="c3"><col class="c4"><col class="c5"><col class="c6"><col class="c7"></colgroup>';
         $startNo = 0;
@@ -1062,7 +1117,7 @@ DCS file: Masterlist print table. Document number, revision, title, and effectiv
                                 <td class="is-center">{{ is_array($row) ? ($row['effectivity_date'] ?? '—') : ($row->effectivity_date ?? '—') }}</td>
                                 @unless($origSkip)
                                     <td class="is-originator {{ $origSpan > 1 ? 'is-span' : '' }}" @if($origSpan > 1) rowspan="{{ $origSpan }}" @endif>
-                                        <x-dcs.originator-lines :name="$origName" />
+                                        <x-dcs.originator-lines :name="$origName" :empty="!empty($previewPadRows) ? '' : '—'" />
                                     </td>
                                 @endunless
                                 <td>{{ is_array($row) ? ($row['no_pages'] ?? '—') : ($row->no_pages ?? '—') }}</td>
@@ -1160,7 +1215,7 @@ DCS file: Masterlist print table. Document number, revision, title, and effectiv
                                 <td class="is-center">{{ is_array($row) ? ($row['effectivity_date'] ?? '—') : ($row->effectivity_date ?? '—') }}</td>
                                 @unless($origSkip)
                                     <td class="is-originator {{ $origSpan > 1 ? 'is-span' : '' }}" @if($origSpan > 1) rowspan="{{ $origSpan }}" @endif>
-                                        <x-dcs.originator-lines :name="$origName" />
+                                        <x-dcs.originator-lines :name="$origName" :empty="!empty($previewPadRows) ? '' : '—'" />
                                     </td>
                                 @endunless
                                 <td>{{ is_array($row) ? ($row['no_pages'] ?? '—') : ($row->no_pages ?? '—') }}</td>
@@ -1225,7 +1280,59 @@ DCS file: Masterlist print table. Document number, revision, title, and effectiv
             if (params.get('autoPrint') === '1' && params.get('format') !== 'pdf' && !params.get('saveAsPdf')) {
                 setTimeout(function() { window.print(); }, 300);
             }
+
+            padMasterlistPreviewRows();
         });
+
+        /**
+         * Form Templates preview: fill empty rows until ~1 row above the footer.
+         */
+        function padMasterlistPreviewRows() {
+            if (!document.body.classList.contains('is-preview-pad')) return;
+
+            document.querySelectorAll('.ml-sheet').forEach(function (sheet) {
+                var footer = sheet.querySelector('.ml-footer');
+                var tables = sheet.querySelectorAll('.ml-table:not(.ml-thead)');
+                var table = tables[tables.length - 1] || null;
+                var tbody = table ? table.querySelector('tbody') : null;
+                if (!footer || !table || !tbody) return;
+
+                // Drop the "No records" placeholder so we can pad real empty cells.
+                var emptyMsg = tbody.querySelector('tr td.ml-empty');
+                if (emptyMsg && emptyMsg.parentElement) {
+                    emptyMsg.parentElement.remove();
+                }
+
+                var sample = tbody.querySelector('tr');
+                var colCount = sample ? sample.children.length : 7;
+                var guard = 0;
+
+                function rowH() {
+                    var row = tbody.querySelector('tr');
+                    if (!row) return 16;
+                    var h = row.getBoundingClientRect().height;
+                    return h > 0 ? h : 16;
+                }
+
+                while (guard < 80) {
+                    var free = footer.getBoundingClientRect().top - table.getBoundingClientRect().bottom;
+                    var rh = rowH();
+                    if (free < (rh * 1.5)) break;
+
+                    var tr = document.createElement('tr');
+                    for (var c = 0; c < colCount; c++) {
+                        var td = document.createElement('td');
+                        if (c === 1 || c === 2 || c === 3 || c === 4) td.className = 'is-center';
+                        if (c === 1) td.className = 'is-doc-no is-center';
+                        if (c === 3) td.className = 'is-title is-center';
+                        if (c === 5) td.className = 'is-originator';
+                        tr.appendChild(td);
+                    }
+                    tbody.appendChild(tr);
+                    guard++;
+                }
+            });
+        }
     </script>
 </body>
 </html>

@@ -6,16 +6,18 @@
 <?php
 
 /**
- * DCS file: One office DCN. Print unlocks on this page when RFIO sets rfio_print_notified_at.
+ * DCS file: One office DCN. Print unlocks on this page when RFIU sets rfio_print_notified_at.
  */
 
 use App\Helpers\OfficeIntakeHelper;
 use App\Helpers\RegisterQueryHelper;
 use Livewire\Attributes\Layout;
+use Livewire\Attributes\Locked;
 use Livewire\Attributes\Title;
 use Livewire\Volt\Component;
 
 new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class extends Component {
+    #[Locked]
     public int $id;
 
     /**
@@ -49,6 +51,9 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
     {
         $dcn = OfficeIntakeHelper::findOfficeDcn($this->id);
         abort_unless($dcn, 404);
+        if (! RegisterQueryHelper::canBrowseAllOfficeIntake()) {
+            OfficeIntakeHelper::assertOwnsDcn($dcn);
+        }
 
         $revisions = OfficeIntakeHelper::dcnRevisions($this->id);
         $firstRev = $revisions->first();
@@ -69,7 +74,7 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
             'canCreateDrf' => OfficeIntakeHelper::officeDcnAllowsLaterDrf($this->id)
                 && ! OfficeIntakeHelper::officeDcnHasLinkedDrf($this->id),
             'canPrint' => OfficeIntakeHelper::officeMayPrintIntake($dcn),
-            'printHint' => 'Print stays locked until RFIO confirms this form and notifies you to print and sign.',
+            'printHint' => 'Print stays locked until RFIU confirms this form and notifies you to print and sign.',
         ];
     }
 }; ?>
@@ -121,7 +126,7 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
             <div class="ofi-alert err ofi-correction-alert" role="status">
                 <i class="fa-solid fa-triangle-exclamation" aria-hidden="true"></i>
                 <div class="ofi-alert-body">
-                    <strong>RFIO asked for corrections</strong>
+                    <strong>RFIU asked for corrections</strong>
                     <span>{{ $editReason }}</span>
                 </div>
             </div>
@@ -141,14 +146,14 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
             @if($isRegistered ?? false)
                 <i class="fa-solid fa-circle-check" aria-hidden="true"></i>
                 <div class="ofi-lock-banner-body">
-                    <strong>Registered by RFIO</strong>
-                    <span>This document has been registered / controlled by RFIO.</span>
+                    <strong>Registered by RFIU</strong>
+                    <span>This document has been registered / controlled by RFIU.</span>
                 </div>
             @elseif($canEdit ?? false)
                 <i class="fa-solid fa-unlock" aria-hidden="true"></i>
                 <div class="ofi-lock-banner-body">
                     <strong>Editing enabled</strong>
-                    <span>RFIO enabled editing so you can correct and resubmit this form.</span>
+                    <span>RFIU enabled editing so you can correct and resubmit this form.</span>
                 </div>
             @else
                 <i class="fa-solid fa-lock" aria-hidden="true"></i>
@@ -162,7 +167,7 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
         <section class="reg-card ofi-show-card ofi-dcn-card">
             <div class="reg-card-header">
                 <span>Document Change Notice</span>
-                <span class="ofi-form-code-badge">CSPC-F-DCC-01</span>
+                <span class="ofi-form-code-badge">{{ \App\Helpers\DcsPrintTemplateHelper::get('office_dcn')->form_code ?? 'CSPC-F-DCC-01' }}</span>
             </div>
             <div class="reg-card-body ofi-dcn-form ofi-show-form">
                 <div class="ofi-dcn-box ofi-dcn-box-readonly">

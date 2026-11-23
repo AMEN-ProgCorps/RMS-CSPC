@@ -807,6 +807,96 @@ class DcsAccessControlTest extends TestCase
         }
     }
 
+    public function test_office_drf_show_rejects_id_tampering_and_cross_office_url(): void
+    {
+        if (! Schema::hasTable('dcs_office_intake_drf')) {
+            $this->markTestSkipped('Office intake tables are not migrated.');
+        }
+
+        $ownId = (int) DB::table('dcs_office_intake_drf')->insertGetId([
+            'doc_title' => 'Own DRF Locked Test ' . $this->limitedRoleId,
+            'drf_date' => now()->toDateString(),
+            'created_by' => $this->limitedUserId,
+            'created_at' => now(),
+            'updated_at' => now(),
+        ]);
+        $otherId = (int) DB::table('dcs_office_intake_drf')->insertGetId([
+            'doc_title' => 'Other Office DRF Locked Test ' . $this->limitedRoleId,
+            'drf_date' => now()->toDateString(),
+            'created_by' => $this->rfioUserId,
+            'created_at' => now(),
+            'updated_at' => now(),
+        ]);
+
+        $this->actingAs(User::find($this->limitedUserId))
+            ->withHeader('User-Agent', 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36')
+            ->get('/dcs/office/drf/' . $otherId)
+            ->assertForbidden();
+
+        $this->actingAs(User::find($this->limitedUserId));
+        $component = Volt::test('pages.dcs.office.drf-show', ['id' => $ownId]);
+        try {
+            $component->set('id', $otherId);
+            $this->fail('Livewire allowed updating a locked id property.');
+        } catch (\Livewire\Features\SupportLockedProperties\CannotUpdateLockedPropertyException $e) {
+            $this->assertStringContainsString('id', $e->getMessage());
+        }
+    }
+
+    public function test_office_drf_print_forbidden_until_rfio_unlocks(): void
+    {
+        if (! Schema::hasTable('dcs_office_intake_drf')) {
+            $this->markTestSkipped('Office intake tables are not migrated.');
+        }
+
+        $payload = [
+            'doc_title' => 'Print Lock DRF ' . $this->limitedRoleId,
+            'drf_date' => now()->toDateString(),
+            'created_by' => $this->limitedUserId,
+            'created_at' => now(),
+            'updated_at' => now(),
+        ];
+        if (Schema::hasColumn('dcs_office_intake_drf', 'rfio_print_notified_at')) {
+            $payload['rfio_print_notified_at'] = null;
+        }
+
+        $id = (int) DB::table('dcs_office_intake_drf')->insertGetId($payload);
+
+        $this->actingAs(User::find($this->limitedUserId))
+            ->withHeader('User-Agent', 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36')
+            ->get('/dcs/office/drf/' . $id . '/print')
+            ->assertForbidden();
+
+        if (! Schema::hasColumn('dcs_office_intake_drf', 'rfio_print_notified_at')) {
+            $this->markTestSkipped('rfio_print_notified_at column missing.');
+        }
+
+        DB::table('dcs_office_intake_drf')->where('id', $id)->update([
+            'rfio_print_notified_at' => now(),
+            'updated_at' => now(),
+        ]);
+
+        $this->actingAs(User::find($this->limitedUserId))
+            ->withHeader('User-Agent', 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36')
+            ->get('/dcs/office/drf/' . $id . '/print')
+            ->assertOk();
+    }
+
+    public function test_error_guard_apis_require_auth_and_reject_forged_clear_path(): void
+    {
+        $this->getJson('/api/errors/active-guards')->assertUnauthorized();
+        $this->postJson('/api/errors/auto-capture', [
+            'title' => 'probe',
+            'message' => 'probe',
+        ])->assertUnauthorized();
+
+        $this->actingAs(User::find($this->limitedUserId))
+            ->withHeader('Referer', 'http://localhost/dcs/office/drf')
+            ->getJson('/api/errors/clear-page-guard?path=/admin/settings')
+            ->assertOk()
+            ->assertJsonPath('resolved', 0);
+    }
+
     private function ensureOffice(string $code, string $name): void
     {
         $table = $this->officeTable();

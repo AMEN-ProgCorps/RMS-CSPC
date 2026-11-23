@@ -2278,7 +2278,7 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - System Settings')] class
                     </div>
                     <p style="margin: 0 0 12px; font-size: 12px; color: #64748b; line-height: 1.4;">
                         When enabled, offices see <strong>Forms</strong> / <strong>Logbooks</strong> as Type of document options on office DRF
-                        (alongside Internal and External). RFIO registration can then use the Forms/Logbooks checklist.
+                        (alongside Internal and External). RFIU registration can then use the Forms/Logbooks checklist.
                         Assign prepared/reviewed/approved names under DCS Settings → Signatories after enabling.
                     </p>
 
@@ -2341,7 +2341,7 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - System Settings')] class
                         <h3>DCS Database columns</h3>
                     </div>
                     <p style="margin: 0 0 12px; font-size: 12px; color: #64748b; line-height: 1.4;">
-                        Hide or show Inventory column groups <strong>system-wide</strong> for RFIO / full DCS users.
+                        Hide or show Inventory column groups <strong>system-wide</strong> for RFIU / full DCS users.
                         Limited office users never see these groups. Changes apply on next Inventory load.
                     </p>
                     <div style="display:flex; gap:8px; flex-wrap:wrap; margin-bottom:12px;">

@@ -6,16 +6,18 @@
 <?php
 
 /**
- * DCS file: One office DRF. Print is locked until RFIO sends the print-and-sign notice, then print-unlock-watch.blade.php enables it without a reload.
+ * DCS file: One office DRF. Print is locked until RFIU sends the print-and-sign notice, then print-unlock-watch.blade.php enables it without a reload.
  */
 
 use App\Helpers\OfficeIntakeHelper;
 use App\Helpers\RegisterQueryHelper;
 use Livewire\Attributes\Layout;
+use Livewire\Attributes\Locked;
 use Livewire\Attributes\Title;
 use Livewire\Volt\Component;
 
 new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class extends Component {
+    #[Locked]
     public int $id;
 
     /**
@@ -49,6 +51,9 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
     {
         $drf = OfficeIntakeHelper::findOfficeDrf($this->id);
         abort_unless($drf, 404);
+        if (! RegisterQueryHelper::canBrowseAllOfficeIntake()) {
+            OfficeIntakeHelper::assertOwnsDrf($drf);
+        }
 
         $distributeOffices = collect(OfficeIntakeHelper::drfDistributeOffices($drf))
             ->filter(fn ($o) => ($o['code'] ?? '') !== '' || ($o['name'] ?? '') !== '')
@@ -75,7 +80,7 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
             'editReason' => trim((string) ($drf->edit_unlock_reason ?? '')),
             'isRegistered' => OfficeIntakeHelper::isIntakeRegistered('drf', $this->id),
             'canPrint' => OfficeIntakeHelper::officeMayPrintIntake($drf),
-            'printHint' => 'Print stays locked until RFIO confirms this form and notifies you to print and sign.',
+            'printHint' => 'Print stays locked until RFIU confirms this form and notifies you to print and sign.',
         ];
     }
 }; ?>
@@ -152,7 +157,7 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
             <div class="ofi-alert err ofi-correction-alert" role="status">
                 <i class="fa-solid fa-triangle-exclamation" aria-hidden="true"></i>
                 <div class="ofi-alert-body">
-                    <strong>RFIO asked for corrections</strong>
+                    <strong>RFIU asked for corrections</strong>
                     <span>{{ $editReason }}</span>
                 </div>
             </div>
@@ -172,14 +177,14 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
             @if($isRegistered ?? false)
                 <i class="fa-solid fa-circle-check" aria-hidden="true"></i>
                 <div class="ofi-lock-banner-body">
-                    <strong>Registered by RFIO</strong>
-                    <span>This document has been registered / controlled by RFIO.</span>
+                    <strong>Registered by RFIU</strong>
+                    <span>This document has been registered / controlled by RFIU.</span>
                 </div>
             @elseif($canEdit ?? false)
                 <i class="fa-solid fa-unlock" aria-hidden="true"></i>
                 <div class="ofi-lock-banner-body">
                     <strong>Editing enabled</strong>
-                    <span>RFIO enabled editing so you can correct and resubmit this form.</span>
+                    <span>RFIU enabled editing so you can correct and resubmit this form.</span>
                 </div>
             @else
                 <i class="fa-solid fa-lock" aria-hidden="true"></i>
@@ -193,7 +198,7 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
         <section class="reg-card ofi-show-card">
             <div class="reg-card-header">
                 <span>Document Request Form</span>
-                <span class="ofi-form-code-badge">CSPC-F-DCC-06</span>
+                <span class="ofi-form-code-badge">{{ \App\Helpers\DcsPrintTemplateHelper::get('office_drf')->form_code ?? 'CSPC-F-DCC-06' }}</span>
             </div>
             <div class="reg-card-body ofi-drf-form ofi-show-form">
                 <div class="reg-field">

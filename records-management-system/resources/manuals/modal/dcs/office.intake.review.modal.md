@@ -1,8 +1,8 @@
-# RFIO Office Intake Review Modal
-Quick RFIO review shell for an office DRF/DCN opened from another DCS screen.
+# RFIU Office Intake Review Modal
+Quick RFIU review shell for an office DRF/DCN opened from another DCS screen.
 
 ## Header
-- Kicker: RFIO review
+- Kicker: RFIU review
 - Submission title and subtitle
 - Close
 

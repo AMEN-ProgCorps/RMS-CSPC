@@ -133,9 +133,6 @@
         <p class="status">Error {{ $error->status }}</p>
         <strong>{{ $error->title }}</strong>
         <p>{{ $error->message }}</p>
-        @if($error->file)
-            <p class="detail"><strong>File:</strong> {{ $error->file }}@if($error->line) on line {{ $error->line }}@endif</p>
-        @endif
         @if($error->reference)
             <p class="ref">Reference {{ $error->reference }}</p>
         @endif

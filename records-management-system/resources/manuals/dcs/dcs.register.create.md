@@ -1,5 +1,5 @@
 # Register Document
-Encode a new, revised, or recurring controlled document into the DCS masterlist (RFIO / Document Controllers).
+Encode a new, revised, or recurring controlled document into the DCS masterlist (RFIU / Document Controllers).
 
 ## Top of form
 - **Version Type**, **Document Type**, **Sub-Type** (when the type has children)

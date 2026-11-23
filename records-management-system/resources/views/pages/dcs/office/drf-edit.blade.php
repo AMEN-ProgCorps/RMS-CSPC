@@ -12,10 +12,12 @@
 use App\Helpers\OfficeIntakeHelper;
 use App\Helpers\RegisterQueryHelper;
 use Livewire\Attributes\Layout;
+use Livewire\Attributes\Locked;
 use Livewire\Attributes\Title;
 use Livewire\Volt\Component;
 
 new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class extends Component {
+    #[Locked]
     public int $id;
 
     /**
@@ -38,6 +40,7 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
      */
     public function with(): array
     {
+        abort_unless(OfficeIntakeHelper::canOfficeEditIntake('drf', $this->id), 403, OfficeIntakeHelper::IMMUTABLE_MESSAGE);
         $drf = OfficeIntakeHelper::findOfficeDrf($this->id);
         abort_unless($drf, 404);
 
@@ -110,14 +113,14 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
             <a href="{{ route('dcs.office.drf.show', $drf->id, absolute: false) }}" class="reg-btn reg-btn-cancel">
                 <i class="fa-solid fa-arrow-left"></i> Back
             </a>
-            <p class="ofi-toolbar-hint">Correct the form, then save to resubmit to RFIO. The document will lock again after save.</p>
+            <p class="ofi-toolbar-hint">Correct the form, then save to resubmit to RFIU. The document will lock again after save.</p>
         </div>
 
         @if($editReason !== '')
             <div class="ofi-alert err ofi-correction-alert" role="status">
                 <i class="fa-solid fa-triangle-exclamation" aria-hidden="true"></i>
                 <div class="ofi-alert-body">
-                    <strong>RFIO asked for corrections</strong>
+                    <strong>RFIU asked for corrections</strong>
                     <span>{{ $editReason }}</span>
                 </div>
             </div>
@@ -355,7 +358,7 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
                     <i class="fa-solid fa-eye" aria-hidden="true"></i> Preview form
                 </button>
                 <button type="submit" id="ofiDrfSaveBtn" class="reg-btn reg-btn-save" disabled>
-                    <i class="fa-solid fa-paper-plane"></i> Save &amp; resubmit to RFIO
+                    <i class="fa-solid fa-paper-plane"></i> Save &amp; resubmit to RFIU
                 </button>
             </div>
         </form>

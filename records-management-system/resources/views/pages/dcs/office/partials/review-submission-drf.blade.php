@@ -25,7 +25,7 @@ DCS file: Read-only DRF summary on the admin request screen. Comma-separated ori
             <span class="ofi-review-badge">Office submission</span>
             <h3 class="ofi-review-heading">Document Request Form</h3>
             <p class="ofi-review-lead">
-                {{ $meta['office'] }} submitted a Document Request Form for RFIO review.
+                {{ $meta['office'] }} submitted a Document Request Form for RFIU review.
             </p>
         </div>
         <dl class="ofi-review-meta-grid">
@@ -46,7 +46,7 @@ DCS file: Read-only DRF summary on the admin request screen. Comma-separated ori
 
     <div class="ofi-review-note">
         <i class="fa-solid fa-circle-info"></i>
-        <span>This is a read-only RFIO review view of a submission from another office.</span>
+        <span>This is a read-only RFIU review view of a submission from another office.</span>
     </div>
 
     <section class="ofi-review-section">

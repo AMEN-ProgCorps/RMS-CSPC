@@ -47,13 +47,16 @@ DCS file: Adds and removes approver rows on the office DCN.
         addBtn.hidden = items.length >= max;
     }
 
-    addBtn.addEventListener('click', function () {
+    addBtn.addEventListener('click', function (e) {
         if (rows().length >= max) return;
         const node = tpl.content.cloneNode(true);
         list.appendChild(node);
         renumber();
-        const focus = list.querySelector('[data-approval-row]:last-child input[name="approvalPosition[]"]');
-        if (focus) focus.focus();
+        // Only move focus for a real user click — programmatic fill (Find document) must stay put.
+        if (e && e.isTrusted) {
+            const focus = list.querySelector('[data-approval-row]:last-child input[name="approvalPosition[]"]');
+            if (focus) focus.focus();
+        }
     });
 
     list.addEventListener('input', function () {

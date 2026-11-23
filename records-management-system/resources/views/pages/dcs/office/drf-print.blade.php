@@ -12,7 +12,7 @@ DCS file: CSPC-F-DCC-06 print. Title prefers one line (shrinks down to 8pt); if 
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <meta name="csrf-token" content="{{ csrf_token() }}">
-    <title></title>
+    <title>{{ !empty($embed) || !($allowPrint ?? true) ? ((trim((string) ($printFormTitle ?? '')) !== '' ? trim((string) $printFormTitle) : 'Document Request Form') . ' Preview') : ((trim((string) ($printFormTitle ?? '')) !== '' ? trim((string) $printFormTitle) : 'Document Request Form') . ' — ' . ($printFormCode ?? 'CSPC-F-DCC-06')) }}</title>
     <style>
         /*
          * CSPC-F-DCC-06 Document Request Form — forced print geometry
@@ -42,10 +42,14 @@ DCS file: CSPC-F-DCC-06 print. Title prefers one line (shrinks down to 8pt); if 
             font-size: 11pt !important;
             line-height: 1 !important;
             color: #000 !important;
-            background: #e2e8f0;
+            background: {{ !empty($embed) ? '#fff' : '#e2e8f0' }};
             -webkit-print-color-adjust: exact !important;
             print-color-adjust: exact !important;
         }
+        @if(!empty($hideToolbar) || !empty($embed))
+        .print-toolbar { display: none !important; }
+        .sheet { margin: 0 !important; box-shadow: none !important; }
+        @endif
         .print-toolbar {
             display: flex;
             flex-wrap: wrap;
@@ -561,9 +565,10 @@ DCS file: CSPC-F-DCC-06 print. Title prefers one line (shrinks down to 8pt); if 
             background: #0070C0 !important;
         }
         .footer {
-            display: flex !important;
-            justify-content: space-between !important;
+            display: grid !important;
+            grid-template-columns: 1fr 1fr 1fr !important;
             align-items: center !important;
+            column-gap: 8px !important;
             margin-top: 4px !important;
             font-family: Arial, Helvetica, sans-serif !important;
             font-size: 7pt !important;
@@ -580,6 +585,9 @@ DCS file: CSPC-F-DCC-06 print. Title prefers one line (shrinks down to 8pt); if 
             background: transparent !important;
             color: #000 !important;
         }
+        .footer > :nth-child(1) { text-align: left !important; }
+        .footer > :nth-child(2) { text-align: center !important; }
+        .footer > :nth-child(3) { text-align: right !important; }
 
         .attach-title {
             font-family: Arial, Helvetica, sans-serif !important;
@@ -595,6 +603,7 @@ DCS file: CSPC-F-DCC-06 print. Title prefers one line (shrinks down to 8pt); if 
         .attach-table {
             width: 100% !important;
             border-collapse: collapse !important;
+            border-spacing: 0 !important;
             table-layout: fixed !important;
             font-family: Arial, Helvetica, sans-serif !important;
             font-size: 11pt !important;
@@ -603,14 +612,16 @@ DCS file: CSPC-F-DCC-06 print. Title prefers one line (shrinks down to 8pt); if 
         .attach-table th,
         .attach-table td {
             border: 0.5pt solid #000 !important;
-            padding: 0 4px !important;
+            padding: 0 3px !important;
+            margin: 0 !important;
             vertical-align: middle !important;
             text-align: left !important;
             font-family: Arial, Helvetica, sans-serif !important;
             font-size: 11pt !important;
             line-height: 1 !important;
-            height: 13pt !important;
-            max-height: 13pt !important;
+            height: 11pt !important;
+            min-height: 11pt !important;
+            max-height: 11pt !important;
             overflow: hidden !important;
             white-space: nowrap !important;
             text-overflow: ellipsis !important;
@@ -618,8 +629,11 @@ DCS file: CSPC-F-DCC-06 print. Title prefers one line (shrinks down to 8pt); if 
         .attach-table th {
             font-weight: 700 !important;
             text-align: center !important;
-            height: 14pt !important;
-            max-height: 14pt !important;
+            height: 11pt !important;
+            min-height: 11pt !important;
+            max-height: 11pt !important;
+            line-height: 1 !important;
+            padding: 0 3px !important;
         }
         .attach-table col.c-no { width: 0.55in !important; }
         .attach-table col.c-name { width: auto !important; }
@@ -637,29 +651,31 @@ DCS file: CSPC-F-DCC-06 print. Title prefers one line (shrinks down to 8pt); if 
             display: flex !important;
             flex-direction: column !important;
             box-sizing: border-box !important;
-            height: calc(13in - 0.85in) !important;
-            min-height: calc(13in - 0.85in) !important;
-            max-height: calc(13in - 0.85in) !important;
-            padding: 0.75in 0.5in 0.12in !important;
+            /* Full sheet — no form footer on attach pages. */
+            height: 13in !important;
+            min-height: 13in !important;
+            max-height: 13in !important;
+            padding: 0.50in 0.5in 0.28in !important;
         }
         .sheet-attach .attach-doc-title {
-            margin: 0 0 4pt !important;
+            margin: 0 0 2pt !important;
             height: auto !important;
-            min-height: 13pt !important;
+            min-height: 11pt !important;
             max-height: none !important;
+            line-height: 1 !important;
         }
         .sheet-attach .attach-dist-label {
-            margin: 2pt 0 2pt !important;
+            margin: 1pt 0 2pt !important;
             font-family: Arial, Helvetica, sans-serif !important;
             font-size: 11pt !important;
             font-weight: 700 !important;
-            line-height: 1.15 !important;
+            line-height: 1 !important;
             color: #000 !important;
         }
         .sheet-attach .attach-office-name {
             font-family: Arial, Helvetica, sans-serif !important;
             font-size: 11pt !important;
-            line-height: 1.35 !important;
+            line-height: 1 !important;
             color: #000 !important;
         }
         .sheet-attach .attach-dist-note {
@@ -823,16 +839,22 @@ DCS file: CSPC-F-DCC-06 print. Title prefers one line (shrinks down to 8pt); if 
 
     $distributeOverflow = count($allDistribute) > 24;
     /*
-     * Long bond attach body ≈ 11.5in after header/title/dist-label/footer.
-     * Arial 11pt / line-height 1.0 @ ~13pt rows → ~58 offices before next page
-     * (slightly fewer than before to leave room for the distribution heading).
+     * Attach pages: 11pt @ line-height 1.0. Pack first sheet full, then spill.
+     * Long bond 13in — keep in sync with .attach-table / .sheet-attach .body CSS.
      */
-    $attachPerPage = 58;
+    $attachPadTopIn = 0.50;
+    $attachPadBottomIn = 0.28;
+    $attachMetaIn = 0.50;
+    $attachRowPt = 11.0; // strict 1.0: 11pt text @ line-height 1
+    $attachPageHeightIn = 13.0;
+    $attachUsableIn = max(3.0, $attachPageHeightIn - $attachPadTopIn - $attachPadBottomIn - $attachMetaIn);
+    $attachPerPage = max(20, (int) floor($attachUsableIn / ($attachRowPt / 72)));
     $attachPages = $distributeOverflow
         ? array_chunk($attachOfficeRows, $attachPerPage)
         : [];
 
     if ($distributeOverflow) {
+        // Column-major: index 1 = 2nd row col1, index 2 = 3rd row col1.
         $distribute = array_fill(0, 24, '');
         $distribute[1] = 'Please see attached';
         $distribute[2] = 'distribution list';
@@ -952,7 +974,7 @@ window.print = function () {};
 @endif
 <div class="print-toolbar">
     @if($viewerMode)
-        <span style="font-size:12px;font-weight:600;color:#64748b;align-self:center;">View only — RFIO review</span>
+        <span style="font-size:12px;font-weight:600;color:#64748b;align-self:center;">View only — RFIU review</span>
     @elseif(! $allowPrint)
         <span style="font-size:12px;font-weight:600;color:#64748b;align-self:center;">{{ $printLockMessage }}</span>
         <button type="button" class="btn-close" onclick="window.close()">Close</button>
@@ -977,18 +999,18 @@ window.print = function () {};
             @endif
         </div>
         <div class="hdr-text-cell">
-            <div class="hdr-republic">Republic of the Philippines</div>
-            <div class="hdr-name">Camarines Sur Polytechnic Colleges</div>
-            <div class="hdr-location">Nabua, Camarines Sur</div>
+            <div class="hdr-republic">{{ $printRepublic ?? 'Republic of the Philippines' }}</div>
+            <div class="hdr-name">{{ $printInstitution ?? 'Camarines Sur Polytechnic Colleges' }}</div>
+            <div class="hdr-location">{{ $printAddress ?? 'Nabua, Camarines Sur' }}</div>
         </div>
         <div class="hdr-rule">
             <div class="hdr-rule-line"></div>
-            <span class="hdr-rule-code">CSPC-F-DCC-06</span>
+            <span class="hdr-rule-code">{{ $printFormCode ?? 'CSPC-F-DCC-06' }}</span>
         </div>
     </header>
 
     <div class="body">
-        <div class="form-title">Document Request Form</div>
+        <div class="form-title">{{ $printFormTitle ?? 'Document Request Form' }}</div>
 
         <div class="row">
             <span class="lbl">Request # :</span>
@@ -1095,8 +1117,8 @@ window.print = function () {};
 
         <div class="footer-rule"></div>
         <div class="footer">
-            <span>Effectivity Date: January 2018</span>
-            <span>Rev. 0</span>
+            <span>{{ trim((string) ($printFooterLeft ?? 'Effectivity Date:')) !== '' ? trim((string) ($printFooterLeft ?? 'Effectivity Date:')) : 'Effectivity Date:' }} {{ $printFooterEffectivity ?? 'January 2018' }}</span>
+            <span>{{ trim((string) ($printFooterCenter ?? 'Rev.')) !== '' ? trim((string) ($printFooterCenter ?? 'Rev.')) : 'Rev.' }} {{ $printFooterRev ?? '0' }}</span>
             <span>Page: 1 of 1</span>
         </div>
     </div>
@@ -1105,6 +1127,7 @@ window.print = function () {};
 @if($distributeOverflow)
 @foreach($attachPages as $pageIndex => $pageOffices)
 @php $rowOffset = $pageIndex * $attachPerPage; @endphp
+{{-- Attach list only — no form footer (DRF stays Page: 1 of 1). --}}
 <div class="sheet sheet-attach">
     <div class="body">
         <div class="doc-title-block attach-doc-title" data-doc-title="{{ $docTitle }}">

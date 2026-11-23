@@ -945,7 +945,7 @@ class RegisterQueryHelper
      * DEBUG: unexpected allow/deny → check this predicate.
      */
     // =====================================================================
-    // SECTION: ACCESS CONTROL — full vs limited DCS, RFIO, office intake, modules
+    // SECTION: ACCESS CONTROL — full vs limited DCS, RFIU, office intake, modules
     // =====================================================================
     
     public static function canViewAllDocuments(): bool
@@ -1070,7 +1070,7 @@ class RegisterQueryHelper
     }
 
     /**
-     * Office code to notify for RFIO intake review — matches the row that exists in sys_office.
+     * Office code to notify for RFIU intake review — matches the row that exists in sys_office.
      */
     public static function rfioNotificationOfficeCode(): string
     {
@@ -1273,7 +1273,7 @@ class RegisterQueryHelper
 
     /**
      * Intake-only DCS users may see their own office DRF/DCN links (and plain /dcs).
-     * RFIO processing notices (/dcs/register/requests/…, /dcs/requests/…) stay
+     * RFIU processing notices (/dcs/register/requests/…, /dcs/requests/…) stay
      * Document Controller only — even when both roles share the RFOIU office.
      *
      * DEBUG: unexpected allow/deny → check this predicate.
@@ -1405,6 +1405,7 @@ class RegisterQueryHelper
         if (
             str_starts_with($content, 'Your Document Request Form')
             || str_starts_with($content, 'Your Document Change Notice')
+            || str_starts_with($content, 'RFIU returned your ')
             || str_starts_with($content, 'RFIO returned your ')
             || str_starts_with($content, 'I have reviewed your request')
         ) {
@@ -1476,7 +1477,7 @@ class RegisterQueryHelper
                 ))
                 ->values();
         } elseif (self::canBrowseAllOfficeIntake()) {
-            // RFIO / Document Controllers share the RFIO office with limited intake staff.
+            // RFIU / Document Controllers share the RFIU office with limited intake staff.
             // Hide client-office submitter success notices from controllers only.
             $rows = $rows
                 ->filter(fn ($row) => ! self::isOfficeIntakeSubmitterSuccessNotice(
@@ -1557,7 +1558,7 @@ class RegisterQueryHelper
         };
 
         $pushOffice($officeCode);
-        // Admin DCS / Super Admin may be assigned outside RFOIU — still surface RFIO queue notices
+        // Admin DCS / Super Admin may be assigned outside RFOIU — still surface RFIU queue notices
         // (e.g. office marked a distributed document received).
         if (self::isFullDcsUser()) {
             $pushOffice(self::rfioNotificationOfficeCode());
@@ -1743,7 +1744,13 @@ class RegisterQueryHelper
         if ($path === '') {
             $path = ltrim((string) request()->path(), '/');
         }
-        if ($path === 'chat/unread-count' || $path === '') {
+        // Livewire polls and chat unread-count run under API paths — resolve the real page from Referer.
+        if (
+            $path === ''
+            || $path === 'chat/unread-count'
+            || $path === 'livewire/update'
+            || str_starts_with($path, 'livewire/')
+        ) {
             $referer = (string) request()->headers->get('referer', '');
             $path = ltrim((string) (parse_url($referer, PHP_URL_PATH) ?? ''), '/');
         }
@@ -1883,9 +1890,9 @@ class RegisterQueryHelper
     }
 
     /**
-     * Tells whether RFIO/Admin may browse all offices’ intake forms.
+     * Tells whether RFIU/Admin may browse all offices’ intake forms.
      *
-     * DEBUG: RFIO only sees own office → this should be true for RFIO.
+     * DEBUG: RFIU only sees own office → this should be true for RFIU.
      */
     public static function canBrowseAllOfficeIntake(): bool
     {
@@ -2462,8 +2469,8 @@ class RegisterQueryHelper
     }
 
     /**
-     * Office intake DRF/DCN are pre-registration forms only — never part of RFIO inventory.
-     * Once RFIO has registered them (rfio_registered_at set), they must NOT hide the
+     * Office intake DRF/DCN are pre-registration forms only — never part of RFIU inventory.
+     * Once RFIU has registered them (rfio_registered_at set), they must NOT hide the
      * controlled dcs_document_requests row from Update / Database.
      *
      * DEBUG: unexpected allow/deny → check this predicate.

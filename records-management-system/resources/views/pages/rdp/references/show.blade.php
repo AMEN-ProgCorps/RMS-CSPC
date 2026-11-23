@@ -22,8 +22,8 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - Reference Se
     public function mount(string $type): void
     {
         $perms = Auth::user()?->permissions;
-        if (!$perms || (!(bool)($perms->is_sadm ?? false) && !(bool)($perms->can_access_rdp ?? true))) {
-            redirect()->route('rdp')->send();
+        if (!$perms || (!(bool)($perms->is_sadm ?? false) && (!(bool)($perms->can_access_rdp ?? true) || !(bool)($perms->can_rdp_access_references ?? true)))) {
+            $this->redirectRoute('rdp');
             return;
         }
 

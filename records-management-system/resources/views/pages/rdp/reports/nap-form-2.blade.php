@@ -29,6 +29,12 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - NAP Form 2')
      */
     public function openClusterModal(): void
     {
+        $perms = Auth::user()?->permissions;
+        if (!($perms->is_sadm ?? false) && !(bool)($perms->can_rdp_generate_reports ?? true)) {
+            $this->errorMessage = 'You do not have clearance to create or generate NAP Form 2.';
+            return;
+        }
+
         if (empty($this->selectedIds)) {
             $this->errorMessage = 'Please select at least one record series to create an RDS form.';
             return;
@@ -67,6 +73,12 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - NAP Form 2')
      */
     public function submitClusterCreation(): void
     {
+        $perms = Auth::user()?->permissions;
+        if (!($perms->is_sadm ?? false) && !(bool)($perms->can_rdp_generate_reports ?? true)) {
+            $this->errorMessage = 'You do not have clearance to create or generate NAP Form 2.';
+            return;
+        }
+
         if (empty($this->selectedIds)) {
             $this->errorMessage = 'Please select at least one record series to create an RDS form.';
             return;
@@ -199,7 +211,7 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - NAP Form 2')
         $user = Auth::user();
         $perms = $user?->permissions;
         // Access clearance check
-        if (!$perms || (!(bool)($perms->is_sadm ?? false) && !(bool)($perms->can_rdp_generate_reports ?? true))) {
+        if (!$perms || (!(bool)($perms->is_sadm ?? false) && !(bool)($perms->can_rdp_access_reports ?? true))) {
             $this->redirectRoute('rdp');
             return;
         }
@@ -230,7 +242,7 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - NAP Form 2')
     {
         $perms = Auth::user()?->permissions;
         if (!($perms->is_sadm ?? false) && !(bool)($perms->can_rdp_generate_reports ?? true)) {
-            $this->errorMessage = 'You do not have clearance to print NAP Form 2.';
+            $this->errorMessage = 'You do not have clearance to generate or print NAP Form 2.';
             return;
         }
         if (!empty($specificIds)) {
@@ -1133,15 +1145,37 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - NAP Form 2')
             <h1 class="nap-page-title">NAP Form 2: Records Disposition Schedule</h1>
             <p class="nap-page-subtitle">Schedule of custom and unverified record series added by your office.</p>
         </div>
+        @php
+            $canGenerateReports = (bool)(auth()->user()?->permissions?->is_sadm ?? false) 
+                || (bool)(auth()->user()?->permissions?->can_rdp_generate_reports ?? true);
+        @endphp
         <div style="display: flex; gap: 10px; flex-wrap: wrap; align-items: center;">
-            <button type="button" @click="openPrintModal()" class="nap-btn nap-btn-secondary" style="background: #ffffff; border: 1px solid #cbd5e1; color: #0f172a; box-shadow: 0 1px 2px rgba(0,0,0,0.05);">
+            <button type="button" 
+                    @if(!$canGenerateReports)
+                        disabled
+                        style="background: #ffffff; border: 1px solid #cbd5e1; color: #94a3b8; box-shadow: 0 1px 2px rgba(0,0,0,0.05); display: inline-flex; align-items: center; gap: 6px; opacity: 0.5; cursor: not-allowed;"
+                        title="You do not have clearance to generate or print NAP Form 2."
+                    @else
+                        @click="openPrintModal()" 
+                        class="nap-btn nap-btn-secondary" 
+                        style="background: #ffffff; border: 1px solid #cbd5e1; color: #0f172a; box-shadow: 0 1px 2px rgba(0,0,0,0.05); display: inline-flex; align-items: center; gap: 6px;"
+                    @endif>
                 <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 6 2 18 2 18 9"></polyline><path d="M6 18H4a2 2 0 0 1-2-2v-5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2h-2"></path><rect x="6" y="14" width="12" height="8"></rect></svg>
                 <span>Print Preview</span>
                 <span x-show="selectedIds.length > 0" x-text="'(' + selectedIds.length + ')'"></span>
             </button>
-            <button type="button" wire:click="openClusterModal" class="nap-btn nap-btn-primary" 
-                    :disabled="selectedIds.length === 0" 
-                    :style="selectedIds.length === 0 ? 'opacity: 0.5; cursor: not-allowed;' : ''">
+            <button type="button" 
+                    @if(!$canGenerateReports)
+                        disabled
+                        class="nap-btn nap-btn-primary" 
+                        style="opacity: 0.5; cursor: not-allowed;"
+                        title="You do not have clearance to generate or print NAP Form 2."
+                    @else
+                        wire:click="openClusterModal" 
+                        class="nap-btn nap-btn-primary" 
+                        :disabled="selectedIds.length === 0" 
+                        :style="selectedIds.length === 0 ? 'opacity: 0.5; cursor: not-allowed;' : ''"
+                    @endif>
                 Create RDS Form (<span x-text="selectedIds.length"></span>)
             </button>
         </div>

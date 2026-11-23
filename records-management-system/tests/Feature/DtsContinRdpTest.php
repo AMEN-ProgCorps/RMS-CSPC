@@ -35,6 +35,11 @@ class DtsContinRdpTest extends TestCase
     {
         parent::setUp();
 
+        session([
+            'admin_flows_layout_mode' => 'default',
+            'admin_management_layout_mode' => 'default',
+        ]);
+
         $admin = User::find(1);
         if ($admin) {
             Auth::login($admin);
@@ -446,6 +451,84 @@ class DtsContinRdpTest extends TestCase
         } finally {
             DB::table('rdp_record_series')->where('id', $otherSeriesId)->delete();
             DB::table('rdp_record_series_type')->where('id', $otherTypeId)->delete();
+        }
+    }
+
+    public function test_parent_series_with_subsections_cannot_be_selected_and_shows_error(): void
+    {
+        // Create a subseries under this->seriesId
+        $subSeriesId = DB::table('rdp_record_series')->insertGetId([
+            'parent_id' => $this->seriesId,
+            'series_title' => 'TEST SUBSECTION SERIES',
+            'series_type' => $this->typeId,
+            'is_active' => true,
+        ]);
+
+        try {
+            // 1. Transaction flows predefined picker: selecting parent with subsections is rejected
+            $comp = Volt::test('pages.admin.dts.transaction-flows')
+                ->set('selectedPredefined', (string) $this->flowId)
+                ->call('selectContinRdpSeries', $this->seriesId);
+
+            $this->assertNull($comp->get('continRdpId'));
+            $this->assertStringContainsString('contains subsections', $comp->get('continRdpError'));
+
+            // Selecting the subsection succeeds
+            $comp->call('selectContinRdpSeries', $subSeriesId);
+            $this->assertEquals($subSeriesId, $comp->get('continRdpId'));
+            $this->assertNull($comp->get('continRdpError'));
+            $this->assertStringContainsString(self::SERIES_TITLE . ' ➔ TEST SUBSECTION SERIES', $comp->get('continRdpSearch'));
+
+            // 2. System Settings picker: selecting parent with subsections is rejected
+            $settingsComp = Volt::test('pages.admin.settings.index')
+                ->set('settingsTab', 'rdp')
+                ->call('selectRdpServerDefaultSeries', $this->seriesId);
+
+            $this->assertEquals('', $settingsComp->get('rdpServerDefaultRecordSeries'));
+            $this->assertStringContainsString('contains subsections', $settingsComp->get('rdpSeriesError'));
+
+            // Selecting the subsection succeeds
+            $settingsComp->call('selectRdpServerDefaultSeries', $subSeriesId);
+            $this->assertEquals((string) $subSeriesId, $settingsComp->get('rdpServerDefaultRecordSeries'));
+            $this->assertNull($settingsComp->get('rdpSeriesError'));
+        } finally {
+            DB::table('rdp_record_series')->where('id', $subSeriesId)->delete();
+        }
+    }
+
+    public function test_subseries_displays_parent_indicator_and_inherits_item_number(): void
+    {
+        $subSeriesId = DB::table('rdp_record_series')->insertGetId([
+            'parent_id' => $this->seriesId,
+            'series_title' => 'TEST CHILD SERIES',
+            'series_type' => $this->typeId,
+            'is_active' => true,
+        ]);
+
+        try {
+            $comp = Volt::test('pages.admin.dts.transaction-flows')
+                ->set('selectedPredefined', (string) $this->flowId);
+
+            // Searching by parent title returns both parent and child
+            $choices = $comp->instance()->continRdpChoices(self::SERIES_TITLE, '');
+            $this->assertTrue($choices->pluck('id')->contains($this->seriesId));
+            $this->assertTrue($choices->pluck('id')->contains($subSeriesId));
+
+            $childChoice = $choices->firstWhere('id', $subSeriesId);
+            $this->assertNotNull($childChoice);
+            $this->assertEquals(self::SERIES_ITEM_NO, $childChoice->item_number);
+            $this->assertEquals(self::SERIES_TITLE, $childChoice->parent_title);
+            $this->assertFalse($childChoice->has_subsections);
+
+            $parentChoice = $choices->firstWhere('id', $this->seriesId);
+            $this->assertNotNull($parentChoice);
+            $this->assertTrue($parentChoice->has_subsections);
+
+            // Label for child includes root item number and parent path
+            $label = $comp->instance()->continRdpSelectedLabel($subSeriesId, '');
+            $this->assertEquals('#' . self::SERIES_ITEM_NO . ' · ' . self::SERIES_TITLE . ' ➔ TEST CHILD SERIES', $label);
+        } finally {
+            DB::table('rdp_record_series')->where('id', $subSeriesId)->delete();
         }
     }
 }

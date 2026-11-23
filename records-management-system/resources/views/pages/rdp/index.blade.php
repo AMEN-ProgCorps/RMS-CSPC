@@ -532,11 +532,11 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - Dashboard')]
             ->count();
 
         // -------------------------------------------------------------
-        // 2. LIST OF CREATED CLUSTERS
+        // 2. LIST OF CREATED CLUSTERS (ONLY PENDINGS REQUIRING ACTION)
         // -------------------------------------------------------------
         $clustersCollection = collect();
 
-        // Series Clusters (NAP Form 2)
+        // Series Clusters (NAP Form 2) - Only unverified/pending verification
         if ($this->clusterFilter === 'all' || $this->clusterFilter === 'nap2') {
             $qSeries = DB::table($mainPendingTbl)
                 ->join('rdp_pending_record_series', "{$mainPendingTbl}.id", '=', 'rdp_pending_record_series.cluster_id')
@@ -544,6 +544,12 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - Dashboard')]
                 ->leftJoin($officeTbl, 'rdp_pending_record_series.office', '=', "{$officeTbl}.office_code")
                 ->leftJoin($accDetailsTbl, 'rdp_pending_record_series.created_by', '=', "{$accDetailsTbl}.account_id")
                 ->leftJoin($officeTbl . ' as submitter_office', "{$accDetailsTbl}.office_id", '=', "submitter_office.id")
+                ->where('rdp_pending_record_series.is_verified', false)
+                ->where(function($q) {
+                    $q->where('rdp_pending_record_series.status_id', 1)
+                      ->orWhereNull('rdp_pending_record_series.status_id')
+                      ->orWhere('rdp_pending_status.status_name', 'ILIKE', '%pending%');
+                })
                 ->select([
                     "{$mainPendingTbl}.id as main_id",
                     'rdp_pending_record_series.cluster_id',
@@ -578,7 +584,7 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - Dashboard')]
             $clustersCollection = $clustersCollection->concat($qSeries->get());
         }
 
-        // Record Clusters (NAP Form 1 & NAP Form 3)
+        // Record Clusters (NAP Form 1 & NAP Form 3) - Only unverified/pending verification
         if ($this->clusterFilter === 'all' || $this->clusterFilter === 'nap1' || $this->clusterFilter === 'nap3') {
             $qRec = DB::table($mainPendingTbl)
                 ->join('rdp_pending_record', "{$mainPendingTbl}.id", '=', 'rdp_pending_record.cluster_id')
@@ -586,6 +592,12 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - Dashboard')]
                 ->leftJoin($officeTbl, 'rdp_pending_record.office', '=', "{$officeTbl}.office_code")
                 ->leftJoin($accDetailsTbl, 'rdp_pending_record.created_by', '=', "{$accDetailsTbl}.account_id")
                 ->leftJoin($officeTbl . ' as submitter_office', "{$accDetailsTbl}.office_id", '=', "submitter_office.id")
+                ->where('rdp_pending_record.is_verified', false)
+                ->where(function($q) {
+                    $q->where('rdp_pending_record.status_id', 1)
+                      ->orWhereNull('rdp_pending_record.status_id')
+                      ->orWhere('rdp_pending_status.status_name', 'ILIKE', '%pending%');
+                })
                 ->select([
                     "{$mainPendingTbl}.id as main_id",
                     'rdp_pending_record.cluster_id',
@@ -645,10 +657,14 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - Dashboard')]
         }
 
         // -------------------------------------------------------------
-        // 3. RECEIVED DOCUMENTS (DTS / DCS) - DTS is Default
+        // 3. RECEIVED DOCUMENTS (DTS / DCS) - ONLY PENDINGS REQUIRING ACTION
         // -------------------------------------------------------------
         $recDocsQuery = DB::table('rdp_received_documents')
-            ->where('source_subsystem', $this->receivedTab);
+            ->where('source_subsystem', $this->receivedTab)
+            ->where(function($q) {
+                $q->where('status', 'pending')
+                  ->orWhereNull('status');
+            });
 
         if ($userOfficeCode) {
             $recDocsQuery->where(function($q) use ($userOfficeCode, $userOfficeName) {
@@ -679,8 +695,18 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - Dashboard')]
             ->limit($this->receivedPerPage)
             ->get();
 
-        $dcsCountQuery = DB::table('rdp_received_documents')->where('source_subsystem', 'DCS');
-        $dtsCountQuery = DB::table('rdp_received_documents')->where('source_subsystem', 'DTS');
+        $dcsCountQuery = DB::table('rdp_received_documents')
+            ->where('source_subsystem', 'DCS')
+            ->where(function($q) {
+                $q->where('status', 'pending')
+                  ->orWhereNull('status');
+            });
+        $dtsCountQuery = DB::table('rdp_received_documents')
+            ->where('source_subsystem', 'DTS')
+            ->where(function($q) {
+                $q->where('status', 'pending')
+                  ->orWhereNull('status');
+            });
         if ($userOfficeCode) {
             $dcsCountQuery->where(function($q) use ($userOfficeCode, $userOfficeName) {
                 $q->where('origin_office', 'ILIKE', "%{$userOfficeCode}%")
@@ -1972,8 +1998,8 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - Dashboard')]
                                 <tr>
                                     <td colspan="5" style="text-align: center; padding: 40px 16px; color: #64748b;">
                                         <div style="font-size: 28px; margin-bottom: 8px;">📦</div>
-                                        <div style="font-weight: 700; font-size: 13.5px; color: #334155;">No Created Forms Found</div>
-                                        <div style="font-size: 12px; color: #94a3b8; margin-top: 4px;">Forms created for NAP Forms 1, 2, or 3 will appear here.</div>
+                                        <div style="font-weight: 700; font-size: 13.5px; color: #334155;">No Pending Forms Found</div>
+                                        <div style="font-size: 12px; color: #94a3b8; margin-top: 4px;">Forms queued for verification will appear here.</div>
                                     </td>
                                 </tr>
                             @endforelse
@@ -2075,7 +2101,7 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - Dashboard')]
                             </span>
                         </h2>
                         <span style="font-size: 11.5px; color: #64748b;">
-                            From {{ $receivedTab === 'DTS' ? 'Document Tracking System' : 'Document Control System' }}
+                            Pending from {{ $receivedTab === 'DTS' ? 'Document Tracking System' : 'Document Control System' }}
                         </span>
                     </div>
 
@@ -2152,9 +2178,9 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - Dashboard')]
                                 <tr>
                                     <td colspan="6" style="text-align: center; padding: 40px 16px; color: #64748b;">
                                         <div style="font-size: 28px; margin-bottom: 8px;">📥</div>
-                                        <div style="font-weight: 700; font-size: 13.5px; color: #334155;">No Received {{ $receivedTab }} Documents</div>
+                                        <div style="font-weight: 700; font-size: 13.5px; color: #334155;">No Pending {{ $receivedTab }} Documents</div>
                                         <div style="font-size: 12px; color: #94a3b8; margin-top: 4px;">
-                                            Documents submitted from {{ $receivedTab === 'DTS' ? 'Document Tracking System' : 'Document Control System' }} will be listed here.
+                                            Pending documents from {{ $receivedTab === 'DTS' ? 'Document Tracking System' : 'Document Control System' }} requiring action will appear here.
                                         </div>
                                     </td>
                                 </tr>

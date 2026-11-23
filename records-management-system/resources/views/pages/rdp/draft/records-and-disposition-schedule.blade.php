@@ -26,8 +26,8 @@ new #[Layout('layouts.rdp')] #[Title('Draft Records and Disposition Schedule')] 
     public function mount(): void
     {
         $perms = Auth::user()?->permissions;
-        if (!$perms || (!(bool)($perms->is_sadm ?? false) && !(bool)($perms->can_access_rdp ?? true))) {
-            redirect()->route('rdp')->send();
+        if (!$perms || (!(bool)($perms->is_sadm ?? false) && (!(bool)($perms->can_access_rdp ?? true) || !(bool)($perms->can_rdp_access_drafts ?? true)))) {
+            $this->redirectRoute('rdp');
             return;
         }
     }

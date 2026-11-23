@@ -105,6 +105,13 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Roles & Clearances')] cl
     public bool $rdpViewAllFiles = false;
     public bool $isRdpViewAllPendingList = false;
     public bool $isRdpViewAllReceivedDocs = false;
+    public bool $canRdpAccessReceivedDocs = true;
+    public bool $canRdpAccessAddRecords = true;
+    public bool $canRdpAccessDrafts = true;
+    public bool $canRdpAccessPending = true;
+    public bool $canRdpAccessReferences = true;
+    public bool $canRdpAccessReports = true;
+    public bool $canRdpAccessManageFiles = true;
     public bool $canRdpAccessForApproval = false;
     public bool $canRdpModifySeries = true;
     public bool $canRdpGenerateReports = true;
@@ -232,6 +239,13 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Roles & Clearances')] cl
         $this->rdpViewAllFiles = false;
         $this->isRdpViewAllPendingList = false;
         $this->isRdpViewAllReceivedDocs = false;
+        $this->canRdpAccessReceivedDocs = true;
+        $this->canRdpAccessAddRecords = true;
+        $this->canRdpAccessDrafts = true;
+        $this->canRdpAccessPending = true;
+        $this->canRdpAccessReferences = true;
+        $this->canRdpAccessReports = true;
+        $this->canRdpAccessManageFiles = true;
         $this->canRdpAccessForApproval = false;
         $this->canRdpModifySeries = true;
         $this->canRdpGenerateReports = true;
@@ -323,6 +337,13 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Roles & Clearances')] cl
                 $this->rdpViewAllFiles = (bool) ($perms->rdp_view_all_files ?? false);
                 $this->isRdpViewAllPendingList = (bool) ($perms->is_rdp_view_all_pending_list ?? false);
                 $this->isRdpViewAllReceivedDocs = (bool) ($perms->is_rdp_view_all_received_docs ?? false);
+                $this->canRdpAccessReceivedDocs = (bool) ($perms->can_rdp_access_received_docs ?? true);
+                $this->canRdpAccessAddRecords = (bool) ($perms->can_rdp_access_add_records ?? true);
+                $this->canRdpAccessDrafts = (bool) ($perms->can_rdp_access_drafts ?? true);
+                $this->canRdpAccessPending = (bool) ($perms->can_rdp_access_pending ?? true);
+                $this->canRdpAccessReferences = (bool) ($perms->can_rdp_access_references ?? true);
+                $this->canRdpAccessReports = (bool) ($perms->can_rdp_access_reports ?? true);
+                $this->canRdpAccessManageFiles = (bool) ($perms->can_rdp_access_manage_files ?? true);
                 $this->canRdpAccessForApproval = (bool) ($perms->can_rdp_access_for_approval ?? false);
                 $this->canRdpModifySeries = (bool) ($perms->can_rdp_modify_series ?? true);
                 $this->canRdpGenerateReports = (bool) ($perms->can_rdp_generate_reports ?? true);
@@ -378,8 +399,15 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Roles & Clearances')] cl
             + ($this->canDtsModifyIssuanceControlNo ? 1 : 0)
             + ($this->canViewAllScannerCodes ? 1 : 0);
 
-        // RDP (7)
+        // RDP (14)
         $rdpActive = ($this->canAccessArchv ? 1 : 0)
+            + ($this->canRdpAccessReceivedDocs ? 1 : 0)
+            + ($this->canRdpAccessAddRecords ? 1 : 0)
+            + ($this->canRdpAccessDrafts ? 1 : 0)
+            + ($this->canRdpAccessPending ? 1 : 0)
+            + ($this->canRdpAccessReferences ? 1 : 0)
+            + ($this->canRdpAccessReports ? 1 : 0)
+            + ($this->canRdpAccessManageFiles ? 1 : 0)
             + ($this->rdpViewAllFiles ? 1 : 0)
             + ($this->isRdpViewAllPendingList ? 1 : 0)
             + ($this->canRdpAccessForApproval ? 1 : 0)
@@ -410,11 +438,11 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Roles & Clearances')] cl
         return [
             'core'  => ['active' => $coreActive, 'total' => 5],
             'dts'   => ['active' => $dtsActive, 'total' => 17],
-            'rdp'   => ['active' => $rdpActive, 'total' => 7],
+            'rdp'   => ['active' => $rdpActive, 'total' => 14],
             'dcs'   => ['active' => $dcsActive, 'total' => 4],
             'admin' => ['active' => $adminActive, 'total' => 10],
             'totalActive' => $totalActive,
-            'totalClearances' => 5 + 17 + 7 + 4 + 10,
+            'totalClearances' => 5 + 17 + 14 + 4 + 10,
         ];
     }
 
@@ -459,6 +487,13 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Roles & Clearances')] cl
             $this->canDtsModifyIssuanceControlNo = true;
         } elseif ($module === 'rdp') {
             $this->canAccessArchv = true;
+            $this->canRdpAccessReceivedDocs = true;
+            $this->canRdpAccessAddRecords = true;
+            $this->canRdpAccessDrafts = true;
+            $this->canRdpAccessPending = true;
+            $this->canRdpAccessReferences = true;
+            $this->canRdpAccessReports = true;
+            $this->canRdpAccessManageFiles = true;
             if ($this->isSadm || $this->isAdmin) {
                 $this->rdpViewAllFiles = true;
             }
@@ -526,6 +561,13 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Roles & Clearances')] cl
             $this->canViewAllScannerCodes = false;
         } elseif ($module === 'rdp') {
             $this->canAccessArchv = false;
+            $this->canRdpAccessReceivedDocs = false;
+            $this->canRdpAccessAddRecords = false;
+            $this->canRdpAccessDrafts = false;
+            $this->canRdpAccessPending = false;
+            $this->canRdpAccessReferences = false;
+            $this->canRdpAccessReports = false;
+            $this->canRdpAccessManageFiles = false;
             $this->rdpViewAllFiles = false;
             $this->isRdpViewAllPendingList = false;
             $this->canRdpAccessForApproval = false;
@@ -763,6 +805,13 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Roles & Clearances')] cl
         $perms->can_access_recycle_bin = $this->canAccessRecycleBin;
 
         // RDP Clearances
+        $perms->can_rdp_access_received_docs = $this->canRdpAccessReceivedDocs;
+        $perms->can_rdp_access_add_records   = $this->canRdpAccessAddRecords;
+        $perms->can_rdp_access_drafts        = $this->canRdpAccessDrafts;
+        $perms->can_rdp_access_pending       = $this->canRdpAccessPending;
+        $perms->can_rdp_access_references    = $this->canRdpAccessReferences;
+        $perms->can_rdp_access_reports       = $this->canRdpAccessReports;
+        $perms->can_rdp_access_manage_files  = $this->canRdpAccessManageFiles;
         $perms->rdp_view_all_files        = ($this->isSadm || $this->isAdmin) ? $this->rdpViewAllFiles : false;
         $perms->is_rdp_view_all_pending_list = $this->isRdpViewAllPendingList;
         $perms->is_rdp_view_all_received_docs = $this->isRdpViewAllReceivedDocs;
@@ -1009,6 +1058,13 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Roles & Clearances')] cl
         $this->rdpViewAllFiles = true;
         $this->isRdpViewAllPendingList = true;
         $this->isRdpViewAllReceivedDocs = true;
+        $this->canRdpAccessReceivedDocs = true;
+        $this->canRdpAccessAddRecords = true;
+        $this->canRdpAccessDrafts = true;
+        $this->canRdpAccessPending = true;
+        $this->canRdpAccessReferences = true;
+        $this->canRdpAccessReports = true;
+        $this->canRdpAccessManageFiles = true;
         $this->canRdpAccessForApproval = true;
         $this->canRdpModifySeries = true;
         $this->canRdpGenerateReports = true;
@@ -2173,6 +2229,116 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Roles & Clearances')] cl
                                             <span class="slider"></span>
                                         </label>
                                     </div>
+                                    <!-- Access Received Documents -->
+                                    <div class="permission-toggle-row">
+                                        <div class="permission-toggle-info">
+                                            <span class="permission-toggle-title">Access Received Documents</span>
+                                            <span class="permission-toggle-desc">Clearance to access and view incoming documents in the Received Documents section (DTS, DCS, and Record Requests).</span>
+                                        </div>
+                                        <label class="switch">
+                                            <input type="checkbox" wire:model="canRdpAccessReceivedDocs">
+                                            <span class="slider"></span>
+                                        </label>
+                                    </div>
+                                    <!-- Access Add Records -->
+                                    <div class="permission-toggle-row">
+                                        <div class="permission-toggle-info">
+                                            <span class="permission-toggle-title">Access Add Records</span>
+                                            <span class="permission-toggle-desc">Clearance to access Add Records and encode Inventory & Appraisal or Records Disposition Schedules.</span>
+                                        </div>
+                                        <label class="switch">
+                                            <input type="checkbox" wire:model="canRdpAccessAddRecords">
+                                            <span class="slider"></span>
+                                        </label>
+                                    </div>
+                                    <!-- Access Drafts -->
+                                    <div class="permission-toggle-row">
+                                        <div class="permission-toggle-info">
+                                            <span class="permission-toggle-title">Access Drafts</span>
+                                            <span class="permission-toggle-desc">Clearance to access and resume unsubmitted draft appraisals and disposition schedules.</span>
+                                        </div>
+                                        <label class="switch">
+                                            <input type="checkbox" wire:model="canRdpAccessDrafts">
+                                            <span class="slider"></span>
+                                        </label>
+                                    </div>
+                                    <!-- Access Pending List -->
+                                    <div class="permission-toggle-row">
+                                        <div class="permission-toggle-info">
+                                            <span class="permission-toggle-title">Access Pending List</span>
+                                            <span class="permission-toggle-desc">Clearance to access the Pending section queue to monitor submitted appraisals.</span>
+                                        </div>
+                                        <label class="switch">
+                                            <input type="checkbox" wire:model="canRdpAccessPending">
+                                            <span class="slider"></span>
+                                        </label>
+                                    </div>
+                                    <!-- Access References -->
+                                    <div class="permission-toggle-row">
+                                        <div class="permission-toggle-info">
+                                            <span class="permission-toggle-title">Access References</span>
+                                            <span class="permission-toggle-desc">Clearance to access and browse official Record Series classification tables (PH-NAP, CHED, SUC).</span>
+                                        </div>
+                                        <label class="switch">
+                                            <input type="checkbox" wire:model="canRdpAccessReferences">
+                                            <span class="slider"></span>
+                                        </label>
+                                    </div>
+                                    <!-- Access RDP Reports -->
+                                    <div class="permission-toggle-row">
+                                        <div class="permission-toggle-info">
+                                            <span class="permission-toggle-title">Access RDP Reports</span>
+                                            <span class="permission-toggle-desc">Clearance to access and view RDP report pages (NAP Forms 1, 2, 3 and Generalized Records).</span>
+                                        </div>
+                                        <label class="switch">
+                                            <input type="checkbox" wire:model="canRdpAccessReports">
+                                            <span class="slider"></span>
+                                        </label>
+                                    </div>
+                                    <!-- Access Manage Files -->
+                                    <div class="permission-toggle-row">
+                                        <div class="permission-toggle-info">
+                                            <span class="permission-toggle-title">Access Manage Files</span>
+                                            <span class="permission-toggle-desc">Clearance to access and browse archived files in the Manage Files repository.</span>
+                                        </div>
+                                        <label class="switch">
+                                            <input type="checkbox" wire:model="canRdpAccessManageFiles">
+                                            <span class="slider"></span>
+                                        </label>
+                                    </div>
+                                    <!-- Generate & Print RDP Reports -->
+                                    <div class="permission-toggle-row">
+                                        <div class="permission-toggle-info">
+                                            <span class="permission-toggle-title">Generate & Print RDP Reports</span>
+                                            <span class="permission-toggle-desc">Clearance to configure, create forms (cluster batches), export, and print official NAP forms (Forms 1, 2, 3) and Generalized records.</span>
+                                        </div>
+                                        <label class="switch">
+                                            <input type="checkbox" wire:model="canRdpGenerateReports">
+                                            <span class="slider"></span>
+                                        </label>
+                                    </div>
+                                    <!-- Modify Record Series & Appraisal -->
+                                    <div class="permission-toggle-row">
+                                        <div class="permission-toggle-info">
+                                            <span class="permission-toggle-title">Modify Record Series & Appraisal</span>
+                                            <span class="permission-toggle-desc">Clearance to add, edit, or update record series, inventory appraisal schedules, and retention values.</span>
+                                        </div>
+                                        <label class="switch">
+                                            <input type="checkbox" wire:model="canRdpModifySeries">
+                                            <span class="slider"></span>
+                                        </label>
+                                    </div>
+                                    <!-- Access For Approval Page -->
+                                    <div class="permission-toggle-row">
+                                        <div class="permission-toggle-info">
+                                            <span class="permission-toggle-title">Access For Approval Page (RDP)</span>
+                                            <span class="permission-toggle-desc">Clearance to view and access the RDP Pending For Approval page to evaluate and approve submissions.</span>
+                                        </div>
+                                        <label class="switch">
+                                            <input type="checkbox" wire:model="canRdpAccessForApproval">
+                                            <span class="slider"></span>
+                                        </label>
+                                    </div>
                                     <!-- View All Office Files -->
                                     <div class="permission-toggle-row" style="{{ (!$isSadm && !$isAdmin) ? 'opacity: 0.5; transition: opacity 0.2s ease;' : '' }}">
                                         <div class="permission-toggle-info">
@@ -2195,17 +2361,6 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Roles & Clearances')] cl
                                             <span class="slider"></span>
                                         </label>
                                     </div>
-                                    <!-- Access For Approval Page -->
-                                    <div class="permission-toggle-row">
-                                        <div class="permission-toggle-info">
-                                            <span class="permission-toggle-title">Access For Approval Page (RDP)</span>
-                                            <span class="permission-toggle-desc">Clearance to view and access the RDP Pending For Approval page to evaluate and approve submissions.</span>
-                                        </div>
-                                        <label class="switch">
-                                            <input type="checkbox" wire:model="canRdpAccessForApproval">
-                                            <span class="slider"></span>
-                                        </label>
-                                    </div>
                                     <!-- View All Received Documents -->
                                     <div class="permission-toggle-row">
                                         <div class="permission-toggle-info">
@@ -2214,28 +2369,6 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Roles & Clearances')] cl
                                         </div>
                                         <label class="switch">
                                             <input type="checkbox" wire:model="isRdpViewAllReceivedDocs">
-                                            <span class="slider"></span>
-                                        </label>
-                                    </div>
-                                    <!-- Modify Record Series & Appraisal -->
-                                    <div class="permission-toggle-row">
-                                        <div class="permission-toggle-info">
-                                            <span class="permission-toggle-title">Modify Record Series & Appraisal</span>
-                                            <span class="permission-toggle-desc">Clearance to add, edit, or update record series, inventory appraisal schedules, and retention values.</span>
-                                        </div>
-                                        <label class="switch">
-                                            <input type="checkbox" wire:model="canRdpModifySeries">
-                                            <span class="slider"></span>
-                                        </label>
-                                    </div>
-                                    <!-- Generate & Print RDP Reports -->
-                                    <div class="permission-toggle-row">
-                                        <div class="permission-toggle-info">
-                                            <span class="permission-toggle-title">Generate & Print RDP Reports</span>
-                                            <span class="permission-toggle-desc">Clearance to access, view, configure, and generate official RDP reports (NAP Forms 1, 2, 3 and Generalized Records).</span>
-                                        </div>
-                                        <label class="switch">
-                                            <input type="checkbox" wire:model="canRdpGenerateReports">
                                             <span class="slider"></span>
                                         </label>
                                     </div>
@@ -3023,6 +3156,136 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Roles & Clearances')] cl
                             </div>
                         @endif
 
+                        @if(empty($permSearch) || str_contains(strtolower('Access Received Documents'), strtolower($permSearch)))
+                            <div class="m-permission-card">
+                                <div class="m-permission-info">
+                                    <span class="m-permission-title">Access Received Documents</span>
+                                    <span class="m-permission-desc">Clearance to access and view incoming documents in the Received Documents section (DTS, DCS, and Record Requests).</span>
+                                </div>
+                                <label class="switch">
+                                    <input type="checkbox" wire:model="canRdpAccessReceivedDocs">
+                                    <span class="slider"></span>
+                                </label>
+                            </div>
+                        @endif
+
+                        @if(empty($permSearch) || str_contains(strtolower('Access Add Records'), strtolower($permSearch)))
+                            <div class="m-permission-card">
+                                <div class="m-permission-info">
+                                    <span class="m-permission-title">Access Add Records</span>
+                                    <span class="m-permission-desc">Clearance to access Add Records and encode Inventory & Appraisal or Records Disposition Schedules.</span>
+                                </div>
+                                <label class="switch">
+                                    <input type="checkbox" wire:model="canRdpAccessAddRecords">
+                                    <span class="slider"></span>
+                                </label>
+                            </div>
+                        @endif
+
+                        @if(empty($permSearch) || str_contains(strtolower('Access Drafts'), strtolower($permSearch)))
+                            <div class="m-permission-card">
+                                <div class="m-permission-info">
+                                    <span class="m-permission-title">Access Drafts</span>
+                                    <span class="m-permission-desc">Clearance to access and resume unsubmitted draft appraisals and disposition schedules.</span>
+                                </div>
+                                <label class="switch">
+                                    <input type="checkbox" wire:model="canRdpAccessDrafts">
+                                    <span class="slider"></span>
+                                </label>
+                            </div>
+                        @endif
+
+                        @if(empty($permSearch) || str_contains(strtolower('Access Pending List'), strtolower($permSearch)))
+                            <div class="m-permission-card">
+                                <div class="m-permission-info">
+                                    <span class="m-permission-title">Access Pending List</span>
+                                    <span class="m-permission-desc">Clearance to access the Pending section queue to monitor submitted appraisals.</span>
+                                </div>
+                                <label class="switch">
+                                    <input type="checkbox" wire:model="canRdpAccessPending">
+                                    <span class="slider"></span>
+                                </label>
+                            </div>
+                        @endif
+
+                        @if(empty($permSearch) || str_contains(strtolower('Access References'), strtolower($permSearch)))
+                            <div class="m-permission-card">
+                                <div class="m-permission-info">
+                                    <span class="m-permission-title">Access References</span>
+                                    <span class="m-permission-desc">Clearance to access and browse official Record Series classification tables (PH-NAP, CHED, SUC).</span>
+                                </div>
+                                <label class="switch">
+                                    <input type="checkbox" wire:model="canRdpAccessReferences">
+                                    <span class="slider"></span>
+                                </label>
+                            </div>
+                        @endif
+
+                        @if(empty($permSearch) || str_contains(strtolower('Access RDP Reports'), strtolower($permSearch)))
+                            <div class="m-permission-card">
+                                <div class="m-permission-info">
+                                    <span class="m-permission-title">Access RDP Reports</span>
+                                    <span class="m-permission-desc">Clearance to access and view RDP report pages (NAP Forms 1, 2, 3 and Generalized Records).</span>
+                                </div>
+                                <label class="switch">
+                                    <input type="checkbox" wire:model="canRdpAccessReports">
+                                    <span class="slider"></span>
+                                </label>
+                            </div>
+                        @endif
+
+                        @if(empty($permSearch) || str_contains(strtolower('Access Manage Files'), strtolower($permSearch)))
+                            <div class="m-permission-card">
+                                <div class="m-permission-info">
+                                    <span class="m-permission-title">Access Manage Files</span>
+                                    <span class="m-permission-desc">Clearance to access and browse archived files in the Manage Files repository.</span>
+                                </div>
+                                <label class="switch">
+                                    <input type="checkbox" wire:model="canRdpAccessManageFiles">
+                                    <span class="slider"></span>
+                                </label>
+                            </div>
+                        @endif
+
+                        @if(empty($permSearch) || str_contains(strtolower('Generate & Print RDP Reports'), strtolower($permSearch)))
+                            <div class="m-permission-card">
+                                <div class="m-permission-info">
+                                    <span class="m-permission-title">Generate & Print RDP Reports</span>
+                                    <span class="m-permission-desc">Clearance to configure, create forms (cluster batches), export, and print official NAP forms (Forms 1, 2, 3) and Generalized records.</span>
+                                </div>
+                                <label class="switch">
+                                    <input type="checkbox" wire:model="canRdpGenerateReports">
+                                    <span class="slider"></span>
+                                </label>
+                            </div>
+                        @endif
+
+                        @if(empty($permSearch) || str_contains(strtolower('Modify Record Series & Appraisal'), strtolower($permSearch)))
+                            <div class="m-permission-card">
+                                <div class="m-permission-info">
+                                    <span class="m-permission-title">Modify Record Series & Appraisal</span>
+                                    <span class="m-permission-desc">Add, edit, or update record series, inventory appraisal schedules, and retention values.</span>
+                                </div>
+                                <label class="switch">
+                                    <input type="checkbox" wire:model="canRdpModifySeries">
+                                    <span class="slider"></span>
+                                </label>
+                            </div>
+                        @endif
+
+                        @if(empty($permSearch) || str_contains(strtolower('Access For Approval Page'), strtolower($permSearch)))
+                            <div class="m-permission-card">
+                                <div class="m-permission-info">
+                                    <span class="m-permission-title">Access For Approval Page</span>
+                                    <span class="m-permission-desc">View and access the RDP Pending For Approval page to evaluate and approve submissions.</span>
+                                </div>
+                                <label class="switch">
+                                    <input type="checkbox" wire:model="canRdpAccessForApproval">
+                                    <span class="slider"></span>
+                                </label>
+                            </div>
+                        @endif
+
                         @if(empty($permSearch) || str_contains(strtolower('View All Office Files'), strtolower($permSearch)))
                             <div class="m-permission-card" style="{{ (!$isSadm && !$isAdmin) ? 'opacity: 0.5;' : '' }}">
                                 <div class="m-permission-info">
@@ -3049,19 +3312,6 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Roles & Clearances')] cl
                             </div>
                         @endif
 
-                        @if(empty($permSearch) || str_contains(strtolower('Access For Approval Page'), strtolower($permSearch)))
-                            <div class="m-permission-card">
-                                <div class="m-permission-info">
-                                    <span class="m-permission-title">Access For Approval Page</span>
-                                    <span class="m-permission-desc">View and access the RDP Pending For Approval page to evaluate and approve submissions.</span>
-                                </div>
-                                <label class="switch">
-                                    <input type="checkbox" wire:model="canRdpAccessForApproval">
-                                    <span class="slider"></span>
-                                </label>
-                            </div>
-                        @endif
-
                         @if(empty($permSearch) || str_contains(strtolower('View All Received Documents'), strtolower($permSearch)))
                             <div class="m-permission-card">
                                 <div class="m-permission-info">
@@ -3070,32 +3320,6 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Roles & Clearances')] cl
                                 </div>
                                 <label class="switch">
                                     <input type="checkbox" wire:model="isRdpViewAllReceivedDocs">
-                                    <span class="slider"></span>
-                                </label>
-                            </div>
-                        @endif
-
-                        @if(empty($permSearch) || str_contains(strtolower('Modify Record Series & Appraisal'), strtolower($permSearch)))
-                            <div class="m-permission-card">
-                                <div class="m-permission-info">
-                                    <span class="m-permission-title">Modify Record Series & Appraisal</span>
-                                    <span class="m-permission-desc">Add, edit, or update record series, inventory appraisal schedules, and retention values.</span>
-                                </div>
-                                <label class="switch">
-                                    <input type="checkbox" wire:model="canRdpModifySeries">
-                                    <span class="slider"></span>
-                                </label>
-                            </div>
-                        @endif
-
-                        @if(empty($permSearch) || str_contains(strtolower('Generate & Print RDP Reports'), strtolower($permSearch)))
-                            <div class="m-permission-card">
-                                <div class="m-permission-info">
-                                    <span class="m-permission-title">Generate & Print RDP Reports</span>
-                                    <span class="m-permission-desc">Access, configure, and generate official NAP Forms 1, 2, 3 and Generalized records.</span>
-                                </div>
-                                <label class="switch">
-                                    <input type="checkbox" wire:model="canRdpGenerateReports">
                                     <span class="slider"></span>
                                 </label>
                             </div>

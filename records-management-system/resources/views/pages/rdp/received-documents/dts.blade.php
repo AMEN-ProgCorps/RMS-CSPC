@@ -25,9 +25,6 @@ new #[Layout('layouts.rdp')] #[Title('Received Documents - Document Tracking Sys
     public bool $showDetailModal = false;
     public ?object $selectedDoc = null;
 
-    // Import / Pull from DTS Modal
-    public bool $showImportModal = false;
-    public string $importSearch = '';
 
     /**
      * Initializes component state, authorization gates, and default configurations.
@@ -36,8 +33,8 @@ new #[Layout('layouts.rdp')] #[Title('Received Documents - Document Tracking Sys
     public function mount(): void
     {
         $perms = Auth::user()?->permissions;
-        if (!$perms || (!(bool)($perms->is_sadm ?? false) && !(bool)($perms->can_access_rdp ?? true))) {
-            redirect()->route('rdp')->send();
+        if (!$perms || (!(bool)($perms->is_sadm ?? false) && (!(bool)($perms->can_access_rdp ?? true) || !(bool)($perms->can_rdp_access_received_docs ?? true)))) {
+            $this->redirectRoute('rdp');
             return;
         }
     }
@@ -176,109 +173,6 @@ new #[Layout('layouts.rdp')] #[Title('Received Documents - Document Tracking Sys
     }
 
     /**
-     * Displays the import modal.
-     * @return void
-     */
-    public function openImportModal(): void
-    {
-        $this->clearMessages();
-        $this->importSearch = '';
-        $this->showImportModal = true;
-    }
-
-    /**
-     * Closes the import modal.
-     * @return void
-     */
-    public function closeImportModal(): void
-    {
-        $this->showImportModal = false;
-        $this->importSearch = '';
-    }
-
-    /**
-     * Processes and imports dts transaction from uploaded file.
-     *
-     * @param string $controlNumber
-     *
-     * @return void
-     */
-    public function importDtsTransaction(string $controlNumber): void
-    {
-        $this->clearMessages();
-        $controlNumber = trim($controlNumber);
-
-        if (empty($controlNumber)) {
-            $this->errorMessage = 'Please provide a valid DTS Control Number.';
-            return;
-        }
-
-        // Check if already in received documents
-        $existing = DB::table('rdp_received_documents')
-            ->where('source_subsystem', 'DTS')
-            ->where('document_code', $controlNumber)
-            ->first();
-
-        if ($existing) {
-            $this->errorMessage = "DTS Transaction '{$controlNumber}' has already been received into RDP.";
-            return;
-        }
-
-        // Find transaction in dts_transaction_details
-        $dtd = DB::table('dts_transaction_details')
-            ->where('control_number', $controlNumber)
-            ->first();
-
-        if (!$dtd) {
-            $this->errorMessage = "DTS Transaction '{$controlNumber}' was not found in the Tracking System.";
-            return;
-        }
-
-        // Only fully-completed transactions may be imported into RDP.
-        $txStatus = DB::table('dts_transactions')->where('transaction_id', $dtd->id)->value('status');
-        if ($txStatus !== 'completed') {
-            $this->errorMessage = "Only completed DTS transactions can be imported to RDP. Transaction '{$controlNumber}' is still "
-                . ($txStatus ?: 'unknown') . ".";
-            return;
-        }
-
-        // Find attached document if exists
-        $sysDoc = DB::table('sys_document_data')
-            ->where('document_id', $dtd->control_number)
-            ->orWhere('document_id', 'like', 'DTS%' . $dtd->control_number . '%')
-            ->orWhere('document_name', 'like', '%' . $dtd->control_number . '%')
-            ->first();
-
-        $user = Auth::user();
-
-        DB::table('rdp_received_documents')->insert([
-            'source_subsystem'    => 'DTS',
-            'document_code'       => $dtd->control_number,
-            'document_title'      => $dtd->subject ?? 'Untitled Document',
-            'description'         => 'Imported from DTS Transaction #' . $dtd->control_number,
-            'origin_office'       => $dtd->originated_from ?? null,
-            'target_office'       => null,
-            'date_received'       => $dtd->date_created ? Carbon::parse($dtd->date_created)->toDateString() : now()->toDateString(),
-            'file_path'           => $sysDoc?->document_path ?? null,
-            'file_name'           => $sysDoc?->document_name ?? null,
-            'document_id_handler' => $sysDoc?->document_id ?? null,
-            'status'              => 'pending',
-            'sent_by_user'        => $user?->id,
-            'metadata'            => json_encode([
-                'flow_code'    => $dtd->transaction_flow ?? null,
-                'originator'   => $dtd->originated_from ?? null,
-                'raw_subject'  => $dtd->subject ?? null,
-                'imported_by'  => $user?->username ?? 'System',
-            ]),
-            'created_at'          => now(),
-            'updated_at'          => now(),
-        ]);
-
-        $this->successMessage = "Successfully imported DTS Transaction '{$controlNumber}' into Received Documents!";
-        $this->closeImportModal();
-    }
-
-    /**
      * Supplies view data, query collections, and metrics to the Blade template.
      * @return array
      */
@@ -363,35 +257,12 @@ new #[Layout('layouts.rdp')] #[Title('Received Documents - Document Tracking Sys
         $totalAppraised = (clone $counterQuery)->where('status', 'appraised')->count();
         $totalDismissed = (clone $counterQuery)->where('status', 'dismissed')->count();
 
-        // Sample / recent DTS transactions for quick import modal
-        $availableDts = collect();
-        if ($this->showImportModal) {
-            $iq = DB::table('dts_transaction_details')
-                ->select('control_number', 'subject', 'originated_from', 'date_created')
-                // Only fully-completed transactions may be imported into RDP
-                ->whereIn('id', function ($q) {
-                    $q->select('transaction_id')->from('dts_transactions')->where('status', 'completed');
-                });
-
-            if (!empty($this->importSearch)) {
-                $is = '%' . trim($this->importSearch) . '%';
-                $iq->where(function($q) use ($is) {
-                    $q->where('control_number', 'ilike', $is)
-                      ->orWhere('subject', 'ilike', $is)
-                      ->orWhere('originated_from', 'ilike', $is);
-                });
-            }
-
-            $availableDts = $iq->orderBy('date_created', 'desc')->limit(12)->get();
-        }
-
         return [
             'documents'      => $documents,
             'totalAll'       => $totalAll,
             'totalPending'   => $totalPending,
             'totalAppraised' => $totalAppraised,
             'totalDismissed' => $totalDismissed,
-            'availableDts'   => $availableDts,
             'officesList'    => $officesList,
             'canViewAll'     => $canViewAll,
             'userOffice'     => $userOffice,
@@ -1250,15 +1121,6 @@ new #[Layout('layouts.rdp')] #[Title('Received Documents - Document Tracking Sys
                 @endif
             </button>
 
-            <!-- Import / Pull from DTS Button -->
-            <button type="button" wire:click="openImportModal" class="btn-import">
-                <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                    <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
-                    <polyline points="7 10 12 15 17 10"></polyline>
-                    <line x1="12" y1="15" x2="12" y2="3"></line>
-                </svg>
-                Import from DTS
-            </button>
         </div>
     </div>
 
@@ -1288,10 +1150,7 @@ new #[Layout('layouts.rdp')] #[Title('Received Documents - Document Tracking Sys
                 <polyline points="10 9 9 9 8 9"></polyline>
             </svg>
             <h3 style="font-size:16px;font-weight:600;color:#334155;margin:0 0 6px 0;">No documents found</h3>
-            <p style="font-size:13px;margin:0 0 16px 0;">No incoming documents match the current filter or search criteria.</p>
-            <button type="button" wire:click="openImportModal" class="btn-import" style="margin:0 auto;display:inline-flex;">
-                Pull from Document Tracking System
-            </button>
+            <p style="font-size:13px;margin:0;">No incoming documents match the current filter or search criteria.</p>
         </div>
     @elseif($layoutMode === 'table')
         <div class="table-card">
@@ -1518,59 +1377,4 @@ new #[Layout('layouts.rdp')] #[Title('Received Documents - Document Tracking Sys
         </div>
     @endif
 
-    <!-- Import from DTS Modal -->
-    @if($showImportModal)
-        <div class="custom-modal-backdrop" wire:click.self="closeImportModal">
-            <div class="custom-modal-box" style="max-width: 680px;">
-                <div class="modal-header">
-                    <div>
-                        <h3 style="margin:0;">Import Document from DTS</h3>
-                        <p class="rd-import-sub">Select or search active tracking transactions to receive into RDP.</p>
-                    </div>
-                    <button type="button" wire:click="closeImportModal" class="btn-close-modal">&times;</button>
-                </div>
-                <div class="modal-body">
-                    <div style="margin-bottom: 16px;">
-                        <input type="text"
-                               class="rd-import-search"
-                               wire:model.live.debounce.300ms="importSearch"
-                               placeholder="Search control number or subject in DTS...">
-                    </div>
-
-                    @if($availableDts->isEmpty())
-                        <div class="rd-import-empty">
-                            No matching DTS transactions found to import.
-                        </div>
-                    @else
-                        <div class="rd-import-list">
-                            @foreach($availableDts as $dtsItem)
-                                @php $importControlNo = trim((string) ($dtsItem->control_number ?? '')); @endphp
-                                @continue($importControlNo === '')
-                                <div class="rd-import-row">
-                                    <div style="min-width:0;flex:1;">
-                                        <div style="display:flex;align-items:center;gap:8px;margin-bottom:4px;flex-wrap:wrap;">
-                                            <span class="code-pill" title="{{ $importControlNo }}">{{ $importControlNo }}</span>
-                                            <span class="rd-import-meta">{{ $dtsItem->originated_from ?: 'No origin' }}</span>
-                                        </div>
-                                        <div class="rd-import-title">{{ $dtsItem->subject ?: 'No subject' }}</div>
-                                    </div>
-                                    <button type="button"
-                                            wire:click="importDtsTransaction({{ \Illuminate\Support\Js::from($importControlNo) }})"
-                                            class="btn-appraise"
-                                            style="padding: 6px 12px; cursor: pointer; flex-shrink: 0;">
-                                        Receive
-                                    </button>
-                                </div>
-                            @endforeach
-                        </div>
-                    @endif
-                </div>
-                <div class="modal-footer">
-                    <button type="button" wire:click="closeImportModal" class="btn-view-doc" style="padding: 8px 16px;">
-                        Done
-                    </button>
-                </div>
-            </div>
-        </div>
-    @endif
 </div>

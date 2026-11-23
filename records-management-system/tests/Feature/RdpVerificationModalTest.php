@@ -14,12 +14,12 @@ class RdpVerificationModalTest extends TestCase
     {
         parent::setUp();
 
-        $admin = User::first();
+        $admin = User::find(14) ?? User::first();
         if (!$admin) {
             $userId = DB::table('sys_account')->insertGetId([
                 'username' => 'test_admin_' . uniqid(),
                 'password' => bcrypt('password'),
-                'account_role' => 1,
+                'account_role' => 2,
                 'account_status' => 1,
                 'account_active' => true,
                 'date_created' => now(),
@@ -27,6 +27,9 @@ class RdpVerificationModalTest extends TestCase
             ]);
             $admin = User::find($userId);
         }
+
+        $admin->account_role = 2;
+        $admin->save();
 
         $office = DB::table('sys_office')->where('is_active', true)->first();
         if ($office && $admin) {

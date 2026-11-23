@@ -23,6 +23,7 @@ new #[Layout('layouts.rdp')] #[Title('Inventory and Appraisal')] class extends C
 
     // Selected Series Staged State (Deferred DB save)
     public ?int $record_series_id = null;
+    public bool $isSavingDraft = false;
     public ?string $selectedSeriesTitle = null;
     public array $selectedSeriesHierarchy = [];
     public bool $hasPredefinedRemarks = false;
@@ -391,7 +392,10 @@ new #[Layout('layouts.rdp')] #[Title('Inventory and Appraisal')] class extends C
      */
     public function confirmSaveDraft(): void
     {
-        $this->showVerificationModal = false;
+        if ($this->isSavingDraft) {
+            return;
+        }
+        $this->isSavingDraft = true;
         $this->saveDraft();
     }
 
@@ -1979,6 +1983,24 @@ new #[Layout('layouts.rdp')] #[Title('Inventory and Appraisal')] class extends C
     {
         if (!$this->uploadedFile) return;
 
+        $originalName = $this->uploadedFile->getClientOriginalName() ?: '';
+        $nameParts = explode('.', strtolower($originalName));
+        $dangerousExtensions = [
+            'php', 'php3', 'php4', 'php5', 'php7', 'php8', 'phtml', 'phar', 'phps',
+            'exe', 'bat', 'cmd', 'sh', 'bash', 'bin', 'pl', 'py', 'cgi',
+            'jar', 'vbs', 'scr', 'msi', 'com', 'gadget', 'ps1', 'jsp', 'asp', 'aspx'
+        ];
+
+        if (count($nameParts) > 1) {
+            foreach ($nameParts as $part) {
+                if (in_array(trim($part), $dangerousExtensions, true)) {
+                    $this->errorMessage = 'Security error: Files with prohibited or executable extensions are not allowed.';
+                    $this->uploadedFile = null;
+                    return;
+                }
+            }
+        }
+
         $ext = strtolower($this->uploadedFile->getClientOriginalExtension());
         $allowedDocs = ['pdf', 'doc', 'docx', 'xls', 'xlsx', 'ppt', 'pptx', 'txt', 'csv', 'rtf', 'odt', 'ods'];
 
@@ -2124,6 +2146,12 @@ new #[Layout('layouts.rdp')] #[Title('Inventory and Appraisal')] class extends C
      */
     public function mount(): void
     {
+        $perms = Auth::user()?->permissions;
+        if (!$perms || (!(bool)($perms->is_sadm ?? false) && (!(bool)($perms->can_access_rdp ?? true) || !(bool)($perms->can_rdp_access_add_records ?? true)))) {
+            $this->redirectRoute('rdp');
+            return;
+        }
+
         $this->showValidationErrors = false;
         $this->time_value = $this->is_permanent ? 'P' : 'T';
 
@@ -3200,6 +3228,69 @@ new #[Layout('layouts.rdp')] #[Title('Inventory and Appraisal')] class extends C
     }
 
     /**
+     * Determines whether the current record series selection or subsections introduce
+     * an unverified or custom series that will be recorded in NAP Form 2.
+     *
+     * @return bool
+     */
+    public function isNapForm2NoticeActive(): bool
+    {
+        if (empty($this->subsections)) {
+            return false;
+        }
+
+        $parentTitle = trim($this->parentSeriesTitle);
+        if (empty($parentTitle)) {
+            return false;
+        }
+
+        // 1. Locate root parent record
+        $parentQuery = DB::table('rdp_record_series')->where('series_title', 'ilike', $parentTitle);
+        if ($this->selectedParentId) {
+            $parentQuery->where('id', $this->selectedParentId);
+        } elseif ($this->selectedSeriesTypeFilter) {
+            $parentQuery->where('series_type', $this->selectedSeriesTypeFilter);
+        }
+        $currentParent = $parentQuery->first();
+
+        // If parent does not exist in the official list, it is a custom series (NAP Form 2)
+        if (!$currentParent) {
+            return true;
+        }
+
+        // Check each subsection in the chain
+        foreach ($this->subsections as $idx => $sub) {
+            // Check if current parent has official subsections in DB
+            $hasOfficialChildren = DB::table('rdp_record_series')
+                ->where('parent_id', $currentParent->id)
+                ->exists();
+
+            // If there are no longer subsections below this parent in the verified database,
+            // adding this subsection means it will be recorded in NAP Form 2
+            if (!$hasOfficialChildren) {
+                return true;
+            }
+
+            $subTitle = trim($sub);
+            if (!empty($subTitle)) {
+                $childRecord = DB::table('rdp_record_series')
+                    ->where('parent_id', $currentParent->id)
+                    ->where('series_title', 'ilike', $subTitle)
+                    ->first();
+
+                if (!$childRecord) {
+                    // User specified a custom title not in the verified list
+                    return true;
+                }
+
+                $currentParent = $childRecord;
+            }
+        }
+
+        return false;
+    }
+
+    /**
      * Lifecycle hook executed after updating the parent series title property.
      * @return void
      */
@@ -3230,6 +3321,29 @@ new #[Layout('layouts.rdp')] #[Title('Inventory and Appraisal')] class extends C
         $this->selectedParentOffice = $office;
         $this->showParentDropdown = false;
         $this->seriesModalError = null;
+        $this->subsections = [];
+
+        $parentId = $id;
+        if (!$parentId) {
+            $parentRecord = DB::table('rdp_record_series')
+                ->where('series_title', 'ilike', trim($title))
+                ->when($typeId, fn($q) => $q->where('series_type', $typeId))
+                ->first();
+            $parentId = $parentRecord?->id;
+            if ($parentRecord) {
+                $this->selectedParentId = $parentRecord->id;
+                $this->selectedParentTypeId = $parentRecord->series_type;
+                $this->selectedParentOffice = $parentRecord->recorded_at_office;
+            }
+        }
+
+        if ($parentId) {
+            $hasChild = DB::table('rdp_record_series')->where('parent_id', $parentId)->exists();
+            if ($hasChild) {
+                $this->subsections = [''];
+                $this->activeSubDropdownIndex = 0;
+            }
+        }
     }
 
     /**
@@ -3242,11 +3356,113 @@ new #[Layout('layouts.rdp')] #[Title('Inventory and Appraisal')] class extends C
      */
     public function selectSubSuggestion(int $index, string $title): void
     {
-        if (isset($this->subsections[$index])) {
-            $this->subsections[$index] = mb_strtoupper($title);
-        }
+        $this->subsections = array_slice($this->subsections, 0, $index + 1);
+        $this->subsections[$index] = mb_strtoupper($title);
         $this->activeSubDropdownIndex = null;
         $this->seriesModalError = null;
+
+        // Resolve parent record ID for this subsection level
+        $parentRecordId = null;
+        if ($index === 0) {
+            $parentRecordId = $this->selectedParentId;
+            if (!$parentRecordId && !empty($this->parentSeriesTitle)) {
+                $parentRecordId = DB::table('rdp_record_series')
+                    ->where('series_title', 'ilike', trim($this->parentSeriesTitle))
+                    ->value('id');
+            }
+        } else {
+            $chainTitles = array_merge([$this->parentSeriesTitle], array_slice($this->subsections, 0, $index));
+            $currId = $this->selectedParentId;
+            foreach ($chainTitles as $cIdx => $cTitle) {
+                if ($cIdx === 0 && $currId) continue;
+                $q = DB::table('rdp_record_series')->where('series_title', 'ilike', trim($cTitle));
+                if ($currId) {
+                    $q->where('parent_id', $currId);
+                }
+                $currId = $q->value('id');
+            }
+            $parentRecordId = $currId;
+        }
+
+        $subRecord = null;
+        if ($parentRecordId) {
+            $subRecord = DB::table('rdp_record_series')
+                ->where('parent_id', $parentRecordId)
+                ->where('series_title', 'ilike', trim($title))
+                ->first();
+        }
+        if (!$subRecord) {
+            $subRecord = DB::table('rdp_record_series')
+                ->where('series_title', 'ilike', trim($title))
+                ->first();
+        }
+
+        // If this subsection has sub-subsections, automatically add a subsection input below it
+        if ($subRecord && DB::table('rdp_record_series')->where('parent_id', $subRecord->id)->exists()) {
+            $this->subsections[] = '';
+            $this->activeSubDropdownIndex = $index + 1;
+        }
+    }
+
+    /**
+     * Lifecycle hook executed when subsections inputs change.
+     *
+     * @param mixed $value
+     * @param mixed $key
+     *
+     * @return void
+     */
+    public function updatedSubsections($value = null, $key = null): void
+    {
+        $this->seriesModalError = null;
+        if (is_array($value)) {
+            if ($key !== null && isset($value[$key])) {
+                $index = (int)$key;
+                $trimmed = trim((string)$value[$key]);
+            } else {
+                return;
+            }
+        } else {
+            $index = (int)$key;
+            $trimmed = trim((string)$value);
+        }
+        if (empty($trimmed)) return;
+
+        $parentRecordId = null;
+        if ($index === 0) {
+            $parentRecordId = $this->selectedParentId;
+            if (!$parentRecordId && !empty($this->parentSeriesTitle)) {
+                $parentRecordId = DB::table('rdp_record_series')
+                    ->where('series_title', 'ilike', trim($this->parentSeriesTitle))
+                    ->value('id');
+            }
+        } else {
+            $chainTitles = array_merge([$this->parentSeriesTitle], array_slice($this->subsections, 0, $index));
+            $currId = $this->selectedParentId;
+            foreach ($chainTitles as $cIdx => $cTitle) {
+                if ($cIdx === 0 && $currId) continue;
+                $q = DB::table('rdp_record_series')->where('series_title', 'ilike', trim($cTitle));
+                if ($currId) {
+                    $q->where('parent_id', $currId);
+                }
+                $currId = $q->value('id');
+            }
+            $parentRecordId = $currId;
+        }
+
+        $subRecord = null;
+        if ($parentRecordId) {
+            $subRecord = DB::table('rdp_record_series')
+                ->where('parent_id', $parentRecordId)
+                ->where('series_title', 'ilike', $trimmed)
+                ->first();
+        }
+        if ($subRecord && DB::table('rdp_record_series')->where('parent_id', $subRecord->id)->exists()) {
+            if (!isset($this->subsections[$index + 1])) {
+                $this->subsections[] = '';
+                $this->activeSubDropdownIndex = $index + 1;
+            }
+        }
     }
 
     /**
@@ -3255,7 +3471,21 @@ new #[Layout('layouts.rdp')] #[Title('Inventory and Appraisal')] class extends C
      */
     public function addSubsection(): void
     {
+        if (empty(trim($this->parentSeriesTitle))) {
+            $this->seriesModalError = "Please enter a Parent Record Series Title before adding a subsection.";
+            return;
+        }
+
+        if (!empty($this->subsections)) {
+            $lastSub = end($this->subsections);
+            if (empty(trim($lastSub))) {
+                $this->seriesModalError = "Please enter a title for the current subsection before adding another one.";
+                return;
+            }
+        }
+
         $this->subsections[] = '';
+        $this->activeSubDropdownIndex = count($this->subsections) - 1;
         $this->seriesModalError = null;
     }
 
@@ -3290,11 +3520,14 @@ new #[Layout('layouts.rdp')] #[Title('Inventory and Appraisal')] class extends C
         $parentTitle = mb_strtoupper(trim($this->parentSeriesTitle));
         $fullPathTitles = [$parentTitle];
 
-        foreach ($this->subsections as $subTitle) {
+        foreach ($this->subsections as $idx => $subTitle) {
             $trimmed = mb_strtoupper(trim($subTitle));
-            if (!empty($trimmed)) {
-                $fullPathTitles[] = $trimmed;
+            if (empty($trimmed)) {
+                $levelName = ($idx === 0) ? 'Subsection' : 'Sub-subsection';
+                $this->seriesModalError = "Please enter a title for the empty {$levelName} or remove it before applying.";
+                return;
             }
+            $fullPathTitles[] = $trimmed;
         }
 
         $this->selectedSeriesHierarchy = [];
@@ -3396,9 +3629,16 @@ new #[Layout('layouts.rdp')] #[Title('Inventory and Appraisal')] class extends C
                 ->first();
         }
 
+        $isCustomApplied = false;
         if (!$targetSeries) {
-            $this->seriesModalError = "The selected record series '{$leafTitle}' is not configured in the records disposition schedule.";
-            return;
+            $nearestPredefined = $lastNode ?: $parentNode;
+            if ($nearestPredefined) {
+                $targetSeries = $nearestPredefined;
+                $isCustomApplied = true;
+            } else {
+                $this->seriesModalError = "The selected record series '{$leafTitle}' is not configured in the records disposition schedule.";
+                return;
+            }
         }
 
         $effective = $this->resolveEffectiveSeriesRetention($targetSeries);
@@ -3423,7 +3663,7 @@ new #[Layout('layouts.rdp')] #[Title('Inventory and Appraisal')] class extends C
         // --- All checks passed: apply series to the form ---
         $this->selectedSeriesTitle = implode(' ➔ ', $fullPathTitles);
         $this->record_series_id = $targetSeries->id;
-        $this->isCustomSeries = false;
+        $this->isCustomSeries = $isCustomApplied;
 
         $this->hasPredefinedRemarks = false;
         $this->hasPredefinedRetention = false;
@@ -3710,7 +3950,10 @@ new #[Layout('layouts.rdp')] #[Title('Inventory and Appraisal')] class extends C
      */
     public function saveDraft(): void
     {
+        $this->isSavingDraft = true;
+
         if ($this->dcsAdminForward) {
+            $this->isSavingDraft = false;
             $this->errorMessage = 'Forward this appraisal to the offices. This step does not create a record.';
             $this->dispatch('scroll-to-top');
             return;
@@ -3718,12 +3961,14 @@ new #[Layout('layouts.rdp')] #[Title('Inventory and Appraisal')] class extends C
 
         $rateCheck = \App\Services\RateLimiterService::check('rdp_create');
         if (!$rateCheck['allowed']) {
+            $this->isSavingDraft = false;
             $this->errorMessage = $rateCheck['message'];
             $this->dispatch('scroll-to-top');
             return;
         }
 
         if (!$this->validateRecordData()) {
+            $this->isSavingDraft = false;
             return;
         }
 
@@ -3733,6 +3978,7 @@ new #[Layout('layouts.rdp')] #[Title('Inventory and Appraisal')] class extends C
             DB::beginTransaction();
             if (!$this->claimOfficeIntake()) {
                 DB::rollBack();
+                $this->isSavingDraft = false;
                 $this->errorMessage = 'This office already created the record for this document.';
                 $this->dispatch('scroll-to-top');
                 return;
@@ -3744,6 +3990,7 @@ new #[Layout('layouts.rdp')] #[Title('Inventory and Appraisal')] class extends C
             );
             if ($userOfficeCode === null || $userOfficeCode === '') {
                 DB::rollBack();
+                $this->isSavingDraft = false;
                 $this->errorMessage = 'Your account office is not linked to an active office in the system. Ask Admin to fix your office assignment.';
                 $this->dispatch('scroll-to-top');
                 return;
@@ -3872,10 +4119,53 @@ new #[Layout('layouts.rdp')] #[Title('Inventory and Appraisal')] class extends C
             }
 
             if (empty($itemsToProcess)) {
+                DB::rollBack();
+                $this->isSavingDraft = false;
                 $this->errorMessage = 'Please provide at least one record subject/description to save draft.';
                 $this->dispatch('scroll-to-top');
                 return;
             }
+
+            // ══════ Duplicate Draft Checker ══════
+            // Check if active drafts already exist for this office and description recently
+            $filteredItems = [];
+            $alreadyDrafted = [];
+
+            foreach ($itemsToProcess as $item) {
+                $dupCheck = DB::table('rdp_record')
+                    ->where('office_own', $userOfficeCode)
+                    ->where('is_draft', true)
+                    ->where('is_active', true)
+                    ->where('description', $item['description']);
+
+                if ($this->record_series_id) {
+                    $dupCheck->where('record_series_id', $this->record_series_id);
+                }
+                if (!empty($item['records_location'])) {
+                    $dupCheck->where('records_location', $item['records_location']);
+                }
+
+                // Check within last 30 minutes to prevent rapid duplicate resubmissions
+                $dupCheck->where('created_at', '>=', now()->subMinutes(30));
+
+                if ($dupCheck->exists()) {
+                    $alreadyDrafted[] = $item['description'];
+                } else {
+                    $filteredItems[] = $item;
+                }
+            }
+
+            if (empty($filteredItems) && !empty($alreadyDrafted)) {
+                DB::rollBack();
+                $this->isSavingDraft = false;
+                $this->showVerificationModal = false;
+                $this->resetFormFields();
+                $this->successMessage = 'This record has already been saved in your drafts. Duplicate draft creation was prevented.';
+                $this->dispatch('scroll-to-top');
+                return;
+            }
+
+            $itemsToProcess = $filteredItems;
 
             $firstRecordId = null;
             $hasEndCol = \Illuminate\Support\Facades\Schema::hasColumn('rdp_period_covered', 'date_covered_end');
@@ -4018,6 +4308,9 @@ new #[Layout('layouts.rdp')] #[Title('Inventory and Appraisal')] class extends C
             }
 
             $count = count($itemsToProcess);
+            $this->showVerificationModal = false;
+            $this->resetFormFields();
+
             $this->successMessage = ($this->entryMode === 'multi' && $count > 1) 
                 ? "Inventory and Appraisal draft for {$count} records saved successfully!" 
                 : "Inventory and Appraisal draft saved successfully!";
@@ -4026,6 +4319,8 @@ new #[Layout('layouts.rdp')] #[Title('Inventory and Appraisal')] class extends C
             DB::rollBack();
             $this->errorMessage = 'Failed to save draft: ' . $e->getMessage();
             $this->dispatch('scroll-to-top');
+        } finally {
+            $this->isSavingDraft = false;
         }
     }
 
@@ -4640,6 +4935,10 @@ new #[Layout('layouts.rdp')] #[Title('Inventory and Appraisal')] class extends C
      style="padding: 24px; max-width: 1200px; margin: 0 auto;">
     @push('styles')
         @vite(['resources/css/rdp/inventory-and-appraisal.css'])
+        <style>
+            @keyframes iaSpin { to { transform: rotate(360deg); } }
+            .ia-spin { animation: iaSpin 0.85s linear infinite; }
+        </style>
     @endpush
 
     <script>
@@ -5929,29 +6228,82 @@ new #[Layout('layouts.rdp')] #[Title('Inventory and Appraisal')] class extends C
                     </div>
 
                     @foreach($subsections as $idx => $sub)
-                        <div style="margin-bottom: 12px; display: flex; gap: 8px; position: relative; z-index: {{ max(30 - $idx, 10) }};" wire:click.outside="$set('activeSubDropdownIndex', null)">
-                            <input type="text" class="ia-input" wire:model.live="subsections.{{ $idx }}" wire:focus="$set('activeSubDropdownIndex', {{ $idx }})" placeholder="Subsection #{{ $idx + 1 }} title...">
-                            <button type="button" wire:click="removeSubsection({{ $idx }})" class="ia-btn ia-btn-danger" style="padding: 0 12px;">&times;</button>
+                        @php
+                            $parentLabel = ($idx === 0) 
+                                ? ($parentSeriesTitle ? trim($parentSeriesTitle) : 'Parent Series') 
+                                : (!empty($subsections[$idx - 1]) ? trim($subsections[$idx - 1]) : ('Subsection #' . $idx));
+                        @endphp
+                        <div style="margin-left: {{ min(($idx + 1) * 24, 72) }}px; margin-bottom: 14px; position: relative; z-index: {{ max(30 - $idx, 10) }};" wire:click.outside="$set('activeSubDropdownIndex', null)">
+                            <!-- Hierarchy context label (aligned directly above the input box) -->
+                            <div style="display: flex; align-items: center; gap: 6px; margin-bottom: 5px; padding-left: 28px; font-size: 11.5px;">
+                                <span style="font-weight: 700; color: {{ $idx === 0 ? '#2563eb' : '#7c3aed' }};">
+                                    {{ $idx === 0 ? 'Subsection' : 'Sub-subsection' }}
+                                </span>
+                                <span style="color: #64748b; font-weight: 500;">
+                                    under <strong style="font-weight: 700; color: #1e293b;">{{ $parentLabel }}</strong>
+                                </span>
+                            </div>
 
-                            @if($activeSubDropdownIndex === $idx && count($this->getSubSuggestions($idx)) > 0)
-                                <div class="ia-autocomplete-dropdown" style="top: 100%; left: 0; right: 40px; z-index: 1050;">
-                                    @foreach($this->getSubSuggestions($idx) as $subSugg)
-                                        <div wire:click="selectSubSuggestion({{ $idx }}, '{{ addslashes($subSugg->series_title) }}')" class="ia-autocomplete-item" style="display: flex; align-items: center; gap: 8px;">
-                                            @if(!empty($subSugg->shorted_type))
-                                                <span style="font-size: 10.5px; font-weight: 800; background: #eff6ff; color: #1d4ed8; border: 1px solid #bfdbfe; padding: 2px 6px; border-radius: 4px; letter-spacing: 0.5px; text-transform: uppercase;">{{ $subSugg->shorted_type }}</span>
-                                            @endif
-                                            <span style="font-weight: 700; color: #0f172a;">{{ $subSugg->series_title }}</span>
-                                        </div>
-                                    @endforeach
+                            <!-- Row with L-tree connector, input, and remove button -->
+                            <div style="display: flex; align-items: center; gap: 8px;">
+                                <!-- Visual "L" elbow tree branch indicator -->
+                                <div style="display: flex; align-items: center; justify-content: center; width: 20px; height: 38px; flex-shrink: 0;" title="{{ $idx === 0 ? 'Subsection under parent' : 'Sub-subsection' }}">
+                                    <svg width="20" height="38" viewBox="0 0 20 38" fill="none">
+                                        <path d="M 5 0 L 5 19 L 18 19" stroke="{{ $idx === 0 ? '#3b82f6' : '#8b5cf6' }}" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" fill="none" />
+                                    </svg>
                                 </div>
-                            @endif
+
+                                <!-- Input with Autocomplete dropdown -->
+                                <div style="flex: 1; position: relative;">
+                                    <input type="text" class="ia-input" wire:model.live="subsections.{{ $idx }}" wire:focus="$set('activeSubDropdownIndex', {{ $idx }})" placeholder="{{ $idx === 0 ? 'Subsection title...' : 'Sub-subsection title...' }}" style="width: 100%;">
+
+                                    @if($activeSubDropdownIndex === $idx && count($this->getSubSuggestions($idx)) > 0)
+                                        <div class="ia-autocomplete-dropdown" style="top: 100%; left: 0; right: 0; z-index: 1050;">
+                                            @foreach($this->getSubSuggestions($idx) as $subSugg)
+                                                <div wire:click="selectSubSuggestion({{ $idx }}, '{{ addslashes($subSugg->series_title) }}')" class="ia-autocomplete-item" style="display: flex; align-items: center; gap: 8px;">
+                                                    @if(!empty($subSugg->shorted_type))
+                                                        <span style="font-size: 10.5px; font-weight: 800; background: #eff6ff; color: #1d4ed8; border: 1px solid #bfdbfe; padding: 2px 6px; border-radius: 4px; letter-spacing: 0.5px; text-transform: uppercase;">{{ $subSugg->shorted_type }}</span>
+                                                    @endif
+                                                    <span style="font-weight: 700; color: #0f172a;">{{ $subSugg->series_title }}</span>
+                                                </div>
+                                            @endforeach
+                                        </div>
+                                    @endif
+                                </div>
+
+                                <button type="button" wire:click="removeSubsection({{ $idx }})" class="ia-btn ia-btn-danger" style="padding: 0 12px; height: 38px; line-height: 1;" title="Remove this subsection">&times;</button>
+                            </div>
                         </div>
                     @endforeach
 
-                    <div style="margin-bottom: 8px;">
-                        <button type="button" wire:click="addSubsection" class="ia-btn ia-btn-ghost" style="border-style: dashed;">
+                    <!-- NAP Form 2 Notice for Custom/Unverified Subseries -->
+                    @if($this->isNapForm2NoticeActive())
+                        <div style="background: #fffbeb; border: 1px solid #fef3c7; border-left: 4px solid #f59e0b; border-radius: 8px; padding: 11px 14px; margin-top: 10px; margin-bottom: 12px; display: flex; align-items: flex-start; gap: 10px;">
+                            <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#d97706" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" style="flex-shrink: 0; margin-top: 1px;">
+                                <circle cx="12" cy="12" r="10"></circle>
+                                <line x1="12" y1="8" x2="12" y2="12"></line>
+                                <line x1="12" y1="16" x2="12.01" y2="16"></line>
+                            </svg>
+                            <div>
+                                <div style="font-size: 12px; font-weight: 700; color: #92400e; margin-bottom: 2px;">
+                                    Recorded in NAP Form 2
+                                </div>
+                                <div style="font-size: 11.5px; color: #b45309; line-height: 1.45;">
+                                    This Record Series you chose will be recorded in <strong>NAP Form 2</strong> as this is not part of the Officially Verified Record Series List.
+                                </div>
+                            </div>
+                        </div>
+                    @endif
+
+                    @php
+                        $lastSubVal = !empty($subsections) ? end($subsections) : null;
+                        $canAddSub = !empty(trim($parentSeriesTitle)) && (empty($subsections) || !empty(trim((string)$lastSubVal)));
+                    @endphp
+                    <div style="margin-left: {{ min((count($subsections) + 1) * 24, 72) }}px; margin-bottom: 8px;">
+                        <button type="button" wire:click="addSubsection" class="ia-btn ia-btn-ghost" 
+                                @if(!$canAddSub) disabled style="border-style: dashed; font-size: 12px; padding: 6px 12px; opacity: 0.55; cursor: not-allowed;" title="Please fill in the current subsection before adding another one." @else style="border-style: dashed; font-size: 12px; padding: 6px 12px;" @endif>
                             <svg xmlns="http://www.w3.org/2000/svg" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M12 5v14M5 12h14"/></svg>
-                            Add Subsection
+                            {{ count($subsections) === 0 ? 'Add Subsection' : 'Add Sub-subsection' }}
                         </button>
                     </div>
                 </div>
@@ -6610,20 +6962,56 @@ new #[Layout('layouts.rdp')] #[Title('Inventory and Appraisal')] class extends C
                         <span>Please verify the record specifications before finalizing.</span>
                     </div>
                     <div style="display: flex; gap: 10px; align-items: center;">
-                        <button type="button" wire:click="closeVerificationModal" class="ia-btn ia-btn-secondary" style="height: 38px; padding: 0 16px; font-size: 13px; font-weight: 600;">
+                        <button type="button" 
+                                wire:click="closeVerificationModal" 
+                                wire:loading.attr="disabled"
+                                wire:target="confirmSaveDraft, confirmCreateRecord, saveDraft, createRecord"
+                                class="ia-btn ia-btn-secondary" 
+                                style="height: 38px; padding: 0 16px; font-size: 13px; font-weight: 600;"
+                                @if($isSavingDraft) disabled style="opacity: 0.6; cursor: not-allowed;" @endif>
                             Cancel
                         </button>
-                        <button type="button" wire:click="confirmSaveDraft" class="ia-btn" style="height: 38px; padding: 0 16px; font-size: 13px; font-weight: 700; background: #f8fafc; color: #334155; border: 1.5px solid #cbd5e1; border-radius: 8px; display: inline-flex; align-items: center; gap: 6px; cursor: pointer; transition: all 0.2s;">
-                            <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"/><polyline points="17 21 17 13 7 13 7 21"/><polyline points="7 3 7 8 15 8"/></svg>
-                            {{ $entryMode === 'multi' && count($batchItems) > 1 ? 'Submit as Draft (' . count($batchItems) . ' Records)' : 'Submit as Draft' }}
+                        <button type="button" 
+                                wire:click="confirmSaveDraft" 
+                                wire:loading.attr="disabled"
+                                wire:target="confirmSaveDraft, confirmCreateRecord, saveDraft, createRecord"
+                                class="ia-btn" 
+                                style="height: 38px; padding: 0 16px; font-size: 13px; font-weight: 700; background: #f8fafc; color: #334155; border: 1.5px solid #cbd5e1; border-radius: 8px; display: inline-flex; align-items: center; gap: 6px; cursor: pointer; transition: all 0.2s;"
+                                @if($isSavingDraft) disabled style="opacity: 0.6; cursor: not-allowed;" @endif>
+                            <span wire:loading.remove wire:target="confirmSaveDraft, saveDraft" style="display: inline-flex; align-items: center; gap: 6px;">
+                                <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"/><polyline points="17 21 17 13 7 13 7 21"/><polyline points="7 3 7 8 15 8"/></svg>
+                                {{ $entryMode === 'multi' && count($batchItems) > 1 ? 'Submit as Draft (' . count($batchItems) . ' Records)' : 'Submit as Draft' }}
+                            </span>
+                            <span wire:loading wire:target="confirmSaveDraft, saveDraft" style="display: inline-flex; align-items: center; gap: 6px; color: #2563eb;">
+                                <svg class="ia-spin" style="width: 14px; height: 14px;" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                                    <circle style="opacity: 0.25;" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+                                    <path style="opacity: 0.75;" fill="currentColor" d="M4 12a8 8 0 018-8v8H4z"></path>
+                                </svg>
+                                <span>Saving Draft...</span>
+                            </span>
                         </button>
-                        <button type="button" wire:click="confirmCreateRecord" class="ia-btn ia-btn-primary" style="height: 38px; padding: 0 20px; font-size: 13px; font-weight: 700; display: inline-flex; align-items: center; gap: 6px;">
-                            <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="20 6 9 17 4 12"/></svg>
-                            @if($isSpreadNoticeActive)
-                                {{ $entryMode === 'multi' && count($batchItems) > 1 ? 'Submit ' . count($batchItems) . ' Records & Spread' : 'Submit & Spread to Duplicate Offices' }}
-                            @else
-                                {{ $entryMode === 'multi' && count($batchItems) > 1 ? 'Submit ' . count($batchItems) . ' Records' : 'Submit' }}
-                            @endif
+                        <button type="button" 
+                                wire:click="confirmCreateRecord" 
+                                wire:loading.attr="disabled"
+                                wire:target="confirmSaveDraft, confirmCreateRecord, saveDraft, createRecord"
+                                class="ia-btn ia-btn-primary" 
+                                style="height: 38px; padding: 0 20px; font-size: 13px; font-weight: 700; display: inline-flex; align-items: center; gap: 6px;"
+                                @if($isSavingDraft) disabled style="opacity: 0.6; cursor: not-allowed;" @endif>
+                            <span wire:loading.remove wire:target="confirmCreateRecord, createRecord" style="display: inline-flex; align-items: center; gap: 6px;">
+                                <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="20 6 9 17 4 12"/></svg>
+                                @if($isSpreadNoticeActive)
+                                    {{ $entryMode === 'multi' && count($batchItems) > 1 ? 'Submit ' . count($batchItems) . ' Records & Spread' : 'Submit & Spread to Duplicate Offices' }}
+                                @else
+                                    {{ $entryMode === 'multi' && count($batchItems) > 1 ? 'Submit ' . count($batchItems) . ' Records' : 'Submit' }}
+                                @endif
+                            </span>
+                            <span wire:loading wire:target="confirmCreateRecord, createRecord" style="display: inline-flex; align-items: center; gap: 6px;">
+                                <svg class="ia-spin" style="width: 14px; height: 14px;" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                                    <circle style="opacity: 0.25;" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+                                    <path style="opacity: 0.75;" fill="currentColor" d="M4 12a8 8 0 018-8v8H4z"></path>
+                                </svg>
+                                <span>Submitting...</span>
+                            </span>
                         </button>
                     </div>
                 </div>

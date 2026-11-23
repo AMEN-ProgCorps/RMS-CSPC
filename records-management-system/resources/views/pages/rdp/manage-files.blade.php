@@ -28,6 +28,19 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - Cockpit File
     public ?string $previewDocId = null;
 
     /**
+     * Initializes component state and authorization gates.
+     * @return void
+     */
+    public function mount(): void
+    {
+        $perms = Auth::user()?->permissions;
+        if (!$perms || (!(bool)($perms->is_sadm ?? false) && (!(bool)($perms->can_access_rdp ?? true) || !(bool)($perms->can_rdp_access_manage_files ?? true)))) {
+            $this->redirectRoute('rdp');
+            return;
+        }
+    }
+
+    /**
      * Displays the metadata modal.
      *
      * @param ?string $docId
@@ -496,24 +509,6 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - Cockpit File
                 $isWord = in_array($ext, ['doc', 'docx', 'rtf', 'odt']);
                 $isHtml = in_array($ext, ['html', 'htm']);
                 $isText = in_array($ext, ['txt', 'csv', 'json', 'log', 'sql', 'md', 'xml']);
-
-                if ($isSpreadsheet) {
-                    try {
-                        $sample = \App\Services\DocumentStorageService::getFileContent($previewDoc->document_path);
-                        if (!$sample) {
-                            $cleanPath = ltrim(str_replace(['\\'], '/', $previewDoc->document_path), '/');
-                            if (\Illuminate\Support\Facades\Storage::disk('local')->exists($cleanPath)) {
-                                $sample = \Illuminate\Support\Facades\Storage::disk('local')->get($cleanPath);
-                            }
-                        }
-                        if ($sample) {
-                            $sampleHead = substr($sample, 0, 500);
-                            if (str_contains($sampleHead, '<html') || str_contains($sampleHead, '<table') || str_contains($sampleHead, '<!DOCTYPE')) {
-                                $isHtml = true;
-                            }
-                        }
-                    } catch (\Throwable) {}
-                }
 
                 $bytes = (float) ($previewDoc->file_size ?? 0);
                 if ($bytes >= 1048576) {
@@ -2131,6 +2126,8 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - Cockpit File
                             <div style="flex: 1; display: flex; align-items: center; justify-content: center; padding: 20px; overflow: auto; background: #0f172a0a;">
                                 <img src="{{ $pViewUrl }}" alt="{{ $pDoc->document_name }}" style="max-width: 100%; max-height: 100%; object-fit: contain; border-radius: 8px; box-shadow: 0 10px 25px rgba(0,0,0,0.1); background: #ffffff;">
                             </div>
+                        @elseif($pIsHtml)
+                            <iframe src="{{ $pViewUrl }}" sandbox style="width: 100%; height: 100%; border: none; background: #ffffff;"></iframe>
                         @else
                             <iframe src="{{ $pViewUrl }}" style="width: 100%; height: 100%; border: none; background: #ffffff;"></iframe>
                         @endif

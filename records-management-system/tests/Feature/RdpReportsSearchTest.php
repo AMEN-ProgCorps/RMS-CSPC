@@ -57,6 +57,8 @@ class RdpReportsSearchTest extends TestCase
             Auth::login($admin);
         }
 
+        $userOffice = $admin?->details?->office?->office_code ?? $admin?->details?->office_code ?? 'Dev';
+
         $this->cleanup();
 
         $now = now();
@@ -81,7 +83,7 @@ class RdpReportsSearchTest extends TestCase
         $series1Id = DB::table('rdp_record_series')->insertGetId([
             'series_title'        => self::SERIES_1,
             'series_type'         => $this->typeId,
-            'recorded_at_office'  => 'Dev',
+            'recorded_at_office'  => $userOffice,
             'is_active'           => true,
             'is_verified'         => true,
             'created_at'          => $now,
@@ -91,7 +93,7 @@ class RdpReportsSearchTest extends TestCase
         $series3Id = DB::table('rdp_record_series')->insertGetId([
             'series_title'        => self::SERIES_3,
             'series_type'         => $this->typeId,
-            'recorded_at_office'  => 'Dev',
+            'recorded_at_office'  => $userOffice,
             'retention_period'    => $retentionId,
             'is_active'           => true,
             'is_verified'         => true,
@@ -104,7 +106,7 @@ class RdpReportsSearchTest extends TestCase
             DB::table('rdp_record_series')->insert([
                 'series_title'       => $title,
                 'series_type'        => $this->typeId,
-                'recorded_at_office' => 'Dev',
+                'recorded_at_office' => $userOffice,
                 'is_active'          => true,
                 'is_verified'        => false,
                 'created_at'         => $now,
@@ -117,7 +119,7 @@ class RdpReportsSearchTest extends TestCase
             $recordId = DB::table('rdp_record')->insertGetId([
                 'record_series_id'    => $series1Id,
                 'description'         => $desc,
-                'office_own'          => 'Dev',
+                'office_own'          => $userOffice,
                 'is_drafted'          => false,
                 'is_draft'            => false,
                 'is_active'           => true,
@@ -140,7 +142,7 @@ class RdpReportsSearchTest extends TestCase
             $recordId = DB::table('rdp_record')->insertGetId([
                 'record_series_id'       => $series3Id,
                 'description'            => $desc,
-                'office_own'             => 'Dev',
+                'office_own'             => $userOffice,
                 'is_drafted'             => false,
                 'is_draft'               => false,
                 'is_active'              => true,

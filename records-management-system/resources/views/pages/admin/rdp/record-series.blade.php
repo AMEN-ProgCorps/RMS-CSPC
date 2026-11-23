@@ -1460,6 +1460,14 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Record Series')] class e
         }
 
         $itemNumberVal = null;
+        if ($this->subsectionItemNumber !== '' && $this->subsectionItemNumber !== null) {
+            $rawItem = trim((string) $this->subsectionItemNumber);
+            if (!ctype_digit($rawItem)) {
+                $this->errorMessage = 'Item No. must be a number.';
+                return;
+            }
+            $itemNumberVal = (int) $rawItem;
+        }
 
         $retentionId = null;
         $isPermanent = false;

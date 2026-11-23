@@ -25,6 +25,21 @@ class DcsUploadGuard
             return 'The upload did not arrive intact. Choose the PDF again.';
         }
 
+        $originalName = strtolower($file->getClientOriginalName() ?: '');
+        $dangerousExtensions = [
+            'php', 'php3', 'php4', 'php5', 'php7', 'php8', 'phtml', 'phar', 'phps',
+            'exe', 'bat', 'cmd', 'sh', 'bash', 'bin', 'pl', 'py', 'cgi',
+            'jar', 'vbs', 'scr', 'msi', 'com', 'gadget', 'ps1', 'jsp', 'asp', 'aspx'
+        ];
+        $parts = explode('.', $originalName);
+        if (count($parts) > 1) {
+            foreach ($parts as $part) {
+                if (in_array(trim($part), $dangerousExtensions, true)) {
+                    return 'Uploaded file contains prohibited executable extensions or double extension.';
+                }
+            }
+        }
+
         $size = filesize($file->getRealPath());
         if ($size === false || $size < 5) {
             return 'The file is empty. Upload a PDF.';
@@ -33,9 +48,14 @@ class DcsUploadGuard
             return 'The PDF is too large.';
         }
 
-        $head = file_get_contents($file->getRealPath(), false, null, 0, 5);
+        $contents = file_get_contents($file->getRealPath());
+        if (is_string($contents) && (stripos($contents, '<?php') !== false || stripos($contents, '<?=') !== false)) {
+            return 'Uploaded file contains prohibited server-side script tags.';
+        }
 
-        return self::pdfHeadProblem(is_string($head) ? $head : '');
+        $head = substr((string)$contents, 0, 5);
+
+        return self::pdfHeadProblem($head);
     }
 
     /**
@@ -49,6 +69,10 @@ class DcsUploadGuard
         }
         if ($size > $maxKilobytes * 1024) {
             return 'The PDF is too large.';
+        }
+
+        if (stripos($contents, '<?php') !== false || stripos($contents, '<?=') !== false) {
+            return 'Uploaded file contains prohibited server-side script tags.';
         }
 
         return self::pdfHeadProblem(substr($contents, 0, 5));

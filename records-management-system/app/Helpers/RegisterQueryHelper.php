@@ -814,7 +814,9 @@ class RegisterQueryHelper
             return trim((string) $val);
         }
 
-        if ((int) $date->format('j') === 1) {
+        $day = (int) $date->format('j');
+        $lastDay = (int) $date->format('t');
+        if ($day === 1 || $day === $lastDay) {
             return $date->format('M Y');
         }
 

@@ -1077,6 +1077,36 @@ class DocumentStorageService
             $mimeType = 'application/' . $extension;
         }
 
+        // Security Check 1: Block dangerous extensions and double-extensions (e.g. finaltest.php.pdf)
+        $dangerousExtensions = [
+            'php', 'php3', 'php4', 'php5', 'php7', 'php8', 'phtml', 'phar', 'phps',
+            'exe', 'bat', 'cmd', 'sh', 'bash', 'bin', 'pl', 'py', 'cgi',
+            'jar', 'vbs', 'scr', 'msi', 'com', 'gadget', 'ps1', 'jsp', 'asp', 'aspx'
+        ];
+
+        $nameParts = explode('.', strtolower($originalName));
+        if (count($nameParts) > 1) {
+            foreach ($nameParts as $part) {
+                if (in_array(trim($part), $dangerousExtensions, true)) {
+                    throw new \InvalidArgumentException('Uploaded file contains prohibited executable extensions or double extension.');
+                }
+            }
+        }
+
+        // Security Check 2: Block embedded PHP execution tags
+        if (stripos($fileContent, '<?php') !== false || stripos($fileContent, '<?=') !== false) {
+            throw new \InvalidArgumentException('Uploaded file contains server-side executable code tags.');
+        }
+
+        // Security Check 3: For PDF files, verify PDF magic header
+        $extLower = strtolower($extension);
+        if ($extLower === 'pdf') {
+            $headerSnippet = substr($fileContent, 0, 1024);
+            if (!str_contains($headerSnippet, '%PDF-')) {
+                throw new \InvalidArgumentException('Uploaded file does not have a valid PDF header.');
+            }
+        }
+
         $documentId = $customDocumentId ?: 'DOC-' . strtoupper(Str::random(10));
         $safeBaseName = Str::slug(pathinfo($originalName, PATHINFO_FILENAME), '_');
         $storedFileName = "{$documentId}_{$safeBaseName}.{$extension}";

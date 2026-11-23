@@ -280,11 +280,30 @@ class RdpRetentionService
         }
 
         $cutoffYear = self::calculateDisposalCutoffYear($totalPeriod, $activePeriod, $storagePeriod, $now);
-        if ($cutoffYear === null) {
-            return false;
+        if ($cutoffYear !== null && $recordYear <= $cutoffYear) {
+            return true;
         }
 
-        return ($recordYear <= $cutoffYear);
+        // Also evaluate exact month-level expiration when date or duration has month granularity
+        $endCarbon = self::parsePeriodEndDate($startDate, $endDate);
+        if ($endCarbon) {
+            $months = self::parseDurationMonths($totalPeriod);
+            if ($months === null) {
+                $mActive = self::parseDurationMonths($activePeriod) ?? 0;
+                $mStorage = self::parseDurationMonths($storagePeriod) ?? 0;
+                $months = ($mActive + $mStorage) > 0 ? ($mActive + $mStorage) : null;
+            }
+
+            if ($months !== null && $months > 0) {
+                $expirationDate = $endCarbon->copy()->addMonths($months);
+                $checkDate = $now ?? Carbon::now();
+                if ($expirationDate->lte($checkDate)) {
+                    return true;
+                }
+            }
+        }
+
+        return false;
     }
 
     /**

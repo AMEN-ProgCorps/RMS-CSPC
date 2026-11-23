@@ -843,6 +843,15 @@ body {
     box-sizing: border-box;
 }
 
+.st-page-stack {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 18px;
+    width: 100%;
+    min-height: min-content;
+}
+
 .st-page-stage {
     position: relative;
     display: inline-block;
@@ -850,12 +859,62 @@ body {
     box-shadow: 0 8px 28px rgba(15, 23, 42, 0.18);
     background: #fff;
     line-height: 0;
+    flex-shrink: 0;
+}
+
+.st-page-stage.is-pending {
+    background: #f1f5f9;
 }
 
 .st-page-stage canvas {
+    /* Keep canvas locked to the stage box — max-width/height:auto caused stamp drift. */
     display: block;
-    max-width: 100%;
-    height: auto;
+    width: 100%;
+    height: 100%;
+    max-width: none;
+}
+
+.st-page-placeholder {
+    position: absolute;
+    inset: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    color: #94a3b8;
+    font-size: 0.85rem;
+    background: linear-gradient(180deg, #f8fafc 0%, #eef2f7 100%);
+}
+
+.st-page-placeholder i {
+    font-size: 1rem;
+    opacity: 0.7;
+}
+
+.st-preview-loading {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 10px;
+    min-height: 180px;
+    width: 100%;
+    color: #64748b;
+    font-size: 0.85rem;
+    font-weight: 600;
+}
+
+.st-page-label {
+    position: absolute;
+    top: 8px;
+    left: 8px;
+    z-index: 5;
+    padding: 2px 8px;
+    border-radius: 999px;
+    background: rgba(15, 23, 42, 0.55);
+    color: #fff;
+    font-size: 0.68rem;
+    font-weight: 600;
+    line-height: 1.4;
+    pointer-events: none;
 }
 
 .st-preview-fallback {
@@ -1142,9 +1201,11 @@ body {
     cursor: grab;
     user-select: none;
     touch-action: none;
-    /* Width is set in % of the PDF page stage so preview matches FPDI page coords. */
+    /* Width/height are set in % of the PDF page so preview matches FPDI stamp mm. */
     width: 16%;
-    line-height: normal;
+    height: 6%;
+    line-height: 0;
+    overflow: visible;
 }
 
 .st-stamp-overlay.is-dragging {
@@ -1166,16 +1227,22 @@ body {
 }
 
 .st-auto-badge {
+    position: absolute;
+    left: 0;
+    top: calc(100% + 22px);
     display: inline-flex;
     align-items: center;
     gap: 6px;
-    margin-top: 6px;
+    margin-top: 0;
     padding: 4px 10px;
     border-radius: 999px;
     background: rgba(13, 42, 122, 0.08);
     color: var(--st-accent);
     font-size: 0.72rem;
     font-weight: 600;
+    line-height: 1.2;
+    white-space: nowrap;
+    pointer-events: none;
 }
 
 .st-stamp-box {
@@ -1183,11 +1250,14 @@ body {
     background: transparent;
     padding: 0;
     min-width: 0;
+    width: 100%;
+    height: 100%;
     box-shadow: none;
 }
 
 .st-stamp-box-image {
     width: 100%;
+    height: 100%;
     min-width: 0;
     max-width: none;
     overflow: visible;
@@ -1196,7 +1266,9 @@ body {
 .st-stamp-art {
     display: block;
     width: 100%;
-    height: auto;
+    height: 100%;
+    object-fit: contain;
+    object-position: left top;
     filter: drop-shadow(0 1px 2px rgba(0, 0, 0, 0.18));
     background: transparent;
 }
@@ -1274,8 +1346,11 @@ body {
 }
 
 .st-stamp-pages {
+    position: absolute;
+    left: 0;
+    top: calc(100% + 4px);
     display: inline-block;
-    margin-top: 4px;
+    margin-top: 0;
     font-size: 0.55rem;
     font-weight: 700;
     color: #fff;
@@ -1283,6 +1358,9 @@ body {
     padding: 1px 6px;
     border-radius: 3px;
     letter-spacing: 0.03em;
+    line-height: 1.2;
+    pointer-events: none;
+    white-space: nowrap;
 }
 
 /* ═══════════════════════════════════════════

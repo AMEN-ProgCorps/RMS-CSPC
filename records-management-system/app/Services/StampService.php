@@ -72,10 +72,22 @@ class StampService
             'rev'          => 'nullable|string|max:20',
             'stamp_type'   => 'required|string|in:reference',
             'position'     => 'required|string|in:top-left,top-right,bottom-left,bottom-right,center,auto,custom',
-            'x_pct'        => 'nullable|numeric|min:0|max:100|required_if:position,custom',
-            'y_pct'        => 'nullable|numeric|min:0|max:100|required_if:position,custom',
+            'x_pct'        => 'nullable|numeric|min:0|max:100',
+            'y_pct'        => 'nullable|numeric|min:0|max:100',
             'all_pages'    => 'required|boolean',
+            'page_positions' => 'nullable|array|max:' . self::MAX_STAMP_PAGES,
+            'page_positions.*.page' => 'required|integer|min:1|max:' . self::MAX_STAMP_PAGES,
+            'page_positions.*.x_pct' => 'required|numeric|min:0|max:100',
+            'page_positions.*.y_pct' => 'required|numeric|min:0|max:100',
         ]);
+
+        if ($validated['position'] === 'custom') {
+            $hasPagePositions = !empty($validated['page_positions']);
+            $hasFallback = isset($validated['x_pct'], $validated['y_pct']);
+            if (!$hasPagePositions && !$hasFallback) {
+                abort(422, 'Custom stamp placement requires coordinates.');
+            }
+        }
 
         $relative = $this->storedScanRelativePath((int) $validated['request_id'], $validated['file_key']);
         if (!$relative) {
@@ -83,19 +95,56 @@ class StampService
         }
         \App\Helpers\RegisterQueryHelper::assertCanAccessRequest((int) $validated['request_id']);
         $validated['file_path'] = $relative;
+        $validated['page_positions'] = $this->normalizePagePositions($validated['page_positions'] ?? null);
 
         return $validated;
     }
 
     /**
-     * Find a completely empty rectangle on the page for the stamp.
-     * Scans the whole page (not only top/bottom). Prefers empty space at
-     * mid-left, mid-right, or center when those regions are clear.
+     * @param  array<int, array{page?:mixed,x_pct?:mixed,y_pct?:mixed}>|null  $rows
+     * @return array<int, array{x_pct: float, y_pct: float}>
+     */
+    private function normalizePagePositions(?array $rows): array
+    {
+        if (!$rows) {
+            return [];
+        }
+
+        $out = [];
+        foreach ($rows as $row) {
+            if (!is_array($row)) {
+                continue;
+            }
+            $page = (int) ($row['page'] ?? 0);
+            if ($page < 1) {
+                continue;
+            }
+            $out[$page] = [
+                'x_pct' => max(0.0, min(100.0, (float) ($row['x_pct'] ?? 0))),
+                'y_pct' => max(0.0, min(100.0, (float) ($row['y_pct'] ?? 0))),
+            ];
+        }
+
+        return $out;
+    }
+
+    /**
+     * Find an empty/low-ink rectangle for the stamp.
+     * Hard rule: stay in the vertical middle (mid-right / mid-left).
+     * Never prefer the bottom margin just because it is blank.
      */
     private function findEmptyArea(string $pdfPath, int $pageNum, float $pageWmm, float $pageHmm, float $stampWmm, float $stampHmm): array
     {
-        $fallback = $this->clampToPage(
+        // Forced visible placement: middle-right (never bottom).
+        $fallbackRight = $this->clampToPage(
             ['x' => $pageWmm - $stampWmm - 15, 'y' => ($pageHmm - $stampHmm) / 2],
+            $pageWmm,
+            $pageHmm,
+            $stampWmm,
+            $stampHmm
+        );
+        $fallbackLeft = $this->clampToPage(
+            ['x' => 15, 'y' => ($pageHmm - $stampHmm) / 2],
             $pageWmm,
             $pageHmm,
             $stampWmm,
@@ -103,8 +152,8 @@ class StampService
         );
 
         if (!class_exists(\Imagick::class)) {
-            Log::warning('Stamp: Imagick unavailable, using fallback for auto-placement');
-            return $fallback;
+            Log::warning('Stamp: Imagick unavailable, using mid-right fallback for auto-placement');
+            return $fallbackRight;
         }
 
         try {
@@ -122,8 +171,8 @@ class StampService
             $img->clear();
             unset($img);
 
-            // Body text, rules, images, watermarks — anything clearly darker than paper.
-            $strongThreshold = 215;
+            // Darker than paper = real content. Soft threshold tolerates scan noise.
+            $strongThreshold = 210;
 
             $strongTable = array_fill(0, $imgH + 1, null);
             $strongTable[0] = array_fill(0, $imgW + 1, 0);
@@ -152,111 +201,111 @@ class StampService
                 return $table[$y + $h][$x + $w] - $table[$y][$x + $w] - $table[$y + $h][$x] + $table[$y][$x];
             };
 
-            $stampWpx = (int) round($stampWmm * $pxPerMm);
-            $stampHpx = (int) round($stampHmm * $pxPerMm);
-            $marginPx = (int) round(3 * $pxPerMm);
+            $stampWpx = max(1, (int) round($stampWmm * $pxPerMm));
+            $stampHpx = max(1, (int) round($stampHmm * $pxPerMm));
+            $marginPx = (int) round(4 * $pxPerMm);
             $coarseStep = max(2, (int) round($pxPerMm));
             $fineStep   = max(1, (int) round($pxPerMm * 0.4));
+            $totalStampPx = max(1, $stampWpx * $stampHpx);
 
-            $isRectEmpty = function (int $x, int $y) use ($regionSum, $strongTable, $pixels, $imgW, $stampWpx, $stampHpx): bool {
-                if ($regionSum($strongTable, $x, $y, $stampWpx, $stampHpx) > 0) {
-                    return false;
-                }
+            // Hard mid-band: stamp center must sit near vertical middle.
+            $midYStart = (int) max($marginPx, $imgH * 0.30);
+            $midYEnd   = (int) min($imgH - $stampHpx - $marginPx, $imgH * 0.70 - $stampHpx);
+            if ($midYEnd < $midYStart) {
+                $midYStart = (int) max($marginPx, ($imgH - $stampHpx) / 2 - $stampHpx);
+                $midYEnd = (int) min($imgH - $stampHpx - $marginPx, ($imgH - $stampHpx) / 2 + $stampHpx);
+            }
 
-                $x2 = min($imgW, $x + $stampWpx);
-                $y2 = $y + $stampHpx;
-                for ($py = $y; $py < $y2; $py++) {
-                    for ($px = $x; $px < $x2; $px++) {
-                        if ($pixels[$py * $imgW + $px] < 250) {
-                            return false;
-                        }
-                    }
-                }
+            $xRight  = $imgW - $stampWpx - $marginPx;
+            $xLeft   = $marginPx;
 
-                return true;
+            // Soft empty: allow light paper noise / faint scan grain (up to 3% dark px).
+            $isMostlyEmpty = function (int $x, int $y) use ($regionSum, $strongTable, $stampWpx, $stampHpx, $totalStampPx): bool {
+                $strong = $regionSum($strongTable, $x, $y, $stampWpx, $stampHpx);
+
+                return ($strong / $totalStampPx) <= 0.03;
             };
 
-            $scanForEmpty = function (int $yStart, int $yEnd, int $step) use (
-                $marginPx, $stampWpx, $stampHpx, $imgW, $imgH, $isRectEmpty
-            ): array {
-                $found = [];
-                $yStart = max($marginPx, $yStart);
-                $yEnd   = min($imgH - $stampHpx - $marginPx, $yEnd);
-
-                for ($y = $yStart; $y <= $yEnd; $y += $step) {
-                    for ($x = $marginPx; $x + $stampWpx <= $imgW - $marginPx; $x += $step) {
-                        if ($isRectEmpty($x, $y)) {
-                            $found[] = ['x' => $x, 'y' => $y];
-                        }
-                    }
-                }
-
-                return $found;
+            $inkAt = function (int $x, int $y) use ($regionSum, $strongTable, $stampWpx, $stampHpx): int {
+                return $regionSum($strongTable, $x, $y, $stampWpx, $stampHpx);
             };
 
-            $scoreSpot = function (int $x, int $y) use ($imgW, $imgH, $stampWpx, $stampHpx): float {
+            $scoreMidSpot = function (int $x, int $y, int $ink) use ($imgW, $imgH, $stampWpx, $stampHpx, $totalStampPx): float {
                 $cx = ($x + $stampWpx / 2) / max(1, $imgW);
                 $cy = ($y + $stampHpx / 2) / max(1, $imgH);
 
-                // Prefer the vertical middle; penalize hugging the top or bottom.
-                $yScore = 1.0 - min(1.0, abs($cy - 0.5) * 1.7);
+                // Vertical: exact middle wins.
+                $yScore = 1.0 - min(1.0, abs($cy - 0.50) * 2.8);
 
-                // Prefer left, right, or true center columns.
-                $xScore = 1.0 - min(abs($cx - 0.18), abs($cx - 0.82), abs($cx - 0.50)) * 2.4;
+                // Horizontal: mid-right > mid-left > center.
+                $rightScore  = 1.0 - min(1.0, abs($cx - 0.84) * 3.5);
+                $leftScore   = 1.0 - min(1.0, abs($cx - 0.16) * 3.5);
+                $centerScore = 1.0 - min(1.0, abs($cx - 0.50) * 3.5);
+                $xScore = max($rightScore * 1.25, $leftScore * 1.10, $centerScore * 0.70);
 
-                return ($yScore * 2.2) + $xScore;
+                $clearScore = 1.0 - min(1.0, $ink / max(1, $totalStampPx));
+
+                return ($yScore * 4.0) + ($xScore * 2.0) + ($clearScore * 3.0);
             };
 
-            $pickPreferred = function (array $candidates) use ($scoreSpot, $pxPerMm, $imgH): ?array {
-                if ($candidates === []) {
-                    return null;
-                }
+            $toMm = function (int $x, int $y) use ($pxPerMm, $pageWmm, $pageHmm, $stampWmm, $stampHmm): array {
+                return $this->clampToPage(
+                    ['x' => $x / $pxPerMm, 'y' => $y / $pxPerMm],
+                    $pageWmm,
+                    $pageHmm,
+                    $stampWmm,
+                    $stampHmm
+                );
+            };
 
-                $best = null;
-                $bestRank = -1.0;
-
-                foreach ($candidates as $c) {
-                    $rank = $scoreSpot((int) $c['x'], (int) $c['y']);
-                    if ($rank > $bestRank) {
-                        $bestRank = $rank;
-                        $best = $c;
+            // --- 1) Probe fixed mid-right / mid-left slots (fast + visible) ---
+            $probeBest = null;
+            $probeBestScore = -1.0;
+            foreach ([0.40, 0.45, 0.50, 0.55, 0.60] as $yFrac) {
+                $py = (int) max($midYStart, min($midYEnd, ($imgH * $yFrac) - ($stampHpx / 2)));
+                foreach ([$xRight, $xLeft] as $px) {
+                    if ($px < $marginPx || $px + $stampWpx > $imgW - $marginPx) {
+                        continue;
+                    }
+                    if (!$isMostlyEmpty($px, $py)) {
+                        continue;
+                    }
+                    $ink = $inkAt($px, $py);
+                    $score = $scoreMidSpot($px, $py, $ink);
+                    if ($score > $probeBestScore) {
+                        $probeBestScore = $score;
+                        $probeBest = ['x' => $px, 'y' => $py, 'ink' => $ink];
                     }
                 }
+            }
 
-                if ($best === null) {
-                    return null;
-                }
+            if ($probeBest !== null) {
+                Log::debug('Stamp: mid-band probe hit', [
+                    'page' => $pageNum,
+                    'x' => round($probeBest['x'] / $pxPerMm, 1),
+                    'y' => round($probeBest['y'] / $pxPerMm, 1),
+                    'score' => round($probeBestScore, 3),
+                ]);
 
-                return [
-                    'x' => $best['x'] / $pxPerMm,
-                    'y' => $best['y'] / $pxPerMm,
-                    'y_pct' => round(($best['y'] / $imgH) * 100, 1),
-                ];
-            };
+                return $toMm($probeBest['x'], $probeBest['y']);
+            }
 
-            $refinePosition = function (int $x, int $y) use (
-                $isRectEmpty, $scoreSpot, $fineStep, $marginPx, $imgW, $imgH, $stampWpx, $stampHpx
+            // --- 2) Scan only the mid-band for mostly-empty spots ---
+            $scanMid = function (int $step) use (
+                $midYStart, $midYEnd, $marginPx, $stampWpx, $imgW, $isMostlyEmpty, $inkAt, $scoreMidSpot
             ): ?array {
-                $best = ['x' => $x, 'y' => $y];
-                $bestScore = $scoreSpot($x, $y);
-
-                for ($dy = -$fineStep * 4; $dy <= $fineStep * 4; $dy += $fineStep) {
-                    for ($dx = -$fineStep * 4; $dx <= $fineStep * 4; $dx += $fineStep) {
-                        $tx = $x + $dx;
-                        $ty = $y + $dy;
-                        if ($tx < $marginPx || $ty < $marginPx) {
+                $best = null;
+                $bestScore = -1.0;
+                for ($y = $midYStart; $y <= $midYEnd; $y += $step) {
+                    for ($x = $marginPx; $x + $stampWpx <= $imgW - $marginPx; $x += $step) {
+                        if (!$isMostlyEmpty($x, $y)) {
                             continue;
                         }
-                        if ($tx + $stampWpx > $imgW - $marginPx || $ty + $stampHpx > $imgH - $marginPx) {
-                            continue;
-                        }
-                        if (!$isRectEmpty($tx, $ty)) {
-                            continue;
-                        }
-                        $score = $scoreSpot($tx, $ty);
+                        $ink = $inkAt($x, $y);
+                        $score = $scoreMidSpot($x, $y, $ink);
                         if ($score > $bestScore) {
                             $bestScore = $score;
-                            $best = ['x' => $tx, 'y' => $ty];
+                            $best = ['x' => $x, 'y' => $y, 'ink' => $ink];
                         }
                     }
                 }
@@ -264,159 +313,71 @@ class StampService
                 return $best;
             };
 
-            $xRight  = $imgW - $stampWpx - $marginPx;
-            $xLeft   = $marginPx;
-            $xCentre = (int) max($marginPx, ($imgW - $stampWpx) / 2);
-
-            $probeSlots = [];
-            foreach ([0.18, 0.32, 0.50, 0.68, 0.82] as $yFrac) {
-                $py = (int) max($marginPx, ($imgH * $yFrac) - ($stampHpx / 2));
-                $py = min($py, $imgH - $stampHpx - $marginPx);
-                $probeSlots[] = ['x' => $xLeft,   'y' => $py];
-                $probeSlots[] = ['x' => $xRight,  'y' => $py];
-                $probeSlots[] = ['x' => $xCentre, 'y' => $py];
-            }
-
-            $probeBest = null;
-            $probeBestScore = -1.0;
-            foreach ($probeSlots as $slot) {
-                if (!$isRectEmpty($slot['x'], $slot['y'])) {
-                    continue;
-                }
-                $score = $scoreSpot($slot['x'], $slot['y']);
-                if ($score > $probeBestScore) {
-                    $probeBestScore = $score;
-                    $probeBest = $slot;
-                }
-            }
-
-            if ($probeBest !== null && $probeBestScore >= 2.4) {
-                Log::debug('Stamp: empty area found via full-page probe', [
-                    'page'  => $pageNum,
-                    'x'     => round($probeBest['x'] / $pxPerMm, 1),
-                    'y'     => round($probeBest['y'] / $pxPerMm, 1),
-                    'score' => round($probeBestScore, 3),
+            $midEmpty = $scanMid($coarseStep) ?? $scanMid($fineStep);
+            if ($midEmpty !== null) {
+                Log::debug('Stamp: mid-band empty scan hit', [
+                    'page' => $pageNum,
+                    'x' => round($midEmpty['x'] / $pxPerMm, 1),
+                    'y' => round($midEmpty['y'] / $pxPerMm, 1),
                 ]);
 
-                return $this->clampToPage(
-                    ['x' => $probeBest['x'] / $pxPerMm, 'y' => $probeBest['y'] / $pxPerMm],
-                    $pageWmm,
-                    $pageHmm,
-                    $stampWmm,
-                    $stampHmm
-                );
+                return $toMm($midEmpty['x'], $midEmpty['y']);
             }
 
-            $candidates = $scanForEmpty($marginPx, $imgH - $stampHpx - $marginPx, $coarseStep);
-
-            if ($candidates === []) {
-                $candidates = $scanForEmpty($marginPx, $imgH - $stampHpx - $marginPx, $fineStep);
-            }
-
-            $best = $pickPreferred($candidates);
-
-            if ($best !== null) {
-                $rx = (int) round($best['x'] * $pxPerMm);
-                $ry = (int) round($best['y'] * $pxPerMm);
-                $refined = $refinePosition($rx, $ry);
-                if ($refined !== null) {
-                    $best['x'] = $refined['x'] / $pxPerMm;
-                    $best['y'] = $refined['y'] / $pxPerMm;
-                    $best['y_pct'] = round(($refined['y'] / $imgH) * 100, 1);
-                }
-
-                Log::debug('Stamp: empty area found', [
-                    'page'  => $pageNum,
-                    'x'     => round($best['x'], 1),
-                    'y'     => round($best['y'], 1),
-                    'y_pct' => $best['y_pct'],
-                ]);
-
-                return $this->clampToPage(
-                    ['x' => $best['x'], 'y' => $best['y']],
-                    $pageWmm,
-                    $pageHmm,
-                    $stampWmm,
-                    $stampHmm
-                );
-            }
-
-            $totalStampPx = max(1, $stampWpx * $stampHpx);
-
-            $findLeastInk = function (int $step) use (
-                $marginPx, $stampWpx, $stampHpx, $imgW, $imgH, $regionSum, $strongTable, $isRectEmpty, $scoreSpot
+            // --- 3) Mid-band least-ink (even if not perfectly empty) — still never bottom ---
+            $findLeastInkMid = function (int $step) use (
+                $midYStart, $midYEnd, $marginPx, $stampWpx, $stampHpx, $imgW, $inkAt, $scoreMidSpot
             ): ?array {
                 $best = null;
-                $minStrong = PHP_INT_MAX;
-                $bestEmpty = null;
-                $bestEmptyScore = -1.0;
-                $yEnd = $imgH - $stampHpx - $marginPx;
-
-                for ($y = $marginPx; $y <= $yEnd; $y += $step) {
+                $bestScore = -1.0;
+                for ($y = $midYStart; $y <= $midYEnd; $y += $step) {
                     for ($x = $marginPx; $x + $stampWpx <= $imgW - $marginPx; $x += $step) {
-                        $strong = $regionSum($strongTable, $x, $y, $stampWpx, $stampHpx);
-
-                        if ($strong === 0 && $isRectEmpty($x, $y)) {
-                            $score = $scoreSpot($x, $y);
-                            if ($score > $bestEmptyScore) {
-                                $bestEmptyScore = $score;
-                                $bestEmpty = ['x' => $x, 'y' => $y, 'strong' => 0];
-                            }
+                        $ink = $inkAt($x, $y);
+                        // Skip boxes that are mostly filled with content/images.
+                        if ($ink > ($stampWpx * $stampHpx * 0.45)) {
                             continue;
                         }
-
-                        if ($strong < $minStrong) {
-                            $minStrong = $strong;
-                            $best = ['x' => $x, 'y' => $y, 'strong' => $strong];
-                        } elseif ($strong === $minStrong && $best !== null) {
-                            if ($scoreSpot($x, $y) > $scoreSpot($best['x'], $best['y'])) {
-                                $best = ['x' => $x, 'y' => $y, 'strong' => $strong];
-                            }
+                        $score = $scoreMidSpot($x, $y, $ink);
+                        if ($score > $bestScore) {
+                            $bestScore = $score;
+                            $best = ['x' => $x, 'y' => $y, 'ink' => $ink];
                         }
                     }
                 }
 
-                return $bestEmpty ?? $best;
+                return $best;
             };
 
-            $formatResult = function (array $spot, int $page) use ($pxPerMm, $imgH, $pageWmm, $pageHmm, $stampWmm, $stampHmm, $totalStampPx): array {
-                Log::debug('Stamp: using least-ink placement', [
-                    'page'         => $page,
-                    'x'            => round($spot['x'] / $pxPerMm, 1),
-                    'y'            => round($spot['y'] / $pxPerMm, 1),
-                    'y_pct'        => round(($spot['y'] / $imgH) * 100, 1),
-                    'strong_px'    => $spot['strong'],
-                    'strong_ratio' => round($spot['strong'] / $totalStampPx, 4),
+            $least = $findLeastInkMid($coarseStep) ?? $findLeastInkMid(max($coarseStep * 2, $fineStep * 2));
+            if ($least !== null) {
+                Log::debug('Stamp: mid-band least-ink placement', [
+                    'page' => $pageNum,
+                    'x' => round($least['x'] / $pxPerMm, 1),
+                    'y' => round($least['y'] / $pxPerMm, 1),
+                    'ink' => $least['ink'],
                 ]);
 
-                return $this->clampToPage(
-                    ['x' => $spot['x'] / $pxPerMm, 'y' => $spot['y'] / $pxPerMm],
-                    $pageWmm,
-                    $pageHmm,
-                    $stampWmm,
-                    $stampHmm
-                );
-            };
-            $least = $findLeastInk($coarseStep);
-            if ($least === null) {
-                $least = $findLeastInk(max($coarseStep * 2, $fineStep * 2));
+                return $toMm($least['x'], $least['y']);
             }
 
-            if ($least !== null) {
-                if ($least['strong'] === 0 && $isRectEmpty($least['x'], $least['y'])) {
-                    return $formatResult($least, $pageNum);
-                }
+            // --- 4) Choose mid-right vs mid-left by ink at exact middle Y ---
+            $midY = (int) max($midYStart, min($midYEnd, ($imgH - $stampHpx) / 2));
+            $rightInk = $inkAt($xRight, $midY);
+            $leftInk = $inkAt($xLeft, $midY);
+            $chosen = ($leftInk + ($totalStampPx * 0.02) < $rightInk) ? $fallbackLeft : $fallbackRight;
 
-                return $formatResult($least, $pageNum);
-            }
+            Log::debug('Stamp: forced mid-side fallback', [
+                'page' => $pageNum,
+                'side' => ($chosen === $fallbackLeft) ? 'left' : 'right',
+                'left_ink' => $leftInk,
+                'right_ink' => $rightInk,
+            ]);
 
-            Log::warning('Stamp: could not analyse page for placement', ['page' => $pageNum]);
-
-            return $fallback;
-
+            return $chosen;
         } catch (\Throwable $e) {
             Log::warning('Stamp: auto-placement detection failed', ['error' => $e->getMessage(), 'page' => $pageNum]);
-            return $fallback;
+
+            return $fallbackRight;
         }
     }
 
@@ -433,9 +394,10 @@ class StampService
         float $stampHmm,
         array $options = []
     ): array {
-        if ($position === 'custom') {
-            $xPct = max(0.0, min(100.0, (float) ($options['x_pct'] ?? 0)));
-            $yPct = max(0.0, min(100.0, (float) ($options['y_pct'] ?? 0)));
+        $pagePositions = $options['page_positions'] ?? [];
+        if (is_array($pagePositions) && isset($pagePositions[$pageNum])) {
+            $xPct = max(0.0, min(100.0, (float) ($pagePositions[$pageNum]['x_pct'] ?? 0)));
+            $yPct = max(0.0, min(100.0, (float) ($pagePositions[$pageNum]['y_pct'] ?? 0)));
 
             return $this->clampToPage(
                 [
@@ -449,9 +411,31 @@ class StampService
             );
         }
 
+        if ($position === 'custom') {
+            // Mixed mode: some pages were dragged, others were not listed →
+            // find an empty area on this page instead of copying page 1 coords.
+            if (is_array($pagePositions) && $pagePositions !== []) {
+                $position = 'auto';
+            } else {
+                $xPct = max(0.0, min(100.0, (float) ($options['x_pct'] ?? 0)));
+                $yPct = max(0.0, min(100.0, (float) ($options['y_pct'] ?? 0)));
+
+                return $this->clampToPage(
+                    [
+                        'x' => ($xPct / 100.0) * $pageWmm,
+                        'y' => ($yPct / 100.0) * $pageHmm,
+                    ],
+                    $pageWmm,
+                    $pageHmm,
+                    $stampWmm,
+                    $stampHmm
+                );
+            }
+        }
+
         if ($position === 'auto') {
             // Scan each page independently — empty space differs page to page.
-            $cacheKey = md5($pdfPath . '|p' . $pageNum . '|'
+            $cacheKey = md5($pdfPath . '|mid-v2|p' . $pageNum . '|'
                 . round($pageWmm, 1) . 'x' . round($pageHmm, 1) . '|'
                 . round($stampWmm, 1) . 'x' . round($stampHmm, 1));
 
@@ -682,6 +666,7 @@ class StampService
                     'stamp_all_pages' => $validated['all_pages'],
                     'x_pct' => $validated['x_pct'] ?? null,
                     'y_pct' => $validated['y_pct'] ?? null,
+                    'page_positions' => $validated['page_positions'] ?? [],
                 ]
             );
 
@@ -968,6 +953,7 @@ class StampService
                     'stamp_all_pages' => $validated['all_pages'],
                     'x_pct' => $validated['x_pct'] ?? null,
                     'y_pct' => $validated['y_pct'] ?? null,
+                    'page_positions' => $validated['page_positions'] ?? [],
                 ]
             );
 

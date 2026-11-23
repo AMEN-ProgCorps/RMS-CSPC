@@ -552,6 +552,7 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
                 <div class="st-preview-panel">
                     <div class="st-preview-toolbar">
                         <span class="st-preview-note-inline">Stamp preview</span>
+                        <span class="st-preview-page" id="pageIndicator">—</span>
                         <div class="st-preview-spacer"></div>
                         <button class="st-preview-refresh" id="refreshPreview" type="button" title="Refresh preview">
                             <i class="fa-solid fa-rotate-right"></i> Refresh
@@ -559,28 +560,28 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
                     </div>
                     <div class="st-preview-frame" id="previewFrame">
                         <div class="st-preview-scroll" id="previewScroll">
-                            <div class="st-page-stage" id="pageStage">
-                                <canvas id="pdfCanvas" aria-label="PDF page preview"></canvas>
-                                <div class="st-stamp-overlay pos-bottom-right" id="stampOverlay" style="display:none;">
-                                    <div class="st-stamp-box st-stamp-box-image" id="stampBox" title="Drag to move">
-                                        <img src="{{ asset('images/stamps/reference.png') }}?v={{ @filemtime(public_path('images/stamps/reference.png')) ?: time() }}" alt="REFERENCE" class="st-stamp-art" id="overlayStampArt">
-                                        <div class="st-stamp-inner" id="overlayStampFallback" style="display:none;">
-                                            <div class="st-stamp-title" id="overlayTitle">REFERENCE</div>
-                                            <div class="st-stamp-divider" id="overlayDivider" style="display:none;"></div>
-                                            <div class="st-stamp-date" id="overlayDate" style="display:none;"></div>
-                                            <div class="st-stamp-sub" id="overlaySub" style="display:none;"></div>
-                                        </div>
-                                    </div>
-                                    <span class="st-stamp-pages" id="overlayPages">All pages</span>
-                                    <span class="st-auto-badge is-detecting" id="detectingBadge" style="display:none;">
-                                        <i class="fa-solid fa-spinner fa-spin"></i> Finding empty area…
-                                    </span>
-                                    <span class="st-auto-badge" id="autoBadge" style="display:none;">
-                                        <i class="fa-solid fa-wand-magic-sparkles"></i> Preview position — drag to adjust
-                                    </span>
-                                </div>
-                            </div>
+                            <div class="st-page-stack" id="pageStack"></div>
                         </div>
+                        <template id="stampOverlayTpl">
+                            <div class="st-stamp-overlay pos-bottom-right" style="display:none;">
+                                <div class="st-stamp-box st-stamp-box-image" title="Drag to move">
+                                    <img src="{{ asset('images/stamps/reference.png') }}?v={{ @filemtime(public_path('images/stamps/reference.png')) ?: time() }}" alt="REFERENCE" class="st-stamp-art">
+                                    <div class="st-stamp-inner" style="display:none;">
+                                        <div class="st-stamp-title">REFERENCE</div>
+                                        <div class="st-stamp-divider" style="display:none;"></div>
+                                        <div class="st-stamp-date" style="display:none;"></div>
+                                        <div class="st-stamp-sub" style="display:none;"></div>
+                                    </div>
+                                </div>
+                                <span class="st-stamp-pages">All pages</span>
+                                <span class="st-auto-badge is-detecting st-detecting-badge" style="display:none;">
+                                    <i class="fa-solid fa-spinner fa-spin"></i> Finding empty area…
+                                </span>
+                                <span class="st-auto-badge st-auto-place-badge" style="display:none;">
+                                    <i class="fa-solid fa-wand-magic-sparkles"></i> Preview position — drag to adjust
+                                </span>
+                            </div>
+                        </template>
 
                         <div class="st-preview-fallback" id="previewFallback" style="display:none;">
                             <i class="fa-solid fa-file-pdf"></i>
@@ -590,7 +591,7 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
                     </div>
                     <p class="st-preview-note">
                         <i class="fa-solid fa-hand"></i>
-                        Preview the stamp first, drag it to the right empty spot, then click Apply Stamp.
+                        Auto-place finds an empty area on each page. Drag any page to override just that page, then Apply Stamp.
                     </p>
                 </div>
 
@@ -635,7 +636,7 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
                         </div>
                         <p class="st-pos-drag-hint" id="customPosHint" style="display:none;margin:8px 0 0;font-size:0.75rem;color:var(--st-text-subtle);">
                             <i class="fa-solid fa-arrows-up-down-left-right"></i>
-                            Drag the stamp on the preview to fine-tune, then Apply Stamp
+                            Drag each page’s stamp independently, then Apply Stamp
                         </p>
                     </div>
 

@@ -22,16 +22,9 @@ document.addEventListener('DOMContentLoaded', function () {
     const previewFallback = document.getElementById('previewFallback');
     const openPdfLink     = document.getElementById('openPdfLink');
     const refreshPreview  = document.getElementById('refreshPreview');
-    const stampOverlay    = document.getElementById('stampOverlay');
-    const pageStage       = document.getElementById('pageStage');
-    const pdfCanvas       = document.getElementById('pdfCanvas');
+    const pageStack       = document.getElementById('pageStack');
     const previewScroll   = document.getElementById('previewScroll');
-
-    const overlayTitle    = document.getElementById('overlayTitle');
-    const overlayDivider  = document.getElementById('overlayDivider');
-    const overlayDate     = document.getElementById('overlayDate');
-    const overlaySub      = document.getElementById('overlaySub');
-    const overlayPages    = document.getElementById('overlayPages');
+    const stampOverlayTpl = document.getElementById('stampOverlayTpl');
 
     const downloadBtn     = document.getElementById('downloadBtn');
     const applyBtn        = document.getElementById('applyBtn');
@@ -45,14 +38,8 @@ document.addEventListener('DOMContentLoaded', function () {
     const restoreCancel   = document.getElementById('restoreCancel');
     const restoreConfirm  = document.getElementById('restoreConfirm');
 
-    const stampBox        = document.getElementById('stampBox');
-
     const autoPlace   = document.getElementById('autoPlace');
     const manualWrap  = document.getElementById('manualPosWrap');
-    const autoBadge   = document.getElementById('autoBadge');
-    const detectingBadge = document.getElementById('detectingBadge');
-    const prevPageBtn = document.getElementById('prevPage');
-    const nextPageBtn = document.getElementById('nextPage');
     const pageIndicator = document.getElementById('pageIndicator');
     const customPosHint = document.getElementById('customPosHint');
 
@@ -77,8 +64,12 @@ document.addEventListener('DOMContentLoaded', function () {
         xPct: null,
         yPct: null,
         widthPct: null,
+        /** @type {Object.<string, {x_pct:number, y_pct:number, mode:string}>} */
+        pagePlacements: {},
+        activePage: 1,
         pageWidthMm: null,
         pageHeightMm: null,
+        pageMetricsLocked: false,
         stampWidthMm: 36,
         stampHeightMm: 13,
         pdfDoc: null,
@@ -89,6 +80,18 @@ document.addEventListener('DOMContentLoaded', function () {
     let placementRequestId = 0;
     let dragState = null;
     let renderToken = 0;
+    let pageObserver = null;
+    let pageRenderQueue = [];
+    let pageRenderActive = 0;
+    let autoPlaceQueue = [];
+    let autoPlaceActive = 0;
+    let autoPlaceInflight = {};
+    let autoPlaceDone = {};
+    let autoPlaceSession = 0;
+    const PAGE_RENDER_CONCURRENCY = 2;
+    const AUTO_PLACE_CONCURRENCY = 2;
+    const PREVIEW_MAX_DPR = 1.25;
+    const PREVIEW_MAX_SCALE = 1.15;
 
     const POS_LABELS = {
         'top-left': 'Top Left',
@@ -132,7 +135,9 @@ document.addEventListener('DOMContentLoaded', function () {
                 state.position = 'auto';
                 state.xPct = null;
                 state.yPct = null;
+                state.pagePlacements = {};
                 state.placement = null;
+                resetAutoPlaceQueue();
                 if (manualWrap) manualWrap.style.display = 'none';
                 if (customPosHint) customPosHint.style.display = 'none';
             } else {
@@ -140,9 +145,9 @@ document.addEventListener('DOMContentLoaded', function () {
                 state.xPct = null;
                 state.yPct = null;
                 state.placementPending = false;
+                resetAutoPlaceQueue();
                 if (manualWrap) manualWrap.style.display = 'block';
                 state.placement = null;
-                if (detectingBadge) detectingBadge.style.display = 'none';
                 if (customPosHint) customPosHint.style.display = 'none';
                 placePresetOnPage(state.position);
             }
@@ -190,6 +195,9 @@ document.addEventListener('DOMContentLoaded', function () {
         state.xPct = null;
         state.yPct = null;
         state.widthPct = null;
+        state.pagePlacements = {};
+        state.activePage = 1;
+        resetAutoPlaceQueue();
 
         let defaultFile = files.find(f => !f.stamped) || files[0];
         state.selectedFile = defaultFile;
@@ -265,6 +273,9 @@ document.addEventListener('DOMContentLoaded', function () {
         state.xPct = null;
         state.yPct = null;
         state.widthPct = null;
+        state.pagePlacements = {};
+        state.activePage = 1;
+        resetAutoPlaceQueue();
 
         document.querySelectorAll('.st-pos-dot').forEach(d => d.classList.remove('active'));
         const br = document.querySelector('.st-pos-dot[data-pos="bottom-right"]');
@@ -274,9 +285,7 @@ document.addEventListener('DOMContentLoaded', function () {
 
         if (stampAllPages) stampAllPages.checked = true;
         state.allPages = true;
-        if (stampOverlay) stampOverlay.style.display = 'none';
-        if (autoBadge) autoBadge.style.display = 'none';
-        if (detectingBadge) detectingBadge.style.display = 'none';
+        hideAllOverlays();
         state.currentPage = 1;
         state.placement = null;
         state.placementPending = false;
@@ -287,7 +296,7 @@ document.addEventListener('DOMContentLoaded', function () {
     }
 
     // ═══════════════════════════════════════════
-    // PDF.js PAGE PREVIEW (page-accurate)
+    // PDF.js MULTI-PAGE PREVIEW (scrollable stack)
     // ═══════════════════════════════════════════
 
     function dcsPdfUrl(path, bust) {
@@ -302,6 +311,64 @@ document.addEventListener('DOMContentLoaded', function () {
         return base + (base.indexOf('?') >= 0 ? '&' : '?') + 'v=' + encodeURIComponent(bust);
     }
 
+    function clearPageStack() {
+        stopPageObserver();
+        pageRenderQueue = [];
+        pageRenderActive = 0;
+        if (pageStack) pageStack.innerHTML = '';
+    }
+
+    function stopPageObserver() {
+        if (pageObserver) {
+            pageObserver.disconnect();
+            pageObserver = null;
+        }
+    }
+
+    function allPageStages() {
+        return pageStack ? Array.from(pageStack.querySelectorAll('.st-page-stage')) : [];
+    }
+
+    function allOverlays() {
+        return pageStack ? Array.from(pageStack.querySelectorAll('.st-stamp-overlay')) : [];
+    }
+
+    function primaryOverlay() {
+        var overlays = allOverlays();
+        return overlays.length ? overlays[0] : null;
+    }
+
+    function hideAllOverlays() {
+        allOverlays().forEach(function (ov) {
+            ov.style.display = 'none';
+            ov.classList.remove('is-dragging');
+            var detecting = ov.querySelector('.st-detecting-badge');
+            var auto = ov.querySelector('.st-auto-place-badge');
+            if (detecting) detecting.style.display = 'none';
+            if (auto) auto.style.display = 'none';
+        });
+    }
+
+    function cloneStampOverlay() {
+        if (!stampOverlayTpl || !stampOverlayTpl.content) return null;
+        return stampOverlayTpl.content.firstElementChild.cloneNode(true);
+    }
+
+    function syncStampOnStages() {
+        if (!state.stampType) return;
+        paintAllPageOverlays();
+        renderOverlayContent();
+    }
+
+    function previewFitScale(pageWidthPts) {
+        const scrollW = (previewScroll && previewScroll.clientWidth) ? previewScroll.clientWidth - 32 : 700;
+        return Math.max(0.45, Math.min(PREVIEW_MAX_SCALE, scrollW / Math.max(1, pageWidthPts)));
+    }
+
+    function previewOutputScale() {
+        return Math.min(window.devicePixelRatio || 1, PREVIEW_MAX_DPR);
+    }
+
     function loadPreview(cacheBust) {
         if (!state.selectedFile) return;
 
@@ -314,6 +381,7 @@ document.addEventListener('DOMContentLoaded', function () {
         if (openPdfLink) openPdfLink.href = url;
         state.currentPage = 1;
         state.placement = null;
+        state.pageMetricsLocked = false;
         updatePageNav();
 
         if (!window.pdfjsLib) {
@@ -324,15 +392,33 @@ document.addEventListener('DOMContentLoaded', function () {
 
         if (previewFallback) previewFallback.style.display = 'none';
         if (previewScroll) previewScroll.style.display = 'flex';
+        clearPageStack();
+        if (pageStack) {
+            pageStack.innerHTML = '<div class="st-preview-loading"><i class="fa-solid fa-spinner fa-spin"></i> Loading preview…</div>';
+        }
 
         const token = ++renderToken;
-        window.pdfjsLib.getDocument({ url: url, withCredentials: true }).promise
+        window.pdfjsLib.getDocument({
+            url: url,
+            withCredentials: true,
+            // Faster first paint: don't download the whole PDF before page 1 can render.
+            disableAutoFetch: true,
+            disableStream: false,
+        }).promise
             .then(function (pdf) {
                 if (token !== renderToken) return;
                 state.pdfDoc = pdf;
                 state.pageCount = pdf.numPages || 1;
                 updatePageNav();
-                return renderCurrentPage(token);
+                // Once page count is known, seed missing pages (keeps custom drags).
+                if (state.xPct != null && state.yPct != null) {
+                    seedPlacementsForAllPages(
+                        state.xPct,
+                        state.yPct,
+                        state.position === 'custom' ? 'custom' : (state.position || 'auto')
+                    );
+                }
+                return setupLazyPages(token);
             })
             .then(function () {
                 if (token !== renderToken) return;
@@ -351,67 +437,214 @@ document.addEventListener('DOMContentLoaded', function () {
         if (previewFallback) previewFallback.style.display = 'flex';
         if (openPdfLink) openPdfLink.href = url || '#';
         state.pdfDoc = null;
+        clearPageStack();
     }
 
-    function renderCurrentPage(token) {
-        if (!state.pdfDoc || !pdfCanvas || !pageStage) return Promise.resolve();
-        const pageNo = Math.max(1, Math.min(state.currentPage, state.pageCount || 1));
+    /**
+     * Build all page slots immediately (cheap), render page 1 right away,
+     * then lazily paint other pages when they enter the scroll viewport.
+     */
+    function setupLazyPages(token) {
+        if (!state.pdfDoc || !pageStack) return Promise.resolve();
+
+        clearPageStack();
+        const total = state.pageCount || 1;
+
+        return state.pdfDoc.getPage(1).then(function (firstPage) {
+            if (token != null && token !== renderToken) return;
+
+            const unscaled = firstPage.getViewport({ scale: 1 });
+            state.pageWidthMm = unscaled.width * 25.4 / 72;
+            state.pageHeightMm = unscaled.height * 25.4 / 72;
+
+            const fitScale = previewFitScale(unscaled.width);
+            const viewport = firstPage.getViewport({ scale: fitScale });
+            const cssW = Math.floor(viewport.width);
+            const cssH = Math.floor(viewport.height);
+
+            for (let n = 1; n <= total; n++) {
+                pageStack.appendChild(createPageStage(n, total, cssW, cssH));
+            }
+
+            startPageObserver(token);
+            // Page 1 is already measured — render it immediately (no wait for observer).
+            return enqueuePageRender(1, token, true);
+        });
+    }
+
+    function createPageStage(pageNo, total, cssW, cssH) {
+        const stage = document.createElement('div');
+        stage.className = 'st-page-stage is-pending';
+        stage.dataset.page = String(pageNo);
+        stage.dataset.renderState = 'pending';
+        stage.style.width = cssW + 'px';
+        stage.style.height = cssH + 'px';
+
+        if (total > 1) {
+            const label = document.createElement('span');
+            label.className = 'st-page-label';
+            label.textContent = 'Page ' + pageNo;
+            stage.appendChild(label);
+        }
+
+        const placeholder = document.createElement('div');
+        placeholder.className = 'st-page-placeholder';
+        placeholder.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i>';
+        stage.appendChild(placeholder);
+
+        const canvas = document.createElement('canvas');
+        canvas.setAttribute('aria-label', 'PDF page ' + pageNo);
+        canvas.style.display = 'none';
+        stage.appendChild(canvas);
+
+        const overlay = cloneStampOverlay();
+        if (overlay) stage.appendChild(overlay);
+
+        return stage;
+    }
+
+    function startPageObserver(token) {
+        stopPageObserver();
+        if (!previewScroll || !window.IntersectionObserver) {
+            // Fallback: queue first few pages so the stack still fills without IO.
+            const warm = Math.min(state.pageCount || 1, 3);
+            for (let n = 1; n <= warm; n++) enqueuePageRender(n, token);
+            return;
+        }
+
+        pageObserver = new IntersectionObserver(function (entries) {
+            if (token != null && token !== renderToken) return;
+            entries.forEach(function (entry) {
+                if (!entry.isIntersecting) return;
+                const stage = entry.target;
+                const pageNo = parseInt(stage.dataset.page, 10);
+                if (!pageNo) return;
+                enqueuePageRender(pageNo, token);
+            });
+        }, {
+            root: previewScroll,
+            // Prefetch a bit above/below the visible area.
+            rootMargin: '240px 0px',
+            threshold: 0.01,
+        });
+
+        allPageStages().forEach(function (stage) {
+            pageObserver.observe(stage);
+        });
+    }
+
+    function enqueuePageRender(pageNo, token, urgent) {
+        const stage = pageStack && pageStack.querySelector('.st-page-stage[data-page="' + pageNo + '"]');
+        if (!stage) return Promise.resolve();
+        const status = stage.dataset.renderState;
+        if (status === 'ready' || status === 'rendering' || status === 'queued') {
+            return stage._renderPromise || Promise.resolve();
+        }
+
+        stage.dataset.renderState = 'queued';
+        const job = { pageNo: pageNo, token: token, stage: stage };
+        if (urgent) pageRenderQueue.unshift(job);
+        else pageRenderQueue.push(job);
+
+        stage._renderPromise = new Promise(function (resolve) {
+            stage._resolveRender = resolve;
+        });
+        pumpPageRenderQueue();
+        return stage._renderPromise;
+    }
+
+    function pumpPageRenderQueue() {
+        while (pageRenderActive < PAGE_RENDER_CONCURRENCY && pageRenderQueue.length) {
+            const job = pageRenderQueue.shift();
+            if (!job) break;
+            if (job.token != null && job.token !== renderToken) {
+                finishStageRender(job.stage);
+                continue;
+            }
+            pageRenderActive++;
+            renderPageIntoStage(job.pageNo, job.stage, job.token)
+                .catch(function (err) {
+                    console.warn('Stamp page render failed', job.pageNo, err);
+                    if (job.stage) {
+                        job.stage.dataset.renderState = 'error';
+                        const ph = job.stage.querySelector('.st-page-placeholder');
+                        if (ph) ph.innerHTML = '<span>Preview unavailable</span>';
+                    }
+                })
+                .finally(function () {
+                    pageRenderActive = Math.max(0, pageRenderActive - 1);
+                    finishStageRender(job.stage);
+                    pumpPageRenderQueue();
+                });
+        }
+    }
+
+    function finishStageRender(stage) {
+        if (!stage) return;
+        if (typeof stage._resolveRender === 'function') {
+            stage._resolveRender();
+            stage._resolveRender = null;
+        }
+    }
+
+    function renderPageIntoStage(pageNo, stage, token) {
+        if (!state.pdfDoc || !stage) return Promise.resolve();
+        if (token != null && token !== renderToken) return Promise.resolve();
+
+        stage.dataset.renderState = 'rendering';
+
         return state.pdfDoc.getPage(pageNo).then(function (page) {
             if (token != null && token !== renderToken) return;
 
             const unscaled = page.getViewport({ scale: 1 });
-            // Match FPDI mm units used by StampService (approx 72dpi points → mm).
-            state.pageWidthMm = unscaled.width * 25.4 / 72;
-            state.pageHeightMm = unscaled.height * 25.4 / 72;
+            if (pageNo === 1 && !state.pageMetricsLocked) {
+                state.pageWidthMm = unscaled.width * 25.4 / 72;
+                state.pageHeightMm = unscaled.height * 25.4 / 72;
+            }
 
-            const scrollW = (previewScroll && previewScroll.clientWidth) ? previewScroll.clientWidth - 32 : 700;
-            const fitScale = Math.max(0.5, Math.min(1.6, scrollW / unscaled.width));
+            const fitScale = previewFitScale(unscaled.width);
             const viewport = page.getViewport({ scale: fitScale });
+            const cssW = Math.floor(viewport.width);
+            const cssH = Math.floor(viewport.height);
+            const outputScale = previewOutputScale();
 
-            const outputScale = window.devicePixelRatio || 1;
-            pdfCanvas.width = Math.floor(viewport.width * outputScale);
-            pdfCanvas.height = Math.floor(viewport.height * outputScale);
-            pdfCanvas.style.width = Math.floor(viewport.width) + 'px';
-            pdfCanvas.style.height = Math.floor(viewport.height) + 'px';
-            pageStage.style.width = Math.floor(viewport.width) + 'px';
-            pageStage.style.height = Math.floor(viewport.height) + 'px';
+            stage.style.width = cssW + 'px';
+            stage.style.height = cssH + 'px';
 
-            const ctx = pdfCanvas.getContext('2d');
-            const transform = outputScale !== 1 ? [outputScale, 0, 0, outputScale, 0, 0] : null;
+            const canvas = stage.querySelector('canvas');
+            if (!canvas) return;
+
+            canvas.width = Math.floor(viewport.width * outputScale);
+            canvas.height = Math.floor(viewport.height * outputScale);
+            canvas.style.width = cssW + 'px';
+            canvas.style.height = cssH + 'px';
 
             return page.render({
-                canvasContext: ctx,
+                canvasContext: canvas.getContext('2d', { alpha: false }),
                 viewport: viewport,
-                transform: transform,
-            }).promise;
+                transform: outputScale !== 1 ? [outputScale, 0, 0, outputScale, 0, 0] : null,
+            }).promise.then(function () {
+                if (token != null && token !== renderToken) return;
+                canvas.style.display = 'block';
+                stage.classList.remove('is-pending');
+                stage.classList.add('is-ready');
+                stage.dataset.renderState = 'ready';
+                const ph = stage.querySelector('.st-page-placeholder');
+                if (ph) ph.remove();
+                if (pageObserver) pageObserver.unobserve(stage);
+                syncStampOnStages();
+                // Per-page empty-area detection as pages become ready.
+                if (state.position === 'auto' && state.stampType) {
+                    queueAutoPlaceForPage(pageNo);
+                }
+            });
         });
     }
 
     function updatePageNav() {
         if (!pageIndicator) return;
-        pageIndicator.textContent = 'Page ' + state.currentPage + ' / ' + Math.max(1, state.pageCount);
-        if (prevPageBtn) prevPageBtn.disabled = state.currentPage <= 1;
-        if (nextPageBtn) nextPageBtn.disabled = state.currentPage >= state.pageCount;
-    }
-
-    if (prevPageBtn) {
-        prevPageBtn.addEventListener('click', function () {
-            if (state.currentPage <= 1) return;
-            state.currentPage--;
-            state.placement = null;
-            updatePageNav();
-            renderCurrentPage().then(function () { updateOverlay(); });
-        });
-    }
-
-    if (nextPageBtn) {
-        nextPageBtn.addEventListener('click', function () {
-            if (state.currentPage >= state.pageCount) return;
-            state.currentPage++;
-            state.placement = null;
-            updatePageNav();
-            renderCurrentPage().then(function () { updateOverlay(); });
-        });
+        var count = Math.max(1, state.pageCount || 1);
+        pageIndicator.textContent = count === 1 ? '1 page' : (count + ' pages');
     }
 
     // ═══════════════════════════════════════════
@@ -419,140 +652,462 @@ document.addEventListener('DOMContentLoaded', function () {
     // ═══════════════════════════════════════════
 
     function stampWidthPct() {
+        // Exact FPDI stamp/page ratio — do not clamp, or preview drift vs applied stamp.
         if (state.pageWidthMm && state.stampWidthMm) {
-            return Math.max(8, Math.min(40, (state.stampWidthMm / state.pageWidthMm) * 100));
+            return (state.stampWidthMm / state.pageWidthMm) * 100;
         }
         if (state.widthPct) return state.widthPct;
-        if (state.placement && state.placement.width_pct) return Math.max(14, state.placement.width_pct);
+        if (state.placement && state.placement.width_pct) return state.placement.width_pct;
         return 16;
     }
 
     function stampHeightPct() {
         if (state.pageHeightMm && state.stampHeightMm) {
-            return Math.max(3, Math.min(25, (state.stampHeightMm / state.pageHeightMm) * 100));
+            return (state.stampHeightMm / state.pageHeightMm) * 100;
         }
+        if (state.placement && state.placement.height_pct) return state.placement.height_pct;
         return 6;
+    }
+
+    /** PDF content box used for placement (canvas when ready, else stage). */
+    function pageContentEl(stage) {
+        if (!stage) return null;
+        const canvas = stage.querySelector('canvas');
+        if (canvas && canvas.style.display !== 'none' && canvas.getBoundingClientRect().width > 0) {
+            return canvas;
+        }
+        return stage;
     }
 
     function presetPercents(pos) {
         const w = stampWidthPct();
         const h = stampHeightPct();
         const m = 4; // visual margin % ≈ server 15mm on typical pages
+        const midY = Math.max(0, (100 - h) / 2);
         switch (pos) {
             case 'top-left': return { x: m, y: m, w: w };
             case 'top-right': return { x: Math.max(0, 100 - w - m), y: m, w: w };
+            case 'middle-left': return { x: m, y: midY, w: w };
+            case 'middle-right': return { x: Math.max(0, 100 - w - m), y: midY, w: w };
             case 'bottom-left': return { x: m, y: Math.max(0, 100 - h - m), w: w };
-            case 'center': return { x: Math.max(0, (100 - w) / 2), y: Math.max(0, (100 - h) / 2), w: w };
+            case 'center': return { x: Math.max(0, (100 - w) / 2), y: midY, w: w };
             case 'bottom-right':
             default: return { x: Math.max(0, 100 - w - m), y: Math.max(0, 100 - h - m), w: w };
         }
     }
 
-    function placeOnPage(xPct, yPct, widthPct, mode) {
-        if (!stampOverlay) return;
-        const w = widthPct != null ? widthPct : stampWidthPct();
+    /** Temporary/fallback auto spot — middle-right, never bottom. */
+    function autoFallbackPercents() {
+        return presetPercents('middle-right');
+    }
+
+    function setPagePlacement(pageNo, xPct, yPct, mode) {
+        const w = stampWidthPct();
         const h = stampHeightPct();
-        const maxX = Math.max(0, 100 - w);
-        const maxY = Math.max(0, 100 - h);
-        const x = clampPct(Math.min(maxX, xPct));
-        const y = clampPct(Math.min(maxY, yPct));
-
-        stampOverlay.style.display = 'block';
-        stampOverlay.className = 'st-stamp-overlay pos-' + (mode || 'custom');
-        stampOverlay.style.left = x + '%';
-        stampOverlay.style.top = y + '%';
-        stampOverlay.style.right = 'auto';
-        stampOverlay.style.bottom = 'auto';
-        stampOverlay.style.width = w + '%';
-        stampOverlay.style.minWidth = '0';
-        stampOverlay.style.transform = 'none';
-
-        state.xPct = Math.round(x * 100) / 100;
-        state.yPct = Math.round(y * 100) / 100;
-        state.widthPct = Math.round(w * 100) / 100;
-
-        if (state.placementPending) {
-            if (detectingBadge) detectingBadge.style.display = 'inline-flex';
-            if (autoBadge) autoBadge.style.display = 'none';
-            if (customPosHint) customPosHint.style.display = 'block';
-            return;
+        const x = clampPct(Math.min(Math.max(0, 100 - w), xPct));
+        const y = clampPct(Math.min(Math.max(0, 100 - h), yPct));
+        const key = String(pageNo);
+        state.pagePlacements[key] = {
+            x_pct: Math.round(x * 1000) / 1000,
+            y_pct: Math.round(y * 1000) / 1000,
+            mode: mode || 'custom',
+        };
+        // Keep legacy single-point fields in sync with the active/edited page.
+        if (pageNo === state.activePage || pageNo === 1) {
+            state.xPct = state.pagePlacements[key].x_pct;
+            state.yPct = state.pagePlacements[key].y_pct;
+            state.widthPct = Math.round(w * 1000) / 1000;
         }
+        return state.pagePlacements[key];
+    }
 
-        if (detectingBadge) detectingBadge.style.display = 'none';
+    function seedPlacementsForAllPages(xPct, yPct, mode) {
+        const total = Math.max(1, state.pageCount || 1);
+        const targetPages = state.allPages ? total : 1;
+        for (let n = 1; n <= targetPages; n++) {
+            // Do not overwrite a page the user already dragged.
+            const existing = state.pagePlacements[String(n)];
+            if (existing && existing.mode === 'custom') continue;
+            setPagePlacement(n, xPct, yPct, mode || 'auto');
+        }
+        // Drop placements for pages no longer in scope when unchecking all-pages.
+        Object.keys(state.pagePlacements).forEach(function (key) {
+            if (parseInt(key, 10) > targetPages) delete state.pagePlacements[key];
+        });
+    }
 
-        if (mode === 'auto') {
-            if (autoBadge) autoBadge.style.display = 'inline-flex';
-            if (customPosHint) customPosHint.style.display = 'block';
-            if (positionLabel) positionLabel.textContent = 'Auto (preview)';
-        } else if (mode === 'custom') {
-            if (autoBadge) autoBadge.style.display = 'none';
-            if (customPosHint) customPosHint.style.display = 'block';
-            if (positionLabel) positionLabel.textContent = 'Custom (dragged)';
+    function paintOverlayAt(ov, pageNo, placement) {
+        if (!ov || !placement) return;
+        const w = stampWidthPct();
+        const h = stampHeightPct();
+        const mode = placement.mode || 'custom';
+        ov.style.display = 'block';
+        ov.className = 'st-stamp-overlay pos-' + mode;
+        ov.style.left = placement.x_pct + '%';
+        ov.style.top = placement.y_pct + '%';
+        ov.style.right = 'auto';
+        ov.style.bottom = 'auto';
+        ov.style.width = w + '%';
+        ov.style.height = h + '%';
+        ov.style.minWidth = '0';
+        ov.style.transform = 'none';
+
+        const detecting = ov.querySelector('.st-detecting-badge');
+        const auto = ov.querySelector('.st-auto-place-badge');
+        const pages = ov.querySelector('.st-stamp-pages');
+        if (pages) {
+            pages.textContent = state.allPages ? ('Page ' + pageNo) : 'Page 1 only';
+        }
+        if (state.placementPending && pageNo === 1) {
+            if (detecting) detecting.style.display = 'inline-flex';
+            if (auto) auto.style.display = 'none';
+        } else if (mode === 'auto') {
+            if (detecting) detecting.style.display = 'none';
+            if (auto) auto.style.display = pageNo === state.activePage ? 'inline-flex' : 'none';
         } else {
-            if (autoBadge) autoBadge.style.display = 'none';
-            if (customPosHint) customPosHint.style.display = 'block';
+            if (detecting) detecting.style.display = 'none';
+            if (auto) auto.style.display = 'none';
         }
+    }
+
+    function paintAllPageOverlays() {
+        const overlays = allOverlays();
+        if (!overlays.length) return;
+        overlays.forEach(function (ov, idx) {
+            const pageNo = idx + 1;
+            const show = state.allPages || pageNo === 1;
+            if (!show) {
+                ov.style.display = 'none';
+                return;
+            }
+            let placement = state.pagePlacements[String(pageNo)];
+            // While auto-detect is still running for this page, show a temporary
+            // page-1-based preview without locking it as final.
+            if (!placement && state.position === 'auto' && state.xPct != null && state.yPct != null) {
+                placement = {
+                    x_pct: state.xPct,
+                    y_pct: state.yPct,
+                    mode: 'auto',
+                };
+            } else if (!placement && state.xPct != null && state.yPct != null && state.position !== 'auto') {
+                placement = setPagePlacement(pageNo, state.xPct, state.yPct, state.position || 'custom');
+            }
+            if (!placement) {
+                ov.style.display = 'none';
+                return;
+            }
+            paintOverlayAt(ov, pageNo, placement);
+        });
+        if (customPosHint) customPosHint.style.display = 'block';
+    }
+
+    /** Place/update one page only (used while dragging). */
+    function placeOnSinglePage(pageNo, xPct, yPct, widthPct, mode) {
+        const placement = setPagePlacement(pageNo, xPct, yPct, mode || 'custom');
+        state.widthPct = widthPct != null ? widthPct : stampWidthPct();
+        state.activePage = pageNo;
+        const stage = pageStack && pageStack.querySelector('.st-page-stage[data-page="' + pageNo + '"]');
+        const ov = stage && stage.querySelector('.st-stamp-overlay');
+        if (ov) paintOverlayAt(ov, pageNo, placement);
+        if (customPosHint) customPosHint.style.display = 'block';
+        if (mode === 'custom' && positionLabel) positionLabel.textContent = 'Custom (page ' + pageNo + ')';
+    }
+
+    /** Seed/update every stamped page (presets / auto-detect). */
+    function placeOnPage(xPct, yPct, widthPct, mode) {
+        state.widthPct = widthPct != null ? widthPct : stampWidthPct();
+        seedPlacementsForAllPages(xPct, yPct, mode || 'auto');
+        state.xPct = Math.round(clampPct(xPct) * 1000) / 1000;
+        state.yPct = Math.round(clampPct(yPct) * 1000) / 1000;
+        paintAllPageOverlays();
+        if (customPosHint) customPosHint.style.display = 'block';
+        if (mode === 'auto' && positionLabel) positionLabel.textContent = 'Auto (preview)';
+        if (mode === 'custom' && positionLabel) positionLabel.textContent = 'Custom (per page)';
     }
 
     function placePresetOnPage(pos) {
         const p = presetPercents(pos);
+        // Preset resets all page placements to the same corner.
+        state.pagePlacements = {};
         placeOnPage(p.x, p.y, p.w, pos);
     }
 
-    function applyAutoPlacement(data) {
+    function applyAutoPlacementMetrics(data) {
         if (!data) return;
         if (data.stamp_width_mm) state.stampWidthMm = data.stamp_width_mm;
         if (data.stamp_height_mm) state.stampHeightMm = data.stamp_height_mm;
         if (data.page_width_mm) state.pageWidthMm = data.page_width_mm;
         if (data.page_height_mm) state.pageHeightMm = data.page_height_mm;
-        placeOnPage(data.x_pct, data.y_pct, stampWidthPct(), 'auto');
+        if (data.page_width_mm && data.page_height_mm) state.pageMetricsLocked = true;
+        if (data.width_pct) state.widthPct = data.width_pct;
+    }
+
+    /** Apply empty-area result to one page only (never mirrors across pages). */
+    function applyAutoPlacementForPage(pageNo, data) {
+        if (!data) return;
+        applyAutoPlacementMetrics(data);
+        const existing = state.pagePlacements[String(pageNo)];
+        if (existing && existing.mode === 'custom') return;
+
+        const placement = setPagePlacement(pageNo, data.x_pct, data.y_pct, 'auto');
+        const stage = pageStack && pageStack.querySelector('.st-page-stage[data-page="' + pageNo + '"]');
+        const ov = stage && stage.querySelector('.st-stamp-overlay');
+        if (ov) paintOverlayAt(ov, pageNo, placement);
+        if (pageNo === 1) {
+            state.xPct = placement.x_pct;
+            state.yPct = placement.y_pct;
+        }
+        if (customPosHint) customPosHint.style.display = 'block';
+        if (positionLabel) positionLabel.textContent = 'Auto (per page)';
+    }
+
+    function resetAutoPlaceQueue() {
+        autoPlaceSession++;
+        autoPlaceQueue = [];
+        autoPlaceActive = 0;
+        autoPlaceInflight = {};
+        autoPlaceDone = {};
+    }
+
+    function hasCustomPagePlacement() {
+        return Object.keys(state.pagePlacements).some(function (key) {
+            return state.pagePlacements[key] && state.pagePlacements[key].mode === 'custom';
+        });
+    }
+
+    function setPageDetecting(pageNo, detecting) {
+        const stage = pageStack && pageStack.querySelector('.st-page-stage[data-page="' + pageNo + '"]');
+        const ov = stage && stage.querySelector('.st-stamp-overlay');
+        if (!ov) return;
+        const badge = ov.querySelector('.st-detecting-badge');
+        const auto = ov.querySelector('.st-auto-place-badge');
+        if (badge) badge.style.display = detecting ? 'inline-flex' : 'none';
+        if (detecting && auto) auto.style.display = 'none';
+    }
+
+    function queueAutoPlaceForPage(pageNo) {
+        if (!state.selectedFile || !state.stampType || state.position !== 'auto') return;
+        if (!state.allPages && pageNo !== 1) return;
+        pageNo = parseInt(pageNo, 10) || 0;
+        if (pageNo < 1) return;
+        if (autoPlaceDone[pageNo] || autoPlaceInflight[pageNo]) return;
+        const existing = state.pagePlacements[String(pageNo)];
+        if (existing && existing.mode === 'custom') return;
+
+        autoPlaceInflight[pageNo] = true;
+        autoPlaceQueue.push(pageNo);
+        pumpAutoPlaceQueue();
+    }
+
+    function queueAutoPlaceForRenderedPages() {
+        allPageStages().forEach(function (stage) {
+            if (stage.dataset.renderState !== 'ready') return;
+            queueAutoPlaceForPage(parseInt(stage.dataset.page, 10));
+        });
+    }
+
+    function pumpAutoPlaceQueue() {
+        while (autoPlaceActive < AUTO_PLACE_CONCURRENCY && autoPlaceQueue.length) {
+            const pageNo = autoPlaceQueue.shift();
+            if (!pageNo) break;
+            if (state.position !== 'auto') {
+                delete autoPlaceInflight[pageNo];
+                continue;
+            }
+            autoPlaceActive++;
+            requestAutoPlaceForPage(pageNo)
+                .catch(function () { /* handled inside */ })
+                .finally(function () {
+                    autoPlaceActive = Math.max(0, autoPlaceActive - 1);
+                    delete autoPlaceInflight[pageNo];
+                    pumpAutoPlaceQueue();
+                    refreshAutoPlacePending();
+                });
+        }
+    }
+
+    function requestAutoPlaceForPage(pageNo) {
+        const session = autoPlaceSession;
+        setPageDetecting(pageNo, true);
+        if (pageNo === 1) setPlacementPending(true);
+
+        const payload = Object.assign(buildPayload(true), {
+            page: pageNo,
+            position: 'auto',
+        });
+
+        return fetch('/dcs/stamp/preview', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                'X-CSRF-TOKEN': document.querySelector('meta[name="csrf-token"]').content,
+                'Accept': 'application/json',
+            },
+            body: JSON.stringify(payload),
+        })
+        .then(function (res) {
+            return res.json().catch(function () {
+                throw new Error(res.status === 419
+                    ? 'Session expired — refresh the page and try again.'
+                    : 'Could not detect stamp placement (server error).');
+            }).then(function (data) {
+                if (!res.ok) throw new Error(data.message || 'Preview failed');
+                return data;
+            });
+        })
+        .then(function (data) {
+            if (session !== autoPlaceSession) return;
+            if (state.position !== 'auto') return;
+            if (!data.success) throw new Error(data.message || 'Preview failed');
+
+            if (data.page_count) {
+                state.pageCount = data.page_count;
+                updatePageNav();
+            }
+            applyAutoPlacementForPage(pageNo, data);
+            autoPlaceDone[pageNo] = true;
+            renderOverlayContent();
+            if (pageNo === 1) setPlacementPending(false);
+            checkReady();
+        })
+        .catch(function (err) {
+            if (session !== autoPlaceSession) return;
+            // Fallback only for this page — keep other pages untouched.
+            const existing = state.pagePlacements[String(pageNo)];
+            if (!(existing && existing.mode === 'custom')) {
+                const p = autoFallbackPercents();
+                const placement = setPagePlacement(pageNo, p.x, p.y, 'auto');
+                const stage = pageStack && pageStack.querySelector('.st-page-stage[data-page="' + pageNo + '"]');
+                const ov = stage && stage.querySelector('.st-stamp-overlay');
+                if (ov) paintOverlayAt(ov, pageNo, placement);
+            }
+            autoPlaceDone[pageNo] = true;
+            if (pageNo === 1) {
+                setPlacementPending(false);
+                showToast(err.message || 'Could not detect stamp placement.', 'error');
+            }
+            checkReady();
+        })
+        .finally(function () {
+            if (session === autoPlaceSession) setPageDetecting(pageNo, false);
+        });
+    }
+
+    function refreshAutoPlacePending() {
+        if (state.position !== 'auto') {
+            setPlacementPending(false);
+            return;
+        }
+        // Apply unlocks once page 1 has an empty-area result; other pages keep detecting in background.
+        if (autoPlaceDone[1] || (state.pagePlacements['1'] && state.pagePlacements['1'].mode !== undefined)) {
+            if (!autoPlaceInflight[1]) setPlacementPending(false);
+        }
     }
 
     function clampPct(v) {
         return Math.max(0, Math.min(100, v));
     }
 
-    /** Read stamp box position relative to the rendered PDF page stage. */
-    function captureStampPagePercents() {
-        if (!stampOverlay || !pageStage || stampOverlay.style.display === 'none') {
-            return null;
-        }
-        // Prefer style percentages already stored in page-space.
-        if (state.xPct != null && state.yPct != null) {
-            return {
-                x_pct: state.xPct,
-                y_pct: state.yPct,
-                width_pct: state.widthPct || stampWidthPct(),
-            };
-        }
-        const stage = pageStage.getBoundingClientRect();
-        const box = (stampBox || stampOverlay).getBoundingClientRect();
-        if (!stage.width || !stage.height) return null;
+    function measureOverlayPercents(overlay) {
+        const stage = overlay && overlay.closest('.st-page-stage');
+        if (!overlay || !stage || overlay.style.display === 'none') return null;
+        const pageEl = pageContentEl(stage);
+        const boxEl = overlay.querySelector('.st-stamp-box') || overlay;
+        const pageRect = pageEl.getBoundingClientRect();
+        const boxRect = boxEl.getBoundingClientRect();
+        if (!pageRect.width || !pageRect.height) return null;
         return {
-            x_pct: clampPct(((box.left - stage.left) / stage.width) * 100),
-            y_pct: clampPct(((box.top - stage.top) / stage.height) * 100),
-            width_pct: clampPct((box.width / stage.width) * 100),
+            x_pct: clampPct(((boxRect.left - pageRect.left) / pageRect.width) * 100),
+            y_pct: clampPct(((boxRect.top - pageRect.top) / pageRect.height) * 100),
+            width_pct: clampPct((boxRect.width / pageRect.width) * 100),
         };
     }
 
-    function beginStampDrag(clientX, clientY) {
-        if (!stampOverlay || !pageStage || stampOverlay.style.display === 'none') return;
-        const stageRect = pageStage.getBoundingClientRect();
-        const overlayRect = stampOverlay.getBoundingClientRect();
+    /** Capture independent coordinates for every page that will be stamped. */
+    function captureAllPagePositions() {
+        const total = Math.max(1, state.pageCount || 1);
+        const targetPages = state.allPages ? total : 1;
+        const rows = [];
+
+        for (let n = 1; n <= targetPages; n++) {
+            const stage = pageStack && pageStack.querySelector('.st-page-stage[data-page="' + n + '"]');
+            const overlay = stage && stage.querySelector('.st-stamp-overlay');
+            let measured = overlay ? measureOverlayPercents(overlay) : null;
+            const stored = state.pagePlacements[String(n)];
+
+            if (measured) {
+                setPagePlacement(n, measured.x_pct, measured.y_pct, (stored && stored.mode) || 'custom');
+                rows.push({
+                    page: n,
+                    x_pct: Math.round(measured.x_pct * 1000) / 1000,
+                    y_pct: Math.round(measured.y_pct * 1000) / 1000,
+                });
+            } else if (stored) {
+                rows.push({
+                    page: n,
+                    x_pct: stored.x_pct,
+                    y_pct: stored.y_pct,
+                });
+            } else if (state.xPct != null && state.yPct != null) {
+                rows.push({
+                    page: n,
+                    x_pct: state.xPct,
+                    y_pct: state.yPct,
+                });
+            }
+        }
+
+        return rows;
+    }
+
+    /** Legacy single-point capture (page 1 / active). */
+    function captureStampPagePercents() {
+        const rows = captureAllPagePositions();
+        if (!rows.length) return null;
+        const first = rows[0];
+        return {
+            x_pct: first.x_pct,
+            y_pct: first.y_pct,
+            width_pct: state.widthPct || stampWidthPct(),
+        };
+    }
+
+    function beginStampDrag(overlay, clientX, clientY) {
+        if (!overlay || overlay.style.display === 'none') return;
+        const stage = overlay.closest('.st-page-stage');
+        if (!stage) return;
+        const pageNo = parseInt(stage.dataset.page, 10) || 1;
+        const pageEl = pageContentEl(stage);
+        const pageRect = pageEl.getBoundingClientRect();
+        const overlayRect = overlay.getBoundingClientRect();
         dragState = {
+            overlay: overlay,
+            pageNo: pageNo,
             offsetX: clientX - overlayRect.left,
             offsetY: clientY - overlayRect.top,
-            stageW: stageRect.width,
-            stageH: stageRect.height,
-            stageLeft: stageRect.left,
-            stageTop: stageRect.top,
+            stageW: pageRect.width,
+            stageH: pageRect.height,
+            stageLeft: pageRect.left,
+            stageTop: pageRect.top,
             widthPct: state.widthPct || stampWidthPct(),
         };
-        stampOverlay.classList.add('is-dragging');
+        state.activePage = pageNo;
+        overlay.classList.add('is-dragging');
     }
 
     function moveStampDrag(clientX, clientY) {
-        if (!dragState || !stampOverlay) return;
+        if (!dragState) return;
+
+        // Refresh page rect each move so scroll during drag stays accurate.
+        const stage = dragState.overlay && dragState.overlay.closest('.st-page-stage');
+        if (stage) {
+            const pageRect = pageContentEl(stage).getBoundingClientRect();
+            dragState.stageW = pageRect.width;
+            dragState.stageH = pageRect.height;
+            dragState.stageLeft = pageRect.left;
+            dragState.stageTop = pageRect.top;
+        }
+
         const leftPx = clientX - dragState.stageLeft - dragState.offsetX;
         const topPx = clientY - dragState.stageTop - dragState.offsetY;
         const widthPct = dragState.widthPct || stampWidthPct();
@@ -565,37 +1120,38 @@ document.addEventListener('DOMContentLoaded', function () {
         state.position = 'custom';
         if (autoPlace) autoPlace.checked = false;
         if (manualWrap) manualWrap.style.display = 'block';
-        placeOnPage(xPct, yPct, widthPct, 'custom');
+        // Only the dragged page moves — other pages keep their own positions.
+        placeOnSinglePage(dragState.pageNo || 1, xPct, yPct, widthPct, 'custom');
     }
 
     function endStampDrag() {
         if (!dragState) return;
+        if (dragState.overlay) dragState.overlay.classList.remove('is-dragging');
         dragState = null;
-        if (stampOverlay) stampOverlay.classList.remove('is-dragging');
     }
 
-    if (stampOverlay) {
-        stampOverlay.addEventListener('pointerdown', function (e) {
+    if (pageStack) {
+        pageStack.addEventListener('pointerdown', function (e) {
+            const overlay = e.target.closest('.st-stamp-overlay');
+            if (!overlay || !pageStack.contains(overlay)) return;
             if (e.button != null && e.button !== 0) return;
             e.preventDefault();
-            stampOverlay.setPointerCapture?.(e.pointerId);
-            beginStampDrag(e.clientX, e.clientY);
+            overlay.setPointerCapture?.(e.pointerId);
+            beginStampDrag(overlay, e.clientX, e.clientY);
         });
-        stampOverlay.addEventListener('pointermove', function (e) {
+        pageStack.addEventListener('pointermove', function (e) {
             if (!dragState) return;
             e.preventDefault();
             moveStampDrag(e.clientX, e.clientY);
         });
-        stampOverlay.addEventListener('pointerup', endStampDrag);
-        stampOverlay.addEventListener('pointercancel', endStampDrag);
+        pageStack.addEventListener('pointerup', endStampDrag);
+        pageStack.addEventListener('pointercancel', endStampDrag);
     }
 
     function setPlacementPending(pending) {
         state.placementPending = !!pending;
-        if (detectingBadge) {
-            detectingBadge.style.display = pending ? 'inline-flex' : 'none';
-        }
-        if (pending && autoBadge) autoBadge.style.display = 'none';
+        // Only page 1 drives the Apply lock; other pages detect in the background.
+        setPageDetecting(1, !!pending && state.position === 'auto');
         checkReady();
     }
 
@@ -603,59 +1159,23 @@ document.addEventListener('DOMContentLoaded', function () {
         if (!state.selectedFile || !state.stampType || state.position !== 'auto') return;
 
         clearTimeout(placementTimer);
-        setPlacementPending(true);
-        // Temporary visible spot while detection runs — Apply stays locked until ready.
-        if (state.xPct == null || state.yPct == null) {
-            placePresetOnPage('bottom-right');
-            if (autoBadge) autoBadge.style.display = 'none';
-            if (detectingBadge) detectingBadge.style.display = 'inline-flex';
-        }
-
         placementTimer = setTimeout(function () {
-            const reqId = ++placementRequestId;
-            const payload = Object.assign(buildPayload(true), { page: state.currentPage });
+            resetAutoPlaceQueue();
+            setPlacementPending(true);
 
-            fetch('/dcs/stamp/preview', {
-                method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json',
-                    'X-CSRF-TOKEN': document.querySelector('meta[name="csrf-token"]').content,
-                    'Accept': 'application/json',
-                },
-                body: JSON.stringify(payload),
-            })
-            .then(function (res) {
-                return res.json().catch(function () {
-                    throw new Error(res.status === 419
-                        ? 'Session expired — refresh the page and try again.'
-                        : 'Could not detect stamp placement (server error).');
-                }).then(function (data) {
-                    if (!res.ok) throw new Error(data.message || 'Preview failed');
-                    return data;
-                });
-            })
-            .then(function (data) {
-                if (reqId !== placementRequestId) return;
-                if (!data.success) throw new Error(data.message || 'Preview failed');
+            // Temporary mid-right spot while empty-area detection runs (never bottom).
+            if (!state.pagePlacements['1'] || state.pagePlacements['1'].mode !== 'custom') {
+                const p = autoFallbackPercents();
+                const placement = setPagePlacement(1, p.x, p.y, 'auto');
+                state.xPct = placement.x_pct;
+                state.yPct = placement.y_pct;
+                paintAllPageOverlays();
+            }
 
-                state.placement = data;
-                if (data.page_count) {
-                    state.pageCount = data.page_count;
-                    updatePageNav();
-                }
-                renderOverlayContent();
-                applyAutoPlacement(data);
-                setPlacementPending(false);
-            })
-            .catch(function (err) {
-                if (reqId !== placementRequestId) return;
-                if (autoBadge) autoBadge.style.display = 'none';
-                // Fall back to a visible bottom-right page placement.
-                placePresetOnPage('bottom-right');
-                setPlacementPending(false);
-                showToast(err.message || 'Could not detect stamp placement.', 'error');
-            });
-        }, 250);
+            // Detect empty area per rendered page (page 1 first, then as you scroll).
+            queueAutoPlaceForPage(1);
+            queueAutoPlaceForRenderedPages();
+        }, 200);
     }
 
     // ═══════════════════════════════════════════
@@ -673,6 +1193,9 @@ document.addEventListener('DOMContentLoaded', function () {
             state.stampType = pill.dataset.type;
             state.xPct = null;
             state.yPct = null;
+            state.pagePlacements = {};
+            state.activePage = 1;
+            resetAutoPlaceQueue();
             if (autoPlace && autoPlace.checked) {
                 state.position = 'auto';
                 state.placement = null;
@@ -681,12 +1204,9 @@ document.addEventListener('DOMContentLoaded', function () {
                 state.placementPending = false;
             }
 
-            // Immediate visible place on the page while auto-detect runs.
-            placePresetOnPage(state.position === 'auto' ? 'bottom-right' : state.position);
-            if (state.position === 'auto' && detectingBadge) {
-                detectingBadge.style.display = 'inline-flex';
-                if (autoBadge) autoBadge.style.display = 'none';
-            }
+            // Immediate visible place while auto-detect runs — mid-right, not bottom.
+            placePresetOnPage(state.position === 'auto' ? 'middle-right' : state.position);
+            if (state.position === 'auto') setPlacementPending(true);
             renderOverlayContent();
             updateOverlay();
             checkReady();
@@ -721,7 +1241,12 @@ document.addEventListener('DOMContentLoaded', function () {
     if (stampAllPages) {
         stampAllPages.addEventListener('change', function () {
             state.allPages = this.checked;
-            updateOverlay();
+            if (state.xPct != null && state.yPct != null) {
+                seedPlacementsForAllPages(state.xPct, state.yPct, state.position || 'auto');
+            }
+            paintAllPageOverlays();
+            renderOverlayContent();
+            checkReady();
         });
     }
 
@@ -735,15 +1260,14 @@ document.addEventListener('DOMContentLoaded', function () {
 
     function updateOverlay() {
         if (!state.stampType) {
-            if (stampOverlay) stampOverlay.style.display = 'none';
-            if (autoBadge) autoBadge.style.display = 'none';
+            hideAllOverlays();
             return;
         }
 
         renderOverlayContent();
 
-        if (state.position === 'custom' && state.xPct != null && state.yPct != null) {
-            placeOnPage(state.xPct, state.yPct, state.widthPct, 'custom');
+        if (state.position === 'custom') {
+            paintAllPageOverlays();
             return;
         }
 
@@ -759,42 +1283,53 @@ document.addEventListener('DOMContentLoaded', function () {
         if (!state.stampType) return;
 
         var cfg = STAMP_STYLES[state.stampType] || STAMP_STYLES.reference;
-        var art = document.getElementById('overlayStampArt');
-        var fallback = document.getElementById('overlayStampFallback');
 
-        if (fallback) fallback.style.display = 'none';
-        if (art) {
-            art.style.display = 'block';
-            art.onerror = function () {
-                art.style.display = 'none';
-                if (fallback) fallback.style.display = 'block';
-            };
-            if (art.complete && art.naturalWidth === 0) {
-                art.style.display = 'none';
-                if (fallback) fallback.style.display = 'block';
+        allOverlays().forEach(function (ov, idx) {
+            var art = ov.querySelector('.st-stamp-art');
+            var fallback = ov.querySelector('.st-stamp-inner');
+            var title = ov.querySelector('.st-stamp-title');
+            var divider = ov.querySelector('.st-stamp-divider');
+            var date = ov.querySelector('.st-stamp-date');
+            var sub = ov.querySelector('.st-stamp-sub');
+            var pages = ov.querySelector('.st-stamp-pages');
+            var pageNo = idx + 1;
+
+            if (fallback) fallback.style.display = 'none';
+            if (art) {
+                art.style.display = 'block';
+                art.onerror = function () {
+                    art.style.display = 'none';
+                    if (fallback) fallback.style.display = 'block';
+                };
+                if (art.complete && art.naturalWidth === 0) {
+                    art.style.display = 'none';
+                    if (fallback) fallback.style.display = 'block';
+                }
+            } else if (fallback) {
+                fallback.style.display = 'block';
             }
-        } else if (fallback) {
-            fallback.style.display = 'block';
-        }
 
-        if (overlayTitle) {
-            overlayTitle.textContent = cfg.title;
-            overlayTitle.style.color = cfg.color;
-        }
-        if (overlayDivider) overlayDivider.style.display = 'none';
-        if (overlayDate) overlayDate.style.display = 'none';
-        if (overlaySub) overlaySub.style.display = 'none';
-
-        if (overlayPages) {
-            overlayPages.textContent = state.allPages ? 'All pages' : ('Page ' + state.currentPage + ' only');
-        }
+            if (title) {
+                title.textContent = cfg.title;
+                title.style.color = cfg.color;
+            }
+            if (divider) divider.style.display = 'none';
+            if (date) date.style.display = 'none';
+            if (sub) sub.style.display = 'none';
+            if (pages) {
+                pages.textContent = state.allPages ? ('Page ' + pageNo) : 'Page 1 only';
+            }
+        });
     }
 
     function previewPlacementReady() {
         if (!state.stampType) return false;
         if (state.placementPending) return false;
+        var first = state.pagePlacements['1'];
+        if (first && first.x_pct != null && first.y_pct != null) return true;
         if (state.xPct == null || state.yPct == null) return false;
-        if (!stampOverlay || stampOverlay.style.display === 'none') return false;
+        var overlay = primaryOverlay();
+        if (!overlay || overlay.style.display === 'none') return false;
         return true;
     }
 
@@ -835,11 +1370,8 @@ document.addEventListener('DOMContentLoaded', function () {
         stampModal.style.display = 'none';
         state.pdfDoc = null;
         renderToken++;
-        if (stampOverlay) stampOverlay.style.display = 'none';
-        if (pdfCanvas) {
-            const ctx = pdfCanvas.getContext('2d');
-            if (ctx) ctx.clearRect(0, 0, pdfCanvas.width, pdfCanvas.height);
-        }
+        hideAllOverlays();
+        clearPageStack();
     }
 
     if (closeModal) closeModal.addEventListener('click', hideStampModal);
@@ -877,15 +1409,24 @@ document.addEventListener('DOMContentLoaded', function () {
             return payload;
         }
 
-        // Convert whatever is on the page into custom page percentages for FPDI.
-        var captured = captureStampPagePercents();
-        if (captured) {
+        // Manual drags → send ONLY customized pages (server auto-fills the rest).
+        // Pure auto → server finds an empty area on EVERY page (accurate for large PDFs).
+        if (hasCustomPagePlacement()) {
+            var pagePositions = captureAllPagePositions().filter(function (row) {
+                var stored = state.pagePlacements[String(row.page)];
+                return stored && stored.mode === 'custom';
+            });
             payload.position = 'custom';
-            payload.x_pct = Math.round(captured.x_pct * 100) / 100;
-            payload.y_pct = Math.round(captured.y_pct * 100) / 100;
-            state.position = 'custom';
-            state.xPct = payload.x_pct;
-            state.yPct = payload.y_pct;
+            payload.page_positions = pagePositions;
+            if (pagePositions.length) {
+                payload.x_pct = pagePositions[0].x_pct;
+                payload.y_pct = pagePositions[0].y_pct;
+            } else if (state.xPct != null && state.yPct != null) {
+                payload.x_pct = state.xPct;
+                payload.y_pct = state.yPct;
+            }
+        } else if (state.position === 'auto') {
+            payload.position = 'auto';
         } else if (state.position === 'custom') {
             payload.x_pct = state.xPct;
             payload.y_pct = state.yPct;
@@ -1028,6 +1569,17 @@ document.addEventListener('DOMContentLoaded', function () {
                     state.selectedFile.stamped = true;
                     state.selectedFile.stamp_type = state.stampType;
                 }
+                // Clear drag overlay so the reloaded preview shows only the baked stamp.
+                state.stampType = null;
+                state.xPct = null;
+                state.yPct = null;
+                state.widthPct = null;
+                state.pagePlacements = {};
+                state.activePage = 1;
+                state.placement = null;
+                state.placementPending = false;
+                hideAllOverlays();
+                document.querySelectorAll('.st-type-pill').forEach(function (p) { p.classList.remove('selected'); });
                 loadPreview(Date.now());
                 checkReady();
                 document.querySelectorAll('.st-btn-stamp[data-request-id="' + state.requestId + '"]').forEach(function (btn) {

@@ -39,6 +39,8 @@
     }
 
     // Overflow distribute-to offices (> grid capacity) → attach continuation pages.
+    // Grid (fits in rows) = office codes; attach sheet (overflow) = full office names.
+    $gridOfficeRows = [];
     $attachOfficeRows = [];
     $distCapacity = 24;
     foreach ($blocks as $block) {
@@ -56,19 +58,26 @@
             }
             $name = trim((string) ($office['name'] ?? ''));
             $code = trim((string) ($office['code'] ?? ''));
-            $label = $name !== '' ? $name : $code;
-            if ($label !== '') {
-                $attachOfficeRows[] = $label;
+            $gridLabel = $code !== '' ? $code : $name;
+            $attachLabel = $name !== '' ? $name : $code;
+            if ($gridLabel !== '') {
+                $gridOfficeRows[] = $gridLabel;
+            }
+            if ($attachLabel !== '') {
+                $attachOfficeRows[] = $attachLabel;
             }
         }
     }
-    if ($attachOfficeRows === []) {
-        $attachOfficeRows = array_values(array_filter(array_map(
+    if ($gridOfficeRows === []) {
+        $gridOfficeRows = array_values(array_filter(array_map(
             'trim',
             preg_split('/\s*,\s*/', (string) ($values['distribute_to'] ?? '')) ?: []
         ), fn ($v) => $v !== ''));
     }
-    $distributeOverflow = count($attachOfficeRows) > $distCapacity;
+    if ($attachOfficeRows === []) {
+        $attachOfficeRows = $gridOfficeRows;
+    }
+    $distributeOverflow = count($gridOfficeRows) > $distCapacity;
     /*
      * Attach list: 11pt @ line-height 1.0. Pack the first sheet full, then spill.
      * Keep PHP row math in sync with .sheet-attach CSS below.
@@ -652,9 +661,9 @@ document.addEventListener('keydown', function (e) {
                         $gRows = max(1, min(10, (int) ($block['grid_rows'] ?? ($isDrfTheme ? 6 : 5))));
                         $cells = array_values(array_filter(array_map('trim', preg_split('/\s*,\s*/', $displayText) ?: [])));
                         $total = $gCols * $gRows;
-                        // Prefer full office list (names) when provided; fall back to bind codes.
-                        if ($attachOfficeRows !== []) {
-                            $cells = $attachOfficeRows;
+                        // In-grid: office codes (fits the underlined rows). Attach sheet keeps full names.
+                        if ($gridOfficeRows !== []) {
+                            $cells = $gridOfficeRows;
                         }
                         if (count($cells) > $total) {
                             // Column-major indexes: [1]=2nd row col1, [2]=3rd row col1 (official DRF).

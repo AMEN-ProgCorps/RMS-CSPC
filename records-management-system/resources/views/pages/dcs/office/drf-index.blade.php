@@ -13,11 +13,15 @@ use App\Helpers\OfficeIntakeHelper;
 use App\Helpers\RegisterQueryHelper;
 use Livewire\Attributes\Layout;
 use Livewire\Attributes\Title;
+use Livewire\Attributes\Url;
 use Livewire\Volt\Component;
 use Livewire\WithPagination;
 
 new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class extends Component {
     use WithPagination;
+
+    #[Url]
+    public string $search = '';
 
     /**
      * Initializes component state, authorization gates, and default configurations.
@@ -32,6 +36,11 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
         }
     }
 
+    public function updatedSearch(): void
+    {
+        $this->resetPage();
+    }
+
     /**
      * Supplies view data, query collections, and metrics to the Blade template.
      * @return array
@@ -39,7 +48,8 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
     public function with(): array
     {
         return [
-            'rows' => OfficeIntakeHelper::paginateMyDrf(25, false),
+            'rows' => OfficeIntakeHelper::paginateMyDrf(25, false, $this->search),
+            'search' => $this->search,
             'isLimited' => RegisterQueryHelper::isLimitedDcsUser(),
             'isReviewer' => false,
         ];
@@ -82,7 +92,17 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
             $hasRows = $totalRows > 0 || (method_exists($rows, 'count') ? $rows->count() > 0 : false);
         @endphp
 
-        <div class="ofi-card ofi-list-card">
+        @include('pages.dcs.office.partials.ofi-list-search', [
+            'search' => $search ?? '',
+            'placeholder' => 'Search by title, DRF no., document no., or originator…',
+        ])
+
+        <div class="ofi-card ofi-list-card" style="position:relative;" wire:loading.class="is-loading">
+            <div class="dcs-loading-overlay" wire:loading.flex wire:target="search,previousPage,nextPage,gotoPage">
+                <div class="dcs-loading-spinner" aria-hidden="true"></div>
+                <h4>Loading DRF…</h4>
+                <p>Fetching your document request forms.</p>
+            </div>
             <div class="ofi-doc-panel-head">
                 <h2>{{ ($isReviewer ?? false) ? 'Office DRF' : 'My DRF' }}</h2>
                 <span>{{ $totalRows }} {{ $totalRows === 1 ? 'form' : 'forms' }}</span>
@@ -91,18 +111,23 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
             @if(! $hasRows)
                 <div class="ofi-doc-empty ofi-list-empty" role="status">
                     <i class="fa-regular fa-file-lines" aria-hidden="true"></i>
-                    <strong>{{ ($isReviewer ?? false) ? 'No office DRF submissions yet' : 'No Document Request Forms yet' }}</strong>
-                    @unless($isReviewer ?? false)
-                        <p>Create a DRF for RFIU, or continue from a saved DCN that still needs its request form.</p>
-                        <div class="ofi-empty-actions">
-                            <a href="{{ route('dcs.office.drf.create', absolute: false) }}" class="ofi-btn primary">
-                                <i class="fa-solid fa-plus"></i> New Document Request Form
-                            </a>
-                            <a href="{{ route('dcs.office.drf.create', ['mode' => 'recurring'], absolute: false) }}" class="ofi-btn">
-                                <i class="fa-solid fa-rotate"></i> Recurring DRF
-                            </a>
-                        </div>
-                    @endunless
+                    @if(trim((string) ($search ?? '')) !== '')
+                        <strong>No forms match “{{ $search }}”</strong>
+                        <p>Try another title, DRF number, or originator, or clear the search.</p>
+                    @else
+                        <strong>{{ ($isReviewer ?? false) ? 'No office DRF submissions yet' : 'No Document Request Forms yet' }}</strong>
+                        @unless($isReviewer ?? false)
+                            <p>Create a DRF for RFIU, or continue from a saved DCN that still needs its request form.</p>
+                            <div class="ofi-empty-actions">
+                                <a href="{{ route('dcs.office.drf.create', absolute: false) }}" class="ofi-btn primary">
+                                    <i class="fa-solid fa-plus"></i> New Document Request Form
+                                </a>
+                                <a href="{{ route('dcs.office.drf.create', ['mode' => 'recurring'], absolute: false) }}" class="ofi-btn">
+                                    <i class="fa-solid fa-rotate"></i> Recurring DRF
+                                </a>
+                            </div>
+                        @endunless
+                    @endif
                 </div>
             @else
                 <div class="ofi-table-wrap ofi-list-table-wrap">

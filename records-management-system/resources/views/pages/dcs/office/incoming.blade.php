@@ -24,6 +24,9 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
     #[Url]
     public string $type = 'all';
 
+    #[Url]
+    public string $search = '';
+
     public int $perPage = 25;
 
     /**
@@ -65,6 +68,11 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
             $this->type = $type;
             $this->resetPage();
         }
+    }
+
+    public function updatedSearch(): void
+    {
+        $this->resetPage();
     }
 
     #[On('office-incoming-refresh')]
@@ -113,7 +121,13 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
 
         $perPage = max(10, min(100, (int) $this->perPage));
         $page = max(1, (int) $this->getPage());
-        $incoming = OfficeIntakeHelper::paginateOfficeIncomingDocuments($active, null, $perPage, $page);
+        $incoming = OfficeIntakeHelper::paginateOfficeIncomingDocuments(
+            $active,
+            null,
+            $perPage,
+            $page,
+            $this->search
+        );
 
         // "All" badge = every pending receipt + every awaiting-appraisal copy.
         $total = OfficeIntakeHelper::officeDocumentTotal(null, 'pending')
@@ -126,6 +140,7 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
             'activeLabel' => $activeLabel,
             'activeCount' => (int) ($incoming['active_count'] ?? 0),
             'rows' => $incoming['rows'],
+            'search' => $this->search,
             'officeName' => auth()->user()?->details?->office?->office_name
                 ?? auth()->user()?->details?->office?->office_code
                 ?? 'Your office',
@@ -188,8 +203,13 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
         </nav>
         @endunless
 
+        @include('pages.dcs.office.partials.ofi-list-search', [
+            'search' => $search ?? '',
+            'placeholder' => 'Search by document no. or title…',
+        ])
+
         <div class="ofi-card ofi-list-card" style="position:relative;" wire:loading.class="is-loading">
-            <div class="dcs-loading-overlay" wire:loading.flex wire:target="selectType,markReceived,previousPage,nextPage,gotoPage">
+            <div class="dcs-loading-overlay" wire:loading.flex wire:target="selectType,search,markReceived,previousPage,nextPage,gotoPage">
                 <div class="dcs-loading-spinner" aria-hidden="true"></div>
                 <h4>Loading incoming…</h4>
                 <p>Fetching documents awaiting receipt.</p>
@@ -202,8 +222,13 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
             @if($activeCount < 1)
                 <div class="ofi-doc-empty ofi-list-empty" role="status">
                     <i class="fa-solid fa-inbox" aria-hidden="true"></i>
-                    <strong>Nothing waiting to receive</strong>
-                    <p>When Document Control distributes a document to your office, it will appear here.</p>
+                    @if(trim((string) ($search ?? '')) !== '')
+                        <strong>No documents match “{{ $search }}”</strong>
+                        <p>Try another document number or title, or clear the search.</p>
+                    @else
+                        <strong>Nothing waiting to receive</strong>
+                        <p>When Document Control distributes a document to your office, it will appear here.</p>
+                    @endif
                 </div>
             @else
                 <div class="ofi-table-wrap">

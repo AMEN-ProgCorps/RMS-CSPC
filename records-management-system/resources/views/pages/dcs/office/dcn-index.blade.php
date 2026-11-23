@@ -13,11 +13,15 @@ use App\Helpers\OfficeIntakeHelper;
 use App\Helpers\RegisterQueryHelper;
 use Livewire\Attributes\Layout;
 use Livewire\Attributes\Title;
+use Livewire\Attributes\Url;
 use Livewire\Volt\Component;
 use Livewire\WithPagination;
 
 new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class extends Component {
     use WithPagination;
+
+    #[Url]
+    public string $search = '';
 
     /**
      * Initializes component state, authorization gates, and default configurations.
@@ -32,6 +36,11 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
         }
     }
 
+    public function updatedSearch(): void
+    {
+        $this->resetPage();
+    }
+
     /**
      * Supplies view data, query collections, and metrics to the Blade template.
      * @return array
@@ -39,7 +48,8 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
     public function with(): array
     {
         return [
-            'rows' => OfficeIntakeHelper::paginateMyDcn(25, false),
+            'rows' => OfficeIntakeHelper::paginateMyDcn(25, false, $this->search),
+            'search' => $this->search,
             'isLimited' => RegisterQueryHelper::isLimitedDcsUser(),
             'isReviewer' => false,
         ];
@@ -79,7 +89,17 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
             $hasRows = $totalRows > 0 || (method_exists($rows, 'count') ? $rows->count() > 0 : false);
         @endphp
 
-        <div class="ofi-card ofi-list-card">
+        @include('pages.dcs.office.partials.ofi-list-search', [
+            'search' => $search ?? '',
+            'placeholder' => 'Search by title, document no., or originator…',
+        ])
+
+        <div class="ofi-card ofi-list-card" style="position:relative;" wire:loading.class="is-loading">
+            <div class="dcs-loading-overlay" wire:loading.flex wire:target="search,previousPage,nextPage,gotoPage">
+                <div class="dcs-loading-spinner" aria-hidden="true"></div>
+                <h4>Loading DCN…</h4>
+                <p>Fetching your document change notices.</p>
+            </div>
             <div class="ofi-doc-panel-head">
                 <h2>{{ ($isReviewer ?? false) ? 'Office DCN' : 'My DCN' }}</h2>
                 <span>{{ $totalRows }} {{ $totalRows === 1 ? 'notice' : 'notices' }}</span>
@@ -89,15 +109,20 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
                 <div class="ofi-doc-empty ofi-list-empty" role="status">
                     {{-- Empty-state icon: use solid (fa-file-pen is not in FA Free Regular). --}}
                     <i class="fa-solid fa-file-pen" aria-hidden="true"></i>
-                    <strong>{{ ($isReviewer ?? false) ? 'No office DCN submissions yet' : 'No Document Change Notices yet' }}</strong>
-                    @unless($isReviewer ?? false)
-                        <p>Start a DCN for a registered document. You can also create the matching DRF right after save.</p>
-                        <div class="ofi-empty-actions">
-                            <a href="{{ route('dcs.office.dcn.create', absolute: false) }}" class="ofi-btn primary">
-                                <i class="fa-solid fa-plus"></i> New Document Change Notice
-                            </a>
-                        </div>
-                    @endunless
+                    @if(trim((string) ($search ?? '')) !== '')
+                        <strong>No notices match “{{ $search }}”</strong>
+                        <p>Try another title, document number, or originator, or clear the search.</p>
+                    @else
+                        <strong>{{ ($isReviewer ?? false) ? 'No office DCN submissions yet' : 'No Document Change Notices yet' }}</strong>
+                        @unless($isReviewer ?? false)
+                            <p>Start a DCN for a registered document. You can also create the matching DRF right after save.</p>
+                            <div class="ofi-empty-actions">
+                                <a href="{{ route('dcs.office.dcn.create', absolute: false) }}" class="ofi-btn primary">
+                                    <i class="fa-solid fa-plus"></i> New Document Change Notice
+                                </a>
+                            </div>
+                        @endunless
+                    @endif
                 </div>
             @else
                 <div class="ofi-table-wrap ofi-list-table-wrap">

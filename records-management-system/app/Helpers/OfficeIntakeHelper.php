@@ -333,9 +333,9 @@ class OfficeIntakeHelper
      *
      * DEBUG: pagination/filter issues on My DRF → paginateMyIntakeRows.
      */
-    public static function paginateMyDrf(int $perPage = 25, bool $withSubmissionMeta = false)
+    public static function paginateMyDrf(int $perPage = 25, bool $withSubmissionMeta = false, string $search = '')
     {
-        return self::paginateMyIntakeRows('drf', $perPage, $withSubmissionMeta);
+        return self::paginateMyIntakeRows('drf', $perPage, $withSubmissionMeta, $search);
     }
 
     /**
@@ -343,9 +343,9 @@ class OfficeIntakeHelper
      *
      * DEBUG: My DCN index issues → paginateMyIntakeRows + hydrateIntakeOriginators.
      */
-    public static function paginateMyDcn(int $perPage = 25, bool $withSubmissionMeta = false)
+    public static function paginateMyDcn(int $perPage = 25, bool $withSubmissionMeta = false, string $search = '')
     {
-        return self::paginateMyIntakeRows('dcn', $perPage, $withSubmissionMeta);
+        return self::paginateMyIntakeRows('dcn', $perPage, $withSubmissionMeta, $search);
     }
 
     /**
@@ -482,12 +482,17 @@ class OfficeIntakeHelper
     /**
      * Lists or paginates data for paginate my intake rows.
      */
-    private static function paginateMyIntakeRows(string $type, int $perPage = 25, bool $withSubmissionMeta = false)
-    {
+    private static function paginateMyIntakeRows(
+        string $type,
+        int $perPage = 25,
+        bool $withSubmissionMeta = false,
+        string $search = ''
+    ) {
         $type = strtolower($type) === 'dcn' ? 'dcn' : 'drf';
         $table = $type === 'dcn' ? 'dcs_office_intake_dcn' : 'dcs_office_intake_drf';
         $alias = $type;
         $perPage = max(10, min(100, $perPage));
+        $search = trim($search);
 
         if (! Schema::hasTable($table)) {
             return new \Illuminate\Pagination\LengthAwarePaginator([], 0, $perPage);
@@ -497,12 +502,109 @@ class OfficeIntakeHelper
         self::reconcileClaimedIntakesWithRegistrations();
 
         $query = DB::table($table.' as '.$alias);
+        // Office boundary first — search only filters within the signed-in office.
         self::applyOwnOfficeIntakeScope($query, $alias, $type);
+        self::applyOfficeIntakeListSearch($query, $type, $alias, $table, $search);
         $paginator = $query->orderByDesc($alias.'.id')->paginate($perPage, self::intakeListColumns($type));
         $enriched = self::enrichIntakeListRows($type, collect($paginator->items()), $withSubmissionMeta);
         $paginator->setCollection($enriched);
 
         return $paginator;
+    }
+
+    /**
+     * Title / form-no / originator / registered doc-no search on My DRF and My DCN lists.
+     * Always applied after applyOwnOfficeIntakeScope — never searches other offices.
+     *
+     * DCN document_no = number stored on the form (usually the existing controlled doc).
+     * Registered masterlist doc_no = number assigned when RFIU completes the request.
+     */
+    private static function applyOfficeIntakeListSearch($query, string $type, string $alias, string $table, string $search): void
+    {
+        $search = trim($search);
+        if ($search === '') {
+            return;
+        }
+        $like = '%'.addcslashes(mb_strtolower($search), '%_\\').'%';
+        $query->where(function ($q) use ($type, $alias, $table, $like) {
+            if ($type === 'drf') {
+                $q->whereRaw('LOWER(COALESCE('.$alias.'.doc_title, \'\')) LIKE ?', [$like])
+                    ->orWhereRaw('LOWER(COALESCE('.$alias.'.drf_no, \'\')) LIKE ?', [$like]);
+                if (Schema::hasColumn($table, 'previous_document_no')) {
+                    $q->orWhereRaw('LOWER(COALESCE('.$alias.'.previous_document_no, \'\')) LIKE ?', [$like]);
+                }
+                if (Schema::hasColumn($table, 'originator_name')) {
+                    $q->orWhereRaw('LOWER(COALESCE('.$alias.'.originator_name, \'\')) LIKE ?', [$like]);
+                }
+            } else {
+                $started = false;
+                $add = function (string $column) use ($q, $alias, $like, &$started) {
+                    $sql = 'LOWER(COALESCE('.$alias.'.'.$column.', \'\')) LIKE ?';
+                    if (! $started) {
+                        $q->whereRaw($sql, [$like]);
+                        $started = true;
+                    } else {
+                        $q->orWhereRaw($sql, [$like]);
+                    }
+                };
+                if (Schema::hasColumn($table, 'document_title')) {
+                    $add('document_title');
+                }
+                if (Schema::hasColumn($table, 'document_no')) {
+                    $add('document_no');
+                }
+                if (Schema::hasColumn($table, 'previous_document_no')) {
+                    $add('previous_document_no');
+                }
+                if (Schema::hasColumn($table, 'dcn_no')) {
+                    $add('dcn_no');
+                }
+                if (Schema::hasColumn($table, 'originator_name')) {
+                    $add('originator_name');
+                }
+                if (! $started) {
+                    $q->whereRaw('1 = 0');
+                }
+            }
+
+            // After RFIU registers the request, also match the assigned masterlist document no.
+            if (
+                Schema::hasColumn($table, 'registered_request_id')
+                && Schema::hasTable('dcs_masterlist_registration')
+            ) {
+                $q->orWhereExists(function ($mlQ) use ($alias, $like) {
+                    $mlQ->select(DB::raw(1))
+                        ->from('dcs_masterlist_registration as ofi_ml_search')
+                        ->whereColumn('ofi_ml_search.request_id', $alias.'.registered_request_id')
+                        ->whereRaw('LOWER(COALESCE(ofi_ml_search.doc_no, \'\')) LIKE ?', [$like]);
+                });
+            }
+        });
+    }
+
+    /**
+     * Escape and wrap a list search term for LIKE matching.
+     */
+    private static function officeListSearchLike(string $search): string
+    {
+        return '%'.addcslashes(mb_strtolower(trim($search)), '%_\\').'%';
+    }
+
+    /**
+     * Filter distinct office document rows by doc no / title.
+     * Runs on an already office-scoped query (current office only).
+     */
+    private static function applyOfficeDocumentSearch($query, string $search): void
+    {
+        $search = trim($search);
+        if ($search === '') {
+            return;
+        }
+        $like = self::officeListSearchLike($search);
+        $query->where(function ($q) use ($like) {
+            $q->whereRaw('LOWER(COALESCE(doc_no, \'\')) LIKE ?', [$like])
+                ->orWhereRaw('LOWER(COALESCE(doc_title, \'\')) LIKE ?', [$like]);
+        });
     }
 
     /**
@@ -1891,7 +1993,23 @@ class OfficeIntakeHelper
                     (int) ($row->doc_type_id ?? 0) ?: null,
                     (int) ($row->sub_type_id ?? 0) ?: null
                 ),
+            // Settings → office DCN reviewers/approvals for this catalog type.
+            'dcn_signatories' => self::dcnSignatoryPrefill(
+                $kind,
+                (int) ($row->doc_type_id ?? 0) ?: null,
+                (int) ($row->sub_type_id ?? 0) ?: null
+            ),
         ];
+        // Prefer approvals already on a registered DCN; else Settings DCN assignment.
+        if (($payload['approvals'] ?? []) === [] && is_array($payload['dcn_signatories'] ?? null)) {
+            $payload['approvals'] = array_values(array_filter(
+                (array) ($payload['dcn_signatories']['approvals'] ?? []),
+                fn ($row) => is_array($row) && (
+                    trim((string) ($row['position'] ?? '')) !== ''
+                    || trim((string) ($row['name'] ?? '')) !== ''
+                )
+            ));
+        }
         $docNo = (string) ($row->doc_no ?? '');
         $docTitle = (string) ($row->doc_title ?? '');
         $originLabel = trim((string) ($row->originator_label ?? ''));
@@ -3273,6 +3391,10 @@ class OfficeIntakeHelper
         if ($storedNo === '') {
             $storedNo = trim((string) $request->input('finderDocumentNo', ''));
         }
+        $approvals = self::approvalsPayloadFromRequest([
+            'approvalPosition' => $request->input('approvalPosition', []),
+            'approvalName' => $request->input('approvalName', []),
+        ]);
         $dcn = (object) [
             'id' => 0,
             'document_no' => $storedNo,
@@ -3284,6 +3406,7 @@ class OfficeIntakeHelper
             'department_on' => $request->input('departmentDate') ?: null,
             'dcn_no' => '',
             'preview_reviewers' => $reviewers,
+            'preview_approvals' => $approvals,
             'preview_department_code' => $office['code'] ?? '',
             'preview_department' => $office['name'] ?? '',
         ];
@@ -4666,9 +4789,30 @@ class OfficeIntakeHelper
         }
         $q = DB::table('dcs_doc_types')->whereNull('parent_id');
         SettingsRecycleHelper::applyNotDeleted($q, 'dcs_doc_types');
-        $id = (int) ($q->whereRaw('LOWER(TRIM(doc_type_name)) = ?', [$kind])->value('id') ?? 0);
+        // Prefer exact catalog name (Internal / External).
+        $id = (int) ((clone $q)->whereRaw('LOWER(TRIM(doc_type_name)) = ?', [$kind])->value('id') ?? 0);
+        if ($id > 0) {
+            return $id;
+        }
 
-        return $id > 0 ? $id : null;
+        // Fallback: first parent whose name contains the kind token
+        // (e.g. "External Documents") so office intake still finds Settings rows.
+        $parents = (clone $q)->orderBy('doc_type_name')->get(['id', 'doc_type_name']);
+        foreach ($parents as $parent) {
+            $name = mb_strtolower(trim((string) ($parent->doc_type_name ?? '')));
+            if ($name === '') {
+                continue;
+            }
+            $isExternal = str_contains($name, 'external');
+            if ($kind === 'external' && $isExternal) {
+                return (int) $parent->id;
+            }
+            if ($kind === 'internal' && ! $isExternal && (str_contains($name, 'internal') || $name === 'internal')) {
+                return (int) $parent->id;
+            }
+        }
+
+        return null;
     }
 
     /**
@@ -5585,6 +5729,73 @@ class OfficeIntakeHelper
     }
 
     /**
+     * DCN reviewers + approvals from Settings for a catalog type (sub-type → parent).
+     *
+     * @return array{reviewers: list<array{name: string}>, approvals: list<array{position: string, name: string}>}|null
+     */
+    public static function dcnSignatoryPrefill(
+        string $docTypeKind = 'internal',
+        ?int $docTypeId = null,
+        ?int $subTypeId = null
+    ): ?array {
+        $kind = in_array($docTypeKind, ['internal', 'external'], true) ? $docTypeKind : 'internal';
+
+        if ($kind === 'external' && (! $docTypeId || $docTypeId < 1) && (! $subTypeId || $subTypeId < 1)) {
+            $externalId = self::catalogParentIdForKind('external');
+            if (! $externalId) {
+                return null;
+            }
+            $template = self::signatoryTemplate('dcn', 'external', $externalId, null, false, false);
+        } else {
+            $resolved = self::resolveIntakeCatalogSelection($docTypeId, $subTypeId);
+            $lookupId = $resolved['sub_type_id'] ?: $resolved['doc_type_id'];
+            if (! $lookupId) {
+                // Fall back to kind parent (e.g. External whole type) when the row has no ids.
+                $lookupId = self::catalogParentIdForKind($kind);
+            }
+            if (! $lookupId) {
+                return null;
+            }
+            $kind = in_array($docTypeKind, ['internal', 'external'], true)
+                ? $docTypeKind
+                : ($resolved['doc_type_kind'] ?? $kind);
+            $template = self::signatoryTemplate('dcn', $kind, $lookupId, null, false, true);
+        }
+
+        if (! is_array($template)) {
+            return null;
+        }
+
+        $reviewers = [];
+        foreach ((array) ($template['reviewers'] ?? []) as $row) {
+            $name = trim((string) (is_array($row) ? ($row['name'] ?? '') : $row));
+            if ($name !== '') {
+                $reviewers[] = ['name' => $name];
+            }
+        }
+        $approvals = [];
+        foreach ((array) ($template['approvals'] ?? []) as $row) {
+            if (! is_array($row)) {
+                continue;
+            }
+            $position = trim((string) ($row['position'] ?? ''));
+            $name = trim((string) ($row['name'] ?? ''));
+            if ($position === '' && $name === '') {
+                continue;
+            }
+            $approvals[] = ['position' => $position, 'name' => $name];
+        }
+        if ($reviewers === [] && $approvals === []) {
+            return null;
+        }
+
+        return [
+            'reviewers' => $reviewers,
+            'approvals' => $approvals,
+        ];
+    }
+
+    /**
      * DRF signatory payload from Settings for a catalog selection only (no personal fallback).
      * @return array<string, string>|null
      */
@@ -5645,6 +5856,7 @@ class OfficeIntakeHelper
     {
         $byDocTypeId = [];
         $byDocTypeCollege = [];
+        $byKind = [];
         $syllabiLikeDocTypeIds = [];
         $parentKind = [];
         $externalParentId = self::catalogParentIdForKind('external');
@@ -5658,6 +5870,9 @@ class OfficeIntakeHelper
             $name = trim((string) ($parent->doc_type_name ?? ''));
             $kind = str_contains(mb_strtolower($name), 'external') ? 'external' : 'internal';
             $parentKind[(string) $pid] = $kind;
+            if ($kind === 'external' && (! $externalParentId || $externalParentId < 1)) {
+                $externalParentId = $pid;
+            }
             if (RegisterQueryHelper::isSyllabiLikeName($name)) {
                 $syllabiLikeDocTypeIds[] = (string) $pid;
             }
@@ -5671,13 +5886,20 @@ class OfficeIntakeHelper
                 $parentKind[(string) $sid] = $subKind;
                 if (RegisterQueryHelper::isSyllabiLikeName($subName)) {
                     $syllabiLikeDocTypeIds[] = (string) $sid;
+                }
             }
-        }
         }
         $syllabiLikeDocTypeIds = array_values(array_unique($syllabiLikeDocTypeIds));
 
         if (! Schema::hasTable('dcs_signatory_templates')) {
-            return compact('byDocTypeId', 'byDocTypeCollege', 'syllabiLikeDocTypeIds', 'parentKind', 'externalParentId');
+            return compact(
+                'byDocTypeId',
+                'byDocTypeCollege',
+                'byKind',
+                'syllabiLikeDocTypeIds',
+                'parentKind',
+                'externalParentId'
+            );
         }
 
         $day = now()->toDateString();
@@ -5706,7 +5928,7 @@ class OfficeIntakeHelper
             if ($docTypeId < 1) {
                 continue;
             }
-                $key = (string) $docTypeId;
+            $key = (string) $docTypeId;
             $rowCollegeId = $hasCollegeCol ? (int) data_get($row, 'college_id', 0) : 0;
             if ($rowCollegeId > 0) {
                 if (! isset($byDocTypeCollege[$key])) {
@@ -5721,7 +5943,56 @@ class OfficeIntakeHelper
             }
         }
 
-        return compact('byDocTypeId', 'byDocTypeCollege', 'syllabiLikeDocTypeIds', 'parentKind', 'externalParentId');
+        // Convenience keys for External / Internal whole-type radio (no catalog pickers).
+        if ($externalParentId && isset($byDocTypeId[(string) $externalParentId])) {
+            $byKind['external'] = $byDocTypeId[(string) $externalParentId];
+        } else {
+            foreach ($parentKind as $id => $kind) {
+                if ($kind === 'external' && isset($byDocTypeId[$id])) {
+                    $byKind['external'] = $byDocTypeId[$id];
+                    if (! $externalParentId || $externalParentId < 1) {
+                        $externalParentId = (int) $id;
+                    }
+                    break;
+                }
+            }
+        }
+        // If External still missing (catalog rename / soft-delete edge), resolve from assignment rows.
+        if (! isset($byKind['external']) && $byDocTypeId !== [] && Schema::hasTable('dcs_doc_types')) {
+            $typeIds = array_map('intval', array_keys($byDocTypeId));
+            $typeRows = DB::table('dcs_doc_types')
+                ->whereIn('id', $typeIds)
+                ->whereNull('parent_id')
+                ->get(['id', 'doc_type_name']);
+            foreach ($typeRows as $typeRow) {
+                $name = mb_strtolower(trim((string) ($typeRow->doc_type_name ?? '')));
+                if ($name === '' || ! str_contains($name, 'external')) {
+                    continue;
+                }
+                $key = (string) (int) $typeRow->id;
+                if (! isset($byDocTypeId[$key])) {
+                    continue;
+                }
+                $byKind['external'] = $byDocTypeId[$key];
+                if (! $externalParentId || $externalParentId < 1) {
+                    $externalParentId = (int) $typeRow->id;
+                }
+                break;
+            }
+        }
+        $internalParentId = self::catalogParentIdForKind('internal');
+        if ($internalParentId && isset($byDocTypeId[(string) $internalParentId])) {
+            $byKind['internal'] = $byDocTypeId[(string) $internalParentId];
+        }
+
+        return compact(
+            'byDocTypeId',
+            'byDocTypeCollege',
+            'byKind',
+            'syllabiLikeDocTypeIds',
+            'parentKind',
+            'externalParentId'
+        );
     }
 
     /**
@@ -9282,24 +9553,28 @@ class OfficeIntakeHelper
         ?int $officeId = null,
         string $receiptFilter = 'all',
         int $perPage = 25,
-        ?int $page = null
+        ?int $page = null,
+        string $search = ''
     ): \Illuminate\Pagination\LengthAwarePaginator {
         $officeId = $officeId ?? RegisterQueryHelper::currentOfficeId();
         $perPage = max(10, min(100, $perPage));
         $page = max(1, (int) ($page ?? request()->input('page', 1)));
+        $search = trim($search);
 
         if (! $officeId) {
             return new \Illuminate\Pagination\LengthAwarePaginator([], 0, $perPage, $page);
         }
 
-        $cacheKey = 'page.v2.' . $receiptFilter . '.' . ($groupKey === '' ? 'all' : $groupKey)
-            . '.' . (int) $officeId . '.' . $perPage . '.' . $page;
+        $cacheKey = 'page.v3.' . $receiptFilter . '.' . ($groupKey === '' ? 'all' : $groupKey)
+            . '.' . (int) $officeId . '.' . $perPage . '.' . $page
+            . '.q.' . md5(mb_strtolower($search));
 
         /** @var array{total:int,page:int,rows:list<array<string,mixed>>} $payload */
         $payload = self::rememberOfficeInventory(
             $cacheKey,
-            function () use ($groupKey, $officeId, $receiptFilter, $perPage, $page) {
+            function () use ($groupKey, $officeId, $receiptFilter, $perPage, $page, $search) {
                 $distinct = self::officeDocumentsDistinctQuery($groupKey, (int) $officeId, $receiptFilter);
+                self::applyOfficeDocumentSearch($distinct, $search);
                 $total = (int) (clone $distinct)->count();
                 $lastPage = max(1, (int) ceil(max(0, $total) / $perPage));
                 $page = min($page, $lastPage);
@@ -9317,7 +9592,7 @@ class OfficeIntakeHelper
                     'rows' => self::mapOfficeDocumentRows($records, (int) $officeId, (($page - 1) * $perPage) + 1),
                 ];
             },
-            60
+            $search !== '' ? 15 : 60
         );
 
         $page = max(1, (int) ($payload['page'] ?? $page));
@@ -9348,11 +9623,13 @@ class OfficeIntakeHelper
         string $groupKey,
         ?int $officeId = null,
         int $perPage = 25,
-        ?int $page = null
+        ?int $page = null,
+        string $search = ''
     ): array {
         $officeId = $officeId ?? RegisterQueryHelper::currentOfficeId();
         $perPage = max(10, min(100, $perPage));
         $page = max(1, (int) ($page ?? request()->input('page', 1)));
+        $search = trim($search);
 
         if (! $officeId) {
             $empty = new \Illuminate\Pagination\LengthAwarePaginator([], 0, $perPage, 1);
@@ -9366,15 +9643,20 @@ class OfficeIntakeHelper
             ];
         }
 
-        $cacheKey = 'incoming.page.v2.' . ($groupKey === '' ? 'all' : $groupKey)
-            . '.' . (int) $officeId . '.' . $perPage . '.' . $page;
+        $cacheKey = 'incoming.page.v3.' . ($groupKey === '' ? 'all' : $groupKey)
+            . '.' . (int) $officeId . '.' . $perPage . '.' . $page
+            . '.q.' . md5(mb_strtolower($search));
 
         /** @var array{total:int,page:int,pending_total:int,appraisal_total:int,rows:list<array<string,mixed>>} $payload */
         $payload = self::rememberOfficeInventory(
             $cacheKey,
-            function () use ($groupKey, $officeId, $perPage, $page) {
-                $pendingTotal = (int) self::officeDocumentsDistinctQuery($groupKey, (int) $officeId, 'pending')->count();
-                $appraisalTotal = (int) self::officeDocumentsDistinctQuery($groupKey, (int) $officeId, 'received_for_appraisal')->count();
+            function () use ($groupKey, $officeId, $perPage, $page, $search) {
+                $pendingQ = self::officeDocumentsDistinctQuery($groupKey, (int) $officeId, 'pending');
+                self::applyOfficeDocumentSearch($pendingQ, $search);
+                $appraisalQ = self::officeDocumentsDistinctQuery($groupKey, (int) $officeId, 'received_for_appraisal');
+                self::applyOfficeDocumentSearch($appraisalQ, $search);
+                $pendingTotal = (int) (clone $pendingQ)->count();
+                $appraisalTotal = (int) (clone $appraisalQ)->count();
                 $total = $pendingTotal + $appraisalTotal;
                 $lastPage = max(1, (int) ceil(max(0, $total) / $perPage));
                 $page = min($page, $lastPage);
@@ -9385,7 +9667,7 @@ class OfficeIntakeHelper
 
                 if ($offset < $pendingTotal) {
                     $take = min($perPage, $pendingTotal - $offset);
-                    $pendingRecords = self::officeDocumentsDistinctQuery($groupKey, (int) $officeId, 'pending')
+                    $pendingRecords = (clone $pendingQ)
                         ->orderByRaw("CASE WHEN COALESCE(TRIM(doc_no), '') = '' THEN 1 ELSE 0 END")
                         ->orderBy('doc_no')
                         ->orderByDesc('revise_no')
@@ -9400,7 +9682,7 @@ class OfficeIntakeHelper
                 if ($filled < $perPage && $appraisalTotal > 0) {
                     $appraisalOffset = max(0, $offset - $pendingTotal);
                     $appraisalTake = $perPage - $filled;
-                    $appraisalRecords = self::officeDocumentsDistinctQuery($groupKey, (int) $officeId, 'received_for_appraisal')
+                    $appraisalRecords = (clone $appraisalQ)
                         ->orderByRaw("CASE WHEN COALESCE(TRIM(doc_no), '') = '' THEN 1 ELSE 0 END")
                         ->orderBy('doc_no')
                         ->orderByDesc('revise_no')
@@ -9442,7 +9724,7 @@ class OfficeIntakeHelper
                     'rows' => $rows,
                 ];
             },
-            45
+            $search !== '' ? 15 : 45
         );
 
         $page = max(1, (int) ($payload['page'] ?? $page));

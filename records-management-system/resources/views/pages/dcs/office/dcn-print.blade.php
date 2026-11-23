@@ -1102,7 +1102,10 @@ function ofiPrintClean() {
         <tr>
             <td class="r5-body">
                 @php
-                    $approvalRows = \App\Helpers\OfficeIntakeHelper::loadDcnApprovals((int) $dcn->id);
+                    // Live Preview posts id=0 — use form-posted preview_approvals when present.
+                    $approvalRows = (isset($dcn->preview_approvals) && is_array($dcn->preview_approvals))
+                        ? $dcn->preview_approvals
+                        : \App\Helpers\OfficeIntakeHelper::loadDcnApprovals((int) ($dcn->id ?? 0));
                     $filledApprovals = [];
                     foreach ($approvalRows as $appr) {
                         $pos = trim((string) ($appr['position'] ?? ''));

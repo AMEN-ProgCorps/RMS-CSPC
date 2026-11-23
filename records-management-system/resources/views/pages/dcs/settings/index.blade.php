@@ -2654,11 +2654,18 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
     private function catalog(): array
     {
         // Opening/editing a modal should not reload courses + signatory history.
+        // Exception: course add/edit keeps the modal open and bumps courseListEpoch,
+        // which remounts the wire:ignore table — still load courses so that remount
+        // is not rendered empty ("No courses yet").
         $modalLite = $this->modalKind !== '';
         $needsFaculties = ! $modalLite || in_array($this->modalKind, ['faculty', 'importFaculties'], true);
         $needsOriginators = ! $modalLite || in_array($this->modalKind, ['originator', 'importOriginators'], true);
         $needsSignatories = ! $modalLite;
-        $needsCourses = ! $modalLite;
+        $needsCourses = ! $modalLite || in_array($this->modalKind, [
+            'programCourse',
+            'programCoursesBulk',
+            'programCourse:delete',
+        ], true);
 
         $docTypeParentsQ = DB::table('dcs_doc_types')->whereNull('parent_id')->orderBy('doc_type_name');
         \App\Helpers\SettingsRecycleHelper::applyNotDeleted($docTypeParentsQ, 'dcs_doc_types');
@@ -3164,7 +3171,7 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
                         </div>
                     </div>
 
-                    <div class="sig-section">
+                    <div class="sig-section" wire:key="sig-people-{{ $sigFormKind }}-{{ $sigParentTypeId }}-{{ $sigSubTypeId }}-{{ $sigCollegeId }}">
                         <div class="sig-section-head">
                             <span class="sig-section-num">2</span>
                             <div>
@@ -3203,11 +3210,16 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
                                         <span>Reviewers</span>
                                         <button type="button" class="sig-link-btn" wire:click="addSigReviewerRow"><i class="fa-solid fa-plus"></i> Add</button>
                                     </div>
+                                    <div class="sig-dcn-colhead" aria-hidden="true">
+                                        <span></span>
+                                        <span>Name</span>
+                                        <span></span>
+                                    </div>
                                     <div class="sig-dcn-rows">
                                         @foreach($sigReviewers as $i => $row)
                                             <div class="sig-dcn-row" wire:key="sig-rev-{{ $i }}">
                                                 <span class="sig-dcn-index">{{ $i + 1 }}</span>
-                                                <input class="st-input" type="text" wire:model="sigReviewers.{{ $i }}.name" placeholder="Reviewer name" maxlength="255">
+                                                <input class="st-input" type="text" wire:model="sigReviewers.{{ $i }}.name" placeholder="e.g. Juan Dela Cruz" maxlength="255" aria-label="Reviewer {{ $i + 1 }} name">
                                                 <button type="button" class="icon-btn icon-btn-danger" wire:click="removeSigReviewerRow({{ $i }})" title="Remove" @disabled(count($sigReviewers) < 2)><i class="fa-solid fa-trash"></i></button>
                                             </div>
                                         @endforeach
@@ -3218,12 +3230,18 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
                                         <span>Approvals</span>
                                         <button type="button" class="sig-link-btn" wire:click="addSigApprovalRow"><i class="fa-solid fa-plus"></i> Add</button>
                                     </div>
+                                    <div class="sig-dcn-colhead sig-dcn-colhead-approval" aria-hidden="true">
+                                        <span></span>
+                                        <span>Position</span>
+                                        <span>Name</span>
+                                        <span></span>
+                                    </div>
                                     <div class="sig-dcn-rows">
                                         @foreach($sigApprovals as $i => $row)
                                             <div class="sig-dcn-row sig-dcn-row-approval" wire:key="sig-apr-{{ $i }}">
                                                 <span class="sig-dcn-index">{{ $i + 1 }}</span>
-                                                <input class="st-input" type="text" wire:model="sigApprovals.{{ $i }}.position" placeholder="Position" maxlength="255">
-                                                <input class="st-input" type="text" wire:model="sigApprovals.{{ $i }}.name" placeholder="Name" maxlength="255">
+                                                <input class="st-input" type="text" wire:model="sigApprovals.{{ $i }}.position" placeholder="e.g. College Dean" maxlength="255" aria-label="Approval {{ $i + 1 }} position">
+                                                <input class="st-input" type="text" wire:model="sigApprovals.{{ $i }}.name" placeholder="e.g. Juan Dela Cruz" maxlength="255" aria-label="Approval {{ $i + 1 }} name">
                                                 <button type="button" class="icon-btn icon-btn-danger" wire:click="removeSigApprovalRow({{ $i }})" title="Remove" @disabled(count($sigApprovals) < 2)><i class="fa-solid fa-trash"></i></button>
                                             </div>
                                         @endforeach
@@ -3810,13 +3828,15 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
              wire:ignore keeps the heavy courses DOM stable while other modals open (lite catalog). --}}
         <div class="table-wrap" wire:key="course-names-{{ $courseListEpoch }}-{{ $courseListCollegeId }}-{{ $courseListProgramId }}" wire:ignore>
             <table class="settings-table">
-                <thead><tr><th>College</th><th>Program</th><th>Semester</th><th>Year Level</th><th>Course Type</th><th>Course Code</th><th>Course Name</th><th style="width:140px;">Actions</th></tr></thead>
+                <thead><tr><th>College</th><th>Program</th><th>Year Level</th><th>Course Code</th><th>Course Name</th><th style="width:140px;">Actions</th></tr></thead>
                 <tbody>
                     @if($programCourses->isEmpty())
-                        <tr wire:key="course-names-empty"><td colspan="8" class="empty-cell">No courses yet.</td></tr>
+                        <tr wire:key="course-names-empty"><td colspan="6" class="empty-cell">No courses yet.</td></tr>
                     @else
                     @php
                         $knownYears = \App\Helpers\SyllabiMonitoringHelper::YEAR_LEVELS;
+                        $knownTypes = \App\Helpers\SyllabiMonitoringHelper::COURSE_TYPES;
+                        $typeOrder = array_flip($knownTypes);
                         $coursesByYear = [];
                         foreach ($knownYears as $yearKey) {
                             $coursesByYear[$yearKey] = collect();
@@ -3840,33 +3860,70 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
                             $yearKeySlug = $yearKey !== '' ? \Illuminate\Support\Str::slug($yearKey) : 'none';
                         @endphp
                         <tr class="st-year-header" wire:key="year-header-{{ $yearKeySlug }}">
-                            <td colspan="8">
+                            <td colspan="6">
                                 <span>Year Level · {{ $yearLabel }}</span>
                                 <span class="st-year-count">{{ $yearCount }} {{ $yearCount === 1 ? 'course' : 'courses' }}</span>
                             </td>
                         </tr>
-                        @foreach($yearCourses as $course)
+                        @php
+                            // Preserve query order (semester_id) via first-seen group keys.
+                            $coursesBySem = $yearCourses->groupBy(fn ($c) => trim((string) ($c->semester_name ?? '')));
+                        @endphp
+                        @foreach($coursesBySem as $semKey => $semCourses)
                             @php
-                                $isInstitutional = $course->program_id === null
-                                    && \App\Helpers\CourseTypeRules::isSharedType($course->course_type ?? null);
+                                $semLabel = $semKey !== '' ? $semKey : 'No semester';
+                                $semCount = $semCourses->count();
+                                $semKeySlug = $semKey !== '' ? \Illuminate\Support\Str::slug($semKey) : 'none';
                             @endphp
-                            <tr wire:key="pc-{{ $course->id }}" class="st-course-data" data-id="{{ $course->id }}">
-                                <td data-label="College">{{ $isInstitutional ? 'All colleges' : ($course->college_name ?? '—') }}</td>
-                                <td data-label="Program">{{ $isInstitutional ? 'Institutional' : ($course->program_name ?? '—') }}</td>
-                                <td data-label="Semester">{{ $course->semester_name ?? '—' }}</td>
-                                <td data-label="Year Level">{{ $course->year_level ?? '—' }}</td>
-                                <td data-label="Course Type">{{ $course->course_type ?? '—' }}</td>
-                                <td data-label="Code">{{ $course->course_code ?: '—' }}</td>
-                                <td data-label="Course Name">{{ $course->course_name }}</td>
-                                <td>
-                                    <div class="row-actions">
-                                        <button type="button" class="icon-btn" title="Edit" wire:click="openProgramCourse({{ $course->id }})"><i class="fa-solid fa-pen"></i></button>
-                                        @if(!empty($canSoftDelete))
-                                        <button type="button" class="icon-btn icon-btn-danger" title="Delete" wire:click="confirmDelete('programCourse', {{ $course->id }}, 'Delete Course', 'This course will be moved to the Admin Console Recycle Bin.')"><i class="fa-solid fa-trash"></i></button>
-                                        @endif
-                                    </div>
+                            <tr class="st-sem-header" wire:key="sem-header-{{ $yearKeySlug }}-{{ $semKeySlug }}">
+                                <td colspan="6">
+                                    <span>Semester · {{ $semLabel }}</span>
+                                    <span class="st-year-count">{{ $semCount }} {{ $semCount === 1 ? 'course' : 'courses' }}</span>
                                 </td>
                             </tr>
+                            @php
+                                $coursesByType = $semCourses->groupBy(fn ($c) => trim((string) ($c->course_type ?? '')));
+                                $coursesByType = $coursesByType->sortBy(fn ($rows, $typeKey) => $typeOrder[$typeKey] ?? 99);
+                            @endphp
+                            @foreach($coursesByType as $typeKey => $typeCourses)
+                                @php
+                                    $typeLabel = match ($typeKey) {
+                                        'Major' => 'Major Courses',
+                                        'NSTP' => 'NSTP Courses',
+                                        '' => 'No course type',
+                                        default => $typeKey,
+                                    };
+                                    $typeCount = $typeCourses->count();
+                                    $typeKeySlug = $typeKey !== '' ? \Illuminate\Support\Str::slug($typeKey) : 'none';
+                                @endphp
+                                <tr class="st-type-header" wire:key="type-header-{{ $yearKeySlug }}-{{ $semKeySlug }}-{{ $typeKeySlug }}">
+                                    <td colspan="6">
+                                        <span>{{ $typeLabel }}</span>
+                                        <span class="st-year-count">{{ $typeCount }} {{ $typeCount === 1 ? 'course' : 'courses' }}</span>
+                                    </td>
+                                </tr>
+                                @foreach($typeCourses as $course)
+                                    @php
+                                        $isInstitutional = $course->program_id === null
+                                            && \App\Helpers\CourseTypeRules::isSharedType($course->course_type ?? null);
+                                    @endphp
+                                    <tr wire:key="pc-{{ $course->id }}" class="st-course-data" data-id="{{ $course->id }}">
+                                        <td data-label="College">{{ $isInstitutional ? 'All colleges' : ($course->college_name ?? '—') }}</td>
+                                        <td data-label="Program">{{ $isInstitutional ? 'Institutional' : ($course->program_name ?? '—') }}</td>
+                                        <td data-label="Year Level">{{ $course->year_level ?? '—' }}</td>
+                                        <td data-label="Code">{{ $course->course_code ?: '—' }}</td>
+                                        <td data-label="Course Name">{{ $course->course_name }}</td>
+                                        <td>
+                                            <div class="row-actions">
+                                                <button type="button" class="icon-btn" title="Edit" wire:click="openProgramCourse({{ $course->id }})"><i class="fa-solid fa-pen"></i></button>
+                                                @if(!empty($canSoftDelete))
+                                                <button type="button" class="icon-btn icon-btn-danger" title="Delete" wire:click="confirmDelete('programCourse', {{ $course->id }}, 'Delete Course', 'This course will be moved to the Admin Console Recycle Bin.')"><i class="fa-solid fa-trash"></i></button>
+                                                @endif
+                                            </div>
+                                        </td>
+                                    </tr>
+                                @endforeach
+                            @endforeach
                         @endforeach
                     @endforeach
                     @endif

@@ -23,6 +23,9 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
     #[Url]
     public string $type = 'all';
 
+    #[Url]
+    public string $search = '';
+
     public int $perPage = 25;
 
     /**
@@ -66,6 +69,11 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
         }
     }
 
+    public function updatedSearch(): void
+    {
+        $this->resetPage();
+    }
+
     /**
      * Supplies view data, query collections, and metrics to the Blade template.
      * @return array
@@ -88,10 +96,15 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
 
         $perPage = max(10, min(100, (int) $this->perPage));
         $page = max(1, (int) $this->getPage());
-        $rows = OfficeIntakeHelper::paginateOfficeDocuments($active, null, 'received', $perPage, $page);
-        $activeCount = $active === 'all'
-            ? $total
-            : (int) (collect($groups)->firstWhere('key', $active)['count'] ?? $rows->total());
+        $rows = OfficeIntakeHelper::paginateOfficeDocuments(
+            $active,
+            null,
+            'received',
+            $perPage,
+            $page,
+            $this->search
+        );
+        $activeCount = (int) $rows->total();
 
         return [
             'groups' => $groups,
@@ -101,6 +114,7 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
             'activeLabel' => $activeLabel,
             'activeCount' => $activeCount,
             'rows' => $rows,
+            'search' => $this->search,
             'officeName' => auth()->user()?->details?->office?->office_name
                 ?? auth()->user()?->details?->office?->office_code
                 ?? 'Your office',
@@ -165,8 +179,13 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
         </nav>
         @endunless
 
+        @include('pages.dcs.office.partials.ofi-list-search', [
+            'search' => $search ?? '',
+            'placeholder' => 'Search by document no. or title…',
+        ])
+
         <div class="ofi-card ofi-list-card" style="position:relative;" wire:loading.class="is-loading">
-            <div class="dcs-loading-overlay" wire:loading.flex wire:target="selectType,previousPage,nextPage,gotoPage">
+            <div class="dcs-loading-overlay" wire:loading.flex wire:target="selectType,search,previousPage,nextPage,gotoPage">
                 <div class="dcs-loading-spinner" aria-hidden="true"></div>
                 <h4>Loading masterlist…</h4>
                 <p>Fetching received documents.</p>
@@ -179,7 +198,10 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
             @if($activeCount < 1)
                 <div class="ofi-doc-empty ofi-list-empty" role="status">
                     <i class="fa-regular fa-folder-open" aria-hidden="true"></i>
-                    @if($total < 1)
+                    @if(trim((string) ($search ?? '')) !== '')
+                        <strong>No documents match “{{ $search }}”</strong>
+                        <p>Try another document number or title, or clear the search.</p>
+                    @elseif($total < 1)
                         <strong>No received documents yet</strong>
                         <p>Mark incoming distributions as received first. They appear here after your office confirms receipt.</p>
                     @else

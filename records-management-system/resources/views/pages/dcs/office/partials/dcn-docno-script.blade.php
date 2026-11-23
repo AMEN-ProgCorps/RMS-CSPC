@@ -96,14 +96,17 @@ DCS file: Looks up the DCN finder values and fills the change form when the late
         const docNo = (data.document_no || finderNo.value || '').trim();
         const title = (data.current_title || finderTitle.value || '').trim();
         const originator = (data.originator || finderOriginator.value || '').trim();
-        const type = (data.doc_type || (typeInput && typeInput.value) || '').trim();
+        // Prefer the match payload so reselect always refreshes Type (do not keep a stale hidden value).
+        const type = (data.doc_type != null && String(data.doc_type).trim() !== '')
+            ? String(data.doc_type).trim()
+            : ((typeInput && typeInput.value) || '').trim();
         const rev = data.revise_no != null && data.revise_no !== ''
             ? String(data.revise_no)
             : (reviseInput ? reviseInput.value : '');
         setFieldText('dcnSelectedNo', docNo);
         setFieldText('dcnSelectedTitle', title);
         setFieldText('dcnSelectedOriginator', originator);
-        setFieldText('dcnSelectedType', type);
+        setFieldText('dcnSelectedType', type !== '' ? type : '—');
         setFieldText('dcnSelectedRev', rev !== '' ? ('Rev ' + rev + ' · latest') : 'Latest');
         lockFinder(true);
     }
@@ -170,6 +173,11 @@ DCS file: Looks up the DCN finder values and fills the change form when the late
         suggestApprovals = [];
         if (reviseInput) reviseInput.value = '';
         if (typeInput) typeInput.value = '';
+        setFieldText('dcnSelectedNo', '—');
+        setFieldText('dcnSelectedTitle', '—');
+        setFieldText('dcnSelectedOriginator', '—');
+        setFieldText('dcnSelectedType', '—');
+        setFieldText('dcnSelectedRev', 'Latest');
         clearSuggestions();
         clearFieldSuggestions();
         lockFinder(false);
@@ -198,8 +206,9 @@ DCS file: Looks up the DCN finder values and fills the change form when the late
      * Populates approvals in the interface.
      *
      * @param {*} approvals
+     * @param {boolean} [force]
      */
-    function fillApprovals(approvals) {
+    function fillApprovals(approvals, force) {
         const list = document.getElementById('ofiApprovalsList');
         const addBtn = document.getElementById('ofiAddApproval');
         if (!list || !Array.isArray(approvals) || !approvals.length) return;
@@ -213,10 +222,50 @@ DCS file: Looks up the DCN finder values and fills the change form when the late
             if (!row) return;
             const position = row.querySelector('input[name="approvalPosition[]"]');
             const name = row.querySelector('input[name="approvalName[]"]');
-            if (position && position.value.trim() === '') position.value = appr.position || '';
-            if (name && name.value.trim() === '') name.value = appr.name || '';
+            if (position && (force || position.value.trim() === '')) position.value = appr.position || '';
+            if (name && (force || name.value.trim() === '')) name.value = appr.name || '';
             if (position) position.dispatchEvent(new Event('input', { bubbles: true }));
         });
+        // Drop extra blank rows left from a previous document selection.
+        if (force) {
+            rows = Array.from(list.querySelectorAll('[data-approval-row]'));
+            for (let i = rows.length - 1; i >= approvals.length && i > 0; i--) {
+                const remove = rows[i].querySelector('[data-approval-remove]');
+                if (remove) remove.click();
+            }
+        }
+    }
+
+    /**
+     * Populates reviewers from Settings / finder payload.
+     *
+     * @param {*} reviewers
+     * @param {boolean} [force]
+     */
+    function fillReviewers(reviewers, force) {
+        const list = document.getElementById('ofiReviewersList');
+        const addBtn = document.getElementById('ofiAddReviewer');
+        if (!list || !Array.isArray(reviewers) || !reviewers.length) return;
+        let rows = Array.from(list.querySelectorAll('[data-reviewer-row]'));
+        reviewers.forEach(function (rev, index) {
+            if (!rows[index] && addBtn) {
+                addBtn.click();
+                rows = Array.from(list.querySelectorAll('[data-reviewer-row]'));
+            }
+            const row = rows[index];
+            if (!row) return;
+            const name = row.querySelector('input[name="reviewedByName[]"]');
+            const label = (rev && typeof rev === 'object') ? (rev.name || '') : String(rev || '');
+            if (name && (force || name.value.trim() === '')) name.value = label;
+            if (name) name.dispatchEvent(new Event('input', { bubbles: true }));
+        });
+        if (force) {
+            rows = Array.from(list.querySelectorAll('[data-reviewer-row]'));
+            for (let i = rows.length - 1; i >= reviewers.length && i > 0; i--) {
+                const remove = rows[i].querySelector('[data-reviewer-remove]');
+                if (remove) remove.click();
+            }
+        }
     }
 
     let suggestTitle = '';
@@ -312,6 +361,18 @@ DCS file: Looks up the DCN finder values and fills the change form when the late
         }
         showFieldSuggestions(data);
         showSelected(data);
+        // Settings DCN assignment for this document type (fallback: approvals on the match).
+        const dcnSig = data.dcn_signatories && typeof data.dcn_signatories === 'object'
+            ? data.dcn_signatories
+            : null;
+        const approvals = (dcnSig && Array.isArray(dcnSig.approvals) && dcnSig.approvals.length)
+            ? dcnSig.approvals
+            : (Array.isArray(data.approvals) ? data.approvals : []);
+        const reviewers = (dcnSig && Array.isArray(dcnSig.reviewers) && dcnSig.reviewers.length)
+            ? dcnSig.reviewers
+            : [];
+        fillApprovals(approvals, true);
+        fillReviewers(reviewers, true);
         applyingMatch = false;
     }
 

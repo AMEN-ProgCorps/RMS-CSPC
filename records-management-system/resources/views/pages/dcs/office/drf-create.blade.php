@@ -609,7 +609,7 @@ window.__ofiSourceConfigs = [
     const optInDocTypeHidden = document.getElementById('drfOptInDocTypeId');
     const childrenByParent = window.__ofiDocTypeChildren || {};
     const allParents = window.__ofiDocTypeParents || [];
-    const sigMap = window.__ofiSigTemplateMap || { byDocTypeId: {}, parentKind: {}, externalParentId: null };
+    const sigMap = window.__ofiSigTemplateMap || { byDocTypeId: {}, byKind: {}, parentKind: {}, externalParentId: null };
 
     /**
      * Selected kind.
@@ -653,12 +653,20 @@ window.__ofiSourceConfigs = [
         const kind = selectedKind();
         const byId = sigMap.byDocTypeId || {};
         const byCollege = sigMap.byDocTypeCollege || {};
+        const byKind = sigMap.byKind || {};
+        const parentKind = sigMap.parentKind || {};
         const syllabiIds = sigMap.syllabiLikeDocTypeIds || [];
         const collegeSel = document.getElementById('ofiDrfCollegeId');
         const collegeId = collegeSel && !collegeSel.disabled ? String(collegeSel.value || '') : '';
         if (kind === 'external') {
+            if (byKind.external) return byKind.external;
             const externalId = sigMap.externalParentId ? String(sigMap.externalParentId) : '';
-            return (externalId && byId[externalId]) ? byId[externalId] : null;
+            if (externalId && byId[externalId]) return byId[externalId];
+            // Last resort: any catalog parent marked external that has an active assignment.
+            for (const id of Object.keys(parentKind)) {
+                if (parentKind[id] === 'external' && byId[id]) return byId[id];
+            }
+            return null;
         }
         if (kind === 'forms' || kind === 'logbooks') {
             const checked = form.querySelector('input[name="docTypeKind"]:checked');
@@ -845,6 +853,11 @@ window.__ofiSourceConfigs = [
      * Renders and synchronizes signatories for selection in the DOM.
      */
     function refreshSignatoriesForSelection() {
+        const kind = selectedKind();
+        // Don't wipe server-rendered values before a type is chosen.
+        if (!kind) {
+            return;
+        }
         applySignatories(resolveTemplate());
     }
     window.__ofiRefreshDrfSignatories = refreshSignatoriesForSelection;

@@ -630,18 +630,53 @@ body {
 }
 
 .settings-table tbody tr.st-year-header td {
-    background: color-mix(in srgb, var(--set-accent, #1d4ed8) 10%, var(--set-bg, #f8fafc));
-    color: var(--set-text, #0f172a);
+    background: color-mix(in srgb, var(--dcs-accent, #043899) 14%, #fff);
+    color: var(--dcs-header, #000080);
     font-size: 0.78rem;
     font-weight: 700;
     letter-spacing: 0.04em;
     text-transform: uppercase;
     padding: 10px 16px;
     text-align: left;
+    border-left: 4px solid var(--dcs-accent, #043899);
 }
 
 .settings-table tbody tr.st-year-header:hover td {
-    background: color-mix(in srgb, var(--set-accent, #1d4ed8) 10%, var(--set-bg, #f8fafc));
+    background: color-mix(in srgb, var(--dcs-accent, #043899) 14%, #fff);
+}
+
+.settings-table tbody tr.st-sem-header td {
+    background: var(--dcs-accent-subtle, #eef2ff);
+    color: var(--dcs-accent-dark, #002b7a);
+    font-size: 0.74rem;
+    font-weight: 600;
+    letter-spacing: 0.03em;
+    text-transform: uppercase;
+    padding: 8px 16px 8px 28px;
+    text-align: left;
+    border-bottom: 1px solid var(--set-border-light);
+    border-left: 4px solid var(--dcs-accent-light, #1a4db8);
+}
+
+.settings-table tbody tr.st-sem-header:hover td {
+    background: var(--dcs-accent-subtle, #eef2ff);
+}
+
+.settings-table tbody tr.st-type-header td {
+    background: var(--dcs-gold-bg, #fdf8ec);
+    color: color-mix(in srgb, var(--dcs-gold-alt, #c9a227) 55%, #1e293b);
+    font-size: 0.72rem;
+    font-weight: 600;
+    letter-spacing: 0.02em;
+    text-transform: uppercase;
+    padding: 7px 16px 7px 40px;
+    text-align: left;
+    border-bottom: 1px solid var(--set-border-light);
+    border-left: 4px solid var(--dcs-gold, #FFB800);
+}
+
+.settings-table tbody tr.st-type-header:hover td {
+    background: var(--dcs-gold-bg, #fdf8ec);
 }
 
 .st-year-count {
@@ -1594,12 +1629,24 @@ body {
         border-bottom: 1px solid var(--set-border-light);
     }
 
-    .settings-table tbody tr.st-year-header {
+    .settings-table tbody tr.st-year-header,
+    .settings-table tbody tr.st-sem-header,
+    .settings-table tbody tr.st-type-header {
         display: block;
         padding: 10px 14px;
     }
 
-    .settings-table tbody tr.st-year-header td {
+    .settings-table tbody tr.st-sem-header {
+        padding: 8px 14px 8px 22px;
+    }
+
+    .settings-table tbody tr.st-type-header {
+        padding: 7px 14px 7px 30px;
+    }
+
+    .settings-table tbody tr.st-year-header td,
+    .settings-table tbody tr.st-sem-header td,
+    .settings-table tbody tr.st-type-header td {
         display: block;
     }
 
@@ -2000,6 +2047,24 @@ body {
 
 .sig-link-btn:hover {
     text-decoration: underline;
+}
+
+.sig-dcn-colhead {
+    display: grid;
+    grid-template-columns: 22px minmax(0, 1fr) 34px;
+    gap: 6px;
+    align-items: end;
+    margin-bottom: 4px;
+    padding: 0 1px;
+    font-size: 0.68rem;
+    font-weight: 700;
+    letter-spacing: 0.02em;
+    text-transform: uppercase;
+    color: var(--set-text-muted, #64748b);
+}
+
+.sig-dcn-colhead-approval {
+    grid-template-columns: 22px minmax(0, 0.9fr) minmax(0, 1fr) 34px;
 }
 
 .sig-dcn-rows {
@@ -2521,6 +2586,14 @@ body {
 @media (max-width: 480px) {
     .sig-scope-grid {
         grid-template-columns: 1fr;
+    }
+
+    .sig-dcn-colhead-approval {
+        grid-template-columns: 22px 1fr 34px;
+    }
+
+    .sig-dcn-colhead-approval span:nth-child(3) {
+        grid-column: 2;
     }
 
     .sig-dcn-row-approval {

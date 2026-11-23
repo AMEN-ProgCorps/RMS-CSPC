@@ -20,9 +20,25 @@ class RdpFilePreviewSecurityTest extends TestCase
         Storage::fake('google');
     }
 
-    public function test_view_document_serves_pdf_with_proper_mime_and_security_headers_even_if_it_contains_html_script_tags(): void
+    private function getAuthorizedUser(): User
     {
         $user = User::first() ?? User::factory()->create();
+        if ($user->account_role) {
+            $tbl = DB::getSchemaBuilder()->hasTable('sys_condition_details') ? 'sys_condition_details' : 'condition_details';
+            DB::table($tbl)->where('key_id', $user->account_role)->update([
+                'is_sadm' => true,
+                'can_access_rdp' => true,
+                'can_access_dts' => true,
+                'can_access_dcs' => true,
+            ]);
+            $user->unsetRelation('permissions');
+        }
+        return $user;
+    }
+
+    public function test_view_document_serves_pdf_with_proper_mime_and_security_headers_even_if_it_contains_html_script_tags(): void
+    {
+        $user = $this->getAuthorizedUser();
 
         // Create a polyglot-style file content with PDF signature and embedded HTML/script
         $maliciousPdfContent = "%PDF-1.4\n<?php echo 'malicious'; ?>\n<!DOCTYPE html><html><body><script>alert(document.cookie);</script></body></html>";
@@ -52,7 +68,7 @@ class RdpFilePreviewSecurityTest extends TestCase
 
     public function test_view_document_sandboxes_html_files(): void
     {
-        $user = User::first() ?? User::factory()->create();
+        $user = $this->getAuthorizedUser();
 
         $htmlContent = "<!DOCTYPE html><html><body><h1>Safe Report</h1><script>alert('xss');</script></body></html>";
         $storedPath = 'rdp/GENERAL/report.html';
@@ -111,7 +127,7 @@ class RdpFilePreviewSecurityTest extends TestCase
 
     public function test_dts_view_document_serves_valid_pdf_with_security_headers(): void
     {
-        $user = User::first() ?? User::factory()->create();
+        $user = $this->getAuthorizedUser();
 
         $validPdf = "%PDF-1.4\n1 0 obj\n<<>>\nendobj\ntrailer\n<<>>\n%%EOF";
         $storedPath = 'dts/GENERAL/test_dts_doc.pdf';
@@ -128,7 +144,7 @@ class RdpFilePreviewSecurityTest extends TestCase
 
     public function test_dts_view_document_rejects_non_pdf_content(): void
     {
-        $user = User::first() ?? User::factory()->create();
+        $user = $this->getAuthorizedUser();
 
         $fakeContent = "<html><body>Not a PDF</body></html>";
         $storedPath = 'dts/GENERAL/fake.pdf';

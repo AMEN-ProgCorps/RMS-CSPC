@@ -285,6 +285,21 @@
     color: #2563eb;
 }
 
+.stat-icon-wrapper.dts-rec-card-icon {
+    background: #f0f9ff;
+    color: #0284c7;
+}
+
+.stat-icon-wrapper.dts-fwd-card-icon {
+    background: #f0fdf4;
+    color: #16a34a;
+}
+
+.stat-icon-wrapper.dts-comp-card-icon {
+    background: #faf5ff;
+    color: #7c3aed;
+}
+
 .stat-icon-wrapper.active-card-icon {
     background: #f0fdf4;
     color: #16a34a;

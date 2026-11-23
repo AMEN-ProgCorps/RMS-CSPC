@@ -357,7 +357,258 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Dashboard')] class exten
                 ->count();
         }
 
+        // 8. DTS Transaction Analytics (Cards 1–3: Received, Forwarded, Completed)
+        $currentYear = (int) now()->format('Y');
+        $startOfYear = "{$currentYear}-01-01 00:00:00";
+        $endOfYear = "{$currentYear}-12-31 23:59:59";
+        $currentMonthNum = (int) now()->format('n');
+
+        $monthLabels = [
+            1 => 'Jan.', 2 => 'Feb.', 3 => 'Mar.', 4 => 'Apr.',
+            5 => 'May',  6 => 'Jun.', 7 => 'Jul.', 8 => 'Aug.',
+            9 => 'Sept.', 10 => 'Oct.', 11 => 'Nov.', 12 => 'Dec.'
+        ];
+
+        // Action Options from database, strictly excluding 'To be Forwarded to' and 'For Revision'
+        $rawActionOptions = [];
+        if (\Illuminate\Support\Facades\Schema::hasTable('dts_action_options')) {
+            $rawActionOptions = \DB::table('dts_action_options')
+                ->whereNotIn(\DB::raw('LOWER(TRIM(option_name))'), ['to be forwarded to', 'for revision'])
+                ->orderBy('id', 'asc')
+                ->pluck('option_name')
+                ->toArray();
+        }
+
+        if (\Illuminate\Support\Facades\Schema::hasTable('dts_transaction_details')) {
+            $distinctDetails = \DB::table('dts_transaction_details')
+                ->whereNotNull('action_needed')
+                ->where('action_needed', '!=', '')
+                ->whereNotIn(\DB::raw('LOWER(TRIM(action_needed))'), ['to be forwarded to', 'for revision'])
+                ->distinct()
+                ->pluck('action_needed')
+                ->toArray();
+
+            foreach ($distinctDetails as $dd) {
+                $trimmed = trim($dd);
+                if (!in_array($trimmed, $rawActionOptions, true)) {
+                    $rawActionOptions[] = $trimmed;
+                }
+            }
+        }
+
+        if (empty($rawActionOptions)) {
+            $rawActionOptions = ['For Action', 'For Approval', 'For Signature', 'For Recommendation', 'For Endorsement'];
+        }
+
+        $palette = [
+            '#0284c7', // Sky Blue
+            '#ef4444', // Red
+            '#10b981', // Emerald Green
+            '#f59e0b', // Amber
+            '#8b5cf6', // Violet
+            '#ec4899', // Pink
+            '#06b6d4', // Cyan
+            '#64748b', // Slate
+        ];
+
+        $actionOptionColors = [];
+        foreach ($rawActionOptions as $idx => $opt) {
+            $actionOptionColors[$opt] = $palette[$idx % count($palette)];
+        }
+
+        $displayActionOptions = array_slice($rawActionOptions, 0, 4);
+
+        $dtsLogsTable = \Illuminate\Support\Facades\Schema::hasTable('dts_transaction_logs') ? 'dts_transaction_logs' : 'sub_document_tracking_system_logs';
+        $dtsDetailsTable = \Illuminate\Support\Facades\Schema::hasTable('dts_transaction_details') ? 'dts_transaction_details' : null;
+
+        $receivedMonthly = [];
+        $forwardedMonthly = [];
+        $completedMonthly = [];
+        for ($m = 1; $m <= 12; $m++) {
+            $receivedMonthly[$m] = array_fill_keys($displayActionOptions, 0);
+            $forwardedMonthly[$m] = array_fill_keys($displayActionOptions, 0);
+            $completedMonthly[$m] = array_fill_keys($displayActionOptions, 0);
+        }
+
+        $totalReceivedCount = 0;
+        $totalForwardedCount = 0;
+        $totalCompletedCount = 0;
+        $thisMonthReceived = 0;
+        $thisMonthForwarded = 0;
+        $thisMonthCompleted = 0;
+
+        if ($dtsDetailsTable && \Illuminate\Support\Facades\Schema::hasTable($dtsLogsTable)) {
+            // A. Received
+            $recLogs = \DB::table("{$dtsLogsTable} as log")
+                ->join("{$dtsDetailsTable} as td", 'log.transaction_id', '=', 'td.id')
+                ->where('log.type', 'received')
+                ->whereBetween(\DB::raw('COALESCE(log.date_in, log.date_out)'), [$startOfYear, $endOfYear])
+                ->select([
+                    \DB::raw('COALESCE(log.date_in, log.date_out) as log_date'),
+                    'td.action_needed',
+                    'log.transaction_id',
+                ])
+                ->get();
+
+            foreach ($recLogs as $r) {
+                $m = (int) \Carbon\Carbon::parse($r->log_date)->format('n');
+                $act = trim((string)($r->action_needed ?? ''));
+                if (in_array(strtolower($act), ['to be forwarded to', 'for revision'], true)) {
+                    continue;
+                }
+                $matched = null;
+                foreach ($displayActionOptions as $opt) {
+                    if (strcasecmp($opt, $act) === 0) {
+                        $matched = $opt;
+                        break;
+                    }
+                }
+                $matched = $matched ?: ($displayActionOptions[0] ?? null);
+                if ($matched) {
+                    $receivedMonthly[$m][$matched] = ($receivedMonthly[$m][$matched] ?? 0) + 1;
+                }
+                $totalReceivedCount++;
+                if ($m === $currentMonthNum) {
+                    $thisMonthReceived++;
+                }
+            }
+
+            // B. Forwarded
+            $fwdLogs = \DB::table("{$dtsLogsTable} as log")
+                ->join("{$dtsDetailsTable} as td", 'log.transaction_id', '=', 'td.id')
+                ->where('log.type', 'forwarded')
+                ->whereBetween(\DB::raw('COALESCE(log.date_out, log.date_in)'), [$startOfYear, $endOfYear])
+                ->select([
+                    \DB::raw('COALESCE(log.date_out, log.date_in) as log_date'),
+                    'td.action_needed',
+                    'log.transaction_id',
+                ])
+                ->get();
+
+            foreach ($fwdLogs as $r) {
+                $m = (int) \Carbon\Carbon::parse($r->log_date)->format('n');
+                $act = trim((string)($r->action_needed ?? ''));
+                if (in_array(strtolower($act), ['to be forwarded to', 'for revision'], true)) {
+                    continue;
+                }
+                $matched = null;
+                foreach ($displayActionOptions as $opt) {
+                    if (strcasecmp($opt, $act) === 0) {
+                        $matched = $opt;
+                        break;
+                    }
+                }
+                $matched = $matched ?: ($displayActionOptions[0] ?? null);
+                if ($matched) {
+                    $forwardedMonthly[$m][$matched] = ($forwardedMonthly[$m][$matched] ?? 0) + 1;
+                }
+                $totalForwardedCount++;
+                if ($m === $currentMonthNum) {
+                    $thisMonthForwarded++;
+                }
+            }
+
+            // C. Completed
+            $compLogs = \DB::table("{$dtsLogsTable} as log")
+                ->join("{$dtsDetailsTable} as td", 'log.transaction_id', '=', 'td.id')
+                ->where('log.type', 'completed')
+                ->whereBetween(\DB::raw('COALESCE(log.date_out, log.date_in)'), [$startOfYear, $endOfYear])
+                ->select([
+                    \DB::raw('COALESCE(log.date_out, log.date_in) as log_date'),
+                    'td.action_needed',
+                    'log.transaction_id',
+                ])
+                ->get();
+
+            $seenCompleted = [];
+            foreach ($compLogs as $r) {
+                $m = (int) \Carbon\Carbon::parse($r->log_date)->format('n');
+                $act = trim((string)($r->action_needed ?? ''));
+                if (in_array(strtolower($act), ['to be forwarded to', 'for revision'], true)) {
+                    continue;
+                }
+                $matched = null;
+                foreach ($displayActionOptions as $opt) {
+                    if (strcasecmp($opt, $act) === 0) {
+                        $matched = $opt;
+                        break;
+                    }
+                }
+                $matched = $matched ?: ($displayActionOptions[0] ?? null);
+                if ($matched) {
+                    $completedMonthly[$m][$matched] = ($completedMonthly[$m][$matched] ?? 0) + 1;
+                }
+                $totalCompletedCount++;
+                $seenCompleted[$r->transaction_id] = true;
+                if ($m === $currentMonthNum) {
+                    $thisMonthCompleted++;
+                }
+            }
+
+            $compDetails = \DB::table($dtsDetailsTable)
+                ->where('status', 'completed')
+                ->whereBetween('date_created', [$startOfYear, $endOfYear])
+                ->select(['date_created as log_date', 'action_needed', 'id as transaction_id'])
+                ->get();
+
+            foreach ($compDetails as $r) {
+                if (isset($seenCompleted[$r->transaction_id])) {
+                    continue;
+                }
+                $m = (int) \Carbon\Carbon::parse($r->log_date)->format('n');
+                $act = trim((string)($r->action_needed ?? ''));
+                if (in_array(strtolower($act), ['to be forwarded to', 'for revision'], true)) {
+                    continue;
+                }
+                $matched = null;
+                foreach ($displayActionOptions as $opt) {
+                    if (strcasecmp($opt, $act) === 0) {
+                        $matched = $opt;
+                        break;
+                    }
+                }
+                $matched = $matched ?: ($displayActionOptions[0] ?? null);
+                if ($matched) {
+                    $completedMonthly[$m][$matched] = ($completedMonthly[$m][$matched] ?? 0) + 1;
+                }
+                $totalCompletedCount++;
+                if ($m === $currentMonthNum) {
+                    $thisMonthCompleted++;
+                }
+            }
+        }
+
+        $maxRec = 1;
+        $maxFwd = 1;
+        $maxComp = 1;
+        for ($m = 1; $m <= 12; $m++) {
+            foreach ($displayActionOptions as $opt) {
+                if (($receivedMonthly[$m][$opt] ?? 0) > $maxRec) $maxRec = $receivedMonthly[$m][$opt];
+                if (($forwardedMonthly[$m][$opt] ?? 0) > $maxFwd) $maxFwd = $forwardedMonthly[$m][$opt];
+                if (($completedMonthly[$m][$opt] ?? 0) > $maxComp) $maxComp = $completedMonthly[$m][$opt];
+            }
+        }
+        $maxReceivedVal = max(4, $maxRec);
+        $maxForwardedVal = max(4, $maxFwd);
+        $maxCompletedVal = max(4, $maxComp);
+
         return [
+            'currentYear' => $currentYear,
+            'monthLabels' => $monthLabels,
+            'displayActionOptions' => $displayActionOptions,
+            'actionOptionColors' => $actionOptionColors,
+            'receivedMonthly' => $receivedMonthly,
+            'forwardedMonthly' => $forwardedMonthly,
+            'completedMonthly' => $completedMonthly,
+            'maxReceivedVal' => $maxReceivedVal,
+            'maxForwardedVal' => $maxForwardedVal,
+            'maxCompletedVal' => $maxCompletedVal,
+            'totalReceivedCount' => $totalReceivedCount,
+            'totalForwardedCount' => $totalForwardedCount,
+            'totalCompletedCount' => $totalCompletedCount,
+            'thisMonthReceived' => $thisMonthReceived,
+            'thisMonthForwarded' => $thisMonthForwarded,
+            'thisMonthCompleted' => $thisMonthCompleted,
             'openErrorTickets' => $openErrorTickets,
             'criticalErrorTickets' => $criticalErrorTickets,
             'recentLoginsCount' => $recentLoginsCount,
@@ -505,183 +756,237 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Dashboard')] class exten
             <!-- Statistics & Graph Grid (Red boxes in mockup: 2x3 when shown, 3x2 when hidden) -->
             <div class="stats-grid" :class="showActivities ? 'cols-2' : 'cols-3'">
                 
-                <!-- Card 1: Recent Logins (Up on login, Down on logout, Straight if no changes, Real-time 1m poll) -->
+                <!-- Card 1: DTS Received Transactions (12-Month Grouped Bar Chart) -->
                 <div class="stat-card graph-card">
                     <div class="card-top">
                         <div class="stat-info">
-                            <span class="stat-label">Recent Logins</span>
-                            <span class="stat-value">{{ $recentLoginsCount }}</span>
+                            <span class="stat-label">DTS Received</span>
+                            <span class="stat-value">{{ number_format($totalReceivedCount) }}</span>
                         </div>
                         <div class="card-top-right">
-                            <div class="stat-icon-wrapper login-card-icon">
-                                <i class="fa-solid fa-arrow-right-to-bracket" style="font-size: 20px;"></i>
+                            <div class="stat-icon-wrapper dts-rec-card-icon">
+                                <i class="fa-solid fa-inbox" style="font-size: 20px;"></i>
                             </div>
-                            <span class="realtime-live-pill" title="Live telemetry updates every 5 seconds">
-                                <span class="pulse-dot-green"></span> 5s Live
-                            </span>
+                            <div class="telemetry-legend-pills">
+                                @foreach($displayActionOptions as $opt)
+                                    <span class="telemetry-chip" title="{{ $opt }}">
+                                        <i class="chip-dot" style="background: {{ $actionOptionColors[$opt] ?? '#0284c7' }}; width: 6px; height: 6px; border-radius: 50%; display: inline-block;"></i>
+                                        {{ Str::limit($opt, 14) }}
+                                    </span>
+                                @endforeach
+                            </div>
                         </div>
                     </div>
 
-                    <!-- Non-Stretched Session Ebb/Flow Line Graph -->
+                    <!-- 12-Month Grouped Bar Chart -->
                     <div class="chart-container">
                         @php
-                            $nPoints = count($loginPoints);
-                            $minL = min($loginPoints);
-                            $maxL = max($loginPoints);
-                            if ($maxL <= $minL) {
-                                $minL = max(0, $minL - 1);
-                                $maxL = $minL + 2;
-                            }
-                            if ($minL == 0 && $maxL == 1) {
-                                $maxL = 2; // Level 0: 70px (floor), Level 1: 41px (mid), Level 2: 12px (top)
-                            }
-                            $rangeL = max(1, $maxL - $minL);
-
-                            $svgW = 340;
-                            $svgH = 80;
-                            $stepX = $nPoints > 1 ? $svgW / ($nPoints - 1) : $svgW;
-
-                            $coords = [];
-                            foreach ($loginPoints as $idx => $lvl) {
-                                $px = round($idx * $stepX, 1);
-                                // Map to Y: 12px top to 70px baseline (58px usable range)
-                                $py = round(70 - ((($lvl - $minL) / $rangeL) * 58), 1);
-                                $coords[] = "{$px},{$py}";
-                            }
-                            $coordsStr = implode(' ', $coords);
-                            $firstCoord = $coords[0] ?? '0,70';
-                            $lastCoord = end($coords) ?: '{$svgW},70';
-                            $lastCoordsArr = explode(',', $lastCoord);
-                            $lastPx = $lastCoordsArr[0];
-                            $lastPy = $lastCoordsArr[1];
-                            $fillAreaStr = "M 0,{$svgH} L {$firstCoord} L {$coordsStr} L {$svgW},{$svgH} Z";
+                            $optCount = max(1, count($displayActionOptions));
+                            $barW = $optCount <= 2 ? 6 : ($optCount == 3 ? 4.2 : 3.2);
+                            $barGap = 1.0;
+                            $groupW = ($optCount * $barW) + (($optCount - 1) * $barGap);
+                            $axisGutter = 20;
+                            $usableW = 340 - $axisGutter - 6; // ~314px
+                            $slotW = $usableW / 12; // ~26.16px
+                            $maxV = $maxReceivedVal;
                         @endphp
-                        <svg class="graph-svg" viewBox="0 0 340 80" preserveAspectRatio="none">
-                            <defs>
-                                <linearGradient id="loginGrad" x1="0" y1="0" x2="0" y2="1">
-                                    <stop offset="0%" stop-color="#2563eb" stop-opacity="0.25"/>
-                                    <stop offset="100%" stop-color="#2563eb" stop-opacity="0.0"/>
-                                </linearGradient>
-                            </defs>
-                            <!-- Baseline and midpoint guide lines -->
-                            <line x1="0" y1="12" x2="340" y2="12" stroke="#f1f5f9" stroke-width="1" stroke-dasharray="3,3" />
-                            <line x1="0" y1="41" x2="340" y2="41" stroke="#f1f5f9" stroke-width="1" stroke-dasharray="3,3" />
-                            <line x1="0" y1="70" x2="340" y2="70" stroke="#f1f5f9" stroke-width="1" stroke-dasharray="3,3" />
+                        <svg class="graph-svg" viewBox="0 0 340 85" preserveAspectRatio="none">
+                            <!-- Guide lines -->
+                            <text x="2" y="14" fill="#94a3b8" font-size="7.5" font-weight="700">{{ $maxV }}</text>
+                            <line x1="{{ $axisGutter }}" y1="11" x2="338" y2="11" stroke="#e2e8f0" stroke-width="1" stroke-dasharray="3,3" />
 
-                            <!-- Gradient area & Line path (Straight horizontal segment when values don't change) -->
-                            <path d="{{ $fillAreaStr }}" fill="url(#loginGrad)" />
-                            <polyline fill="none" stroke="#2563eb" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" points="{{ $coordsStr }}" />
+                            <text x="2" y="40" fill="#94a3b8" font-size="7.5" font-weight="700">{{ round($maxV / 2) }}</text>
+                            <line x1="{{ $axisGutter }}" y1="37" x2="338" y2="37" stroke="#f1f5f9" stroke-width="1" stroke-dasharray="3,3" />
 
-                            <!-- End pulse marker indicating last event (Green if login, Amber if logout, Blue if steady) -->
-                            <circle cx="{{ $lastPx }}" cy="{{ $lastPy }}" r="4" 
-                                    fill="{{ $minuteChange > 0 ? '#16a34a' : ($minuteChange < 0 ? '#f59e0b' : '#2563eb') }}" 
-                                    stroke="#ffffff" stroke-width="2" />
+                            <text x="2" y="67" fill="#94a3b8" font-size="7.5" font-weight="700">0</text>
+                            <line x1="{{ $axisGutter }}" y1="65" x2="338" y2="65" stroke="#cbd5e1" stroke-width="1" />
+
+                            @for($m = 1; $m <= 12; $m++)
+                                @php
+                                    $slotCenter = $axisGutter + (($m - 1) * $slotW) + ($slotW / 2);
+                                    $startX = $slotCenter - ($groupW / 2);
+                                    $mLabel = $monthLabels[$m] ?? $m;
+                                @endphp
+                                @foreach($displayActionOptions as $oIdx => $opt)
+                                    @php
+                                        $val = $receivedMonthly[$m][$opt] ?? 0;
+                                        $barH = $maxV > 0 && $val > 0 ? max(2, round(($val / $maxV) * 52)) : 0;
+                                        $bx = round($startX + ($oIdx * ($barW + $barGap)), 1);
+                                        $by = 65 - $barH;
+                                        $color = $actionOptionColors[$opt] ?? '#0284c7';
+                                    @endphp
+                                    @if($barH > 0)
+                                        <rect x="{{ $bx }}" y="{{ $by }}" width="{{ $barW }}" height="{{ $barH }}" rx="1" fill="{{ $color }}">
+                                            <title>{{ $mLabel }} - {{ $opt }}: {{ $val }}</title>
+                                        </rect>
+                                    @endif
+                                @endforeach
+                                <text x="{{ $slotCenter }}" y="77" text-anchor="middle" font-size="7" font-weight="600" fill="#94a3b8">{{ $mLabel }}</text>
+                            @endfor
                         </svg>
                     </div>
 
                     <div class="card-bottom">
-                        @if($minuteChange > 0)
-                            <span class="trend-badge positive">
-                                <i class="fa-solid fa-arrow-up"></i> User In (+{{ $minuteChange }})
-                            </span>
-                        @elseif($minuteChange < 0)
-                            <span class="trend-badge warning">
-                                <i class="fa-solid fa-arrow-down"></i> User Out ({{ $minuteChange }})
-                            </span>
-                        @else
-                            <span class="trend-badge neutral">
-                                <i class="fa-solid fa-arrows-left-right"></i> No Changes (Steady)
-                            </span>
-                        @endif
-                        <span class="card-subtext">Live pulse • Net {{ $currentSessionLevel }} active</span>
+                        <span class="trend-badge positive">
+                            <i class="fa-solid fa-inbox"></i> {{ number_format($thisMonthReceived) }} This Month
+                        </span>
+                        <span class="card-subtext">{{ $currentYear }} &bull; {{ number_format($totalReceivedCount) }} Received</span>
                     </div>
                 </div>
 
-                <!-- Card 2: Active Users (Graph Box 2) -->
+                <!-- Card 2: DTS Forwarded Transactions (12-Month Grouped Bar Chart) -->
                 <div class="stat-card graph-card">
                     <div class="card-top">
                         <div class="stat-info">
-                            <span class="stat-label">Active Users</span>
-                            <span class="stat-value">{{ $activeUsers }}</span>
+                            <span class="stat-label">DTS Forwarded</span>
+                            <span class="stat-value">{{ number_format($totalForwardedCount) }}</span>
                         </div>
-                        <div class="stat-icon-wrapper active-card-icon">
-                            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 28 28" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
-                                <path d="M16 21v-2a4 4 0 0 0-4-4H4a4 4 0 0 0-4 4v2" />
-                                <circle cx="8" cy="7" r="4" />
-                                <polyline points="17 11 19 13 23 9" />
-                            </svg>
+                        <div class="card-top-right">
+                            <div class="stat-icon-wrapper dts-fwd-card-icon">
+                                <i class="fa-solid fa-paper-plane" style="font-size: 20px;"></i>
+                            </div>
+                            <div class="telemetry-legend-pills">
+                                @foreach($displayActionOptions as $opt)
+                                    <span class="telemetry-chip" title="{{ $opt }}">
+                                        <i class="chip-dot" style="background: {{ $actionOptionColors[$opt] ?? '#10b981' }}; width: 6px; height: 6px; border-radius: 50%; display: inline-block;"></i>
+                                        {{ Str::limit($opt, 14) }}
+                                    </span>
+                                @endforeach
+                            </div>
                         </div>
                     </div>
 
-                    <!-- Balanced Donut Gauge & Proportional Bar -->
-                    <div class="chart-container flex-chart">
-                        <div class="mini-gauge-wrapper">
-                            @php
-                                $circumference = 138.2; // 2 * pi * 22
-                                $offset = round($circumference * (1 - ($activeUserPercent / 100)), 1);
-                            @endphp
-                            <svg class="mini-gauge-svg" viewBox="0 0 52 52">
-                                <circle cx="26" cy="26" r="22" fill="none" stroke="#f1f5f9" stroke-width="5" />
-                                <circle cx="26" cy="26" r="22" fill="none" stroke="#16a34a" stroke-width="5"
-                                        stroke-dasharray="{{ $circumference }}"
-                                        stroke-dashoffset="{{ $offset }}"
-                                        stroke-linecap="round"
-                                        transform="rotate(-90 26 26)" />
-                                <text x="26" y="30" text-anchor="middle" font-size="11" font-weight="800" fill="#16a34a">{{ $activeUserPercent }}%</text>
-                            </svg>
+                    <!-- 12-Month Grouped Bar Chart -->
+                    <div class="chart-container">
+                        @php
+                            $optCount = max(1, count($displayActionOptions));
+                            $barW = $optCount <= 2 ? 6 : ($optCount == 3 ? 4.2 : 3.2);
+                            $barGap = 1.0;
+                            $groupW = ($optCount * $barW) + (($optCount - 1) * $barGap);
+                            $axisGutter = 20;
+                            $usableW = 340 - $axisGutter - 6;
+                            $slotW = $usableW / 12;
+                            $maxV = $maxForwardedVal;
+                        @endphp
+                        <svg class="graph-svg" viewBox="0 0 340 85" preserveAspectRatio="none">
+                            <!-- Guide lines -->
+                            <text x="2" y="14" fill="#94a3b8" font-size="7.5" font-weight="700">{{ $maxV }}</text>
+                            <line x1="{{ $axisGutter }}" y1="11" x2="338" y2="11" stroke="#e2e8f0" stroke-width="1" stroke-dasharray="3,3" />
+
+                            <text x="2" y="40" fill="#94a3b8" font-size="7.5" font-weight="700">{{ round($maxV / 2) }}</text>
+                            <line x1="{{ $axisGutter }}" y1="37" x2="338" y2="37" stroke="#f1f5f9" stroke-width="1" stroke-dasharray="3,3" />
+
+                            <text x="2" y="67" fill="#94a3b8" font-size="7.5" font-weight="700">0</text>
+                            <line x1="{{ $axisGutter }}" y1="65" x2="338" y2="65" stroke="#cbd5e1" stroke-width="1" />
+
+                            @for($m = 1; $m <= 12; $m++)
+                                @php
+                                    $slotCenter = $axisGutter + (($m - 1) * $slotW) + ($slotW / 2);
+                                    $startX = $slotCenter - ($groupW / 2);
+                                    $mLabel = $monthLabels[$m] ?? $m;
+                                @endphp
+                                @foreach($displayActionOptions as $oIdx => $opt)
+                                    @php
+                                        $val = $forwardedMonthly[$m][$opt] ?? 0;
+                                        $barH = $maxV > 0 && $val > 0 ? max(2, round(($val / $maxV) * 52)) : 0;
+                                        $bx = round($startX + ($oIdx * ($barW + $barGap)), 1);
+                                        $by = 65 - $barH;
+                                        $color = $actionOptionColors[$opt] ?? '#10b981';
+                                    @endphp
+                                    @if($barH > 0)
+                                        <rect x="{{ $bx }}" y="{{ $by }}" width="{{ $barW }}" height="{{ $barH }}" rx="1" fill="{{ $color }}">
+                                            <title>{{ $mLabel }} - {{ $opt }}: {{ $val }}</title>
+                                        </rect>
+                                    @endif
+                                @endforeach
+                                <text x="{{ $slotCenter }}" y="77" text-anchor="middle" font-size="7" font-weight="600" fill="#94a3b8">{{ $mLabel }}</text>
+                            @endfor
+                        </svg>
+                    </div>
+
+                    <div class="card-bottom">
+                        <span class="trend-badge info" style="background: #eff6ff; color: #1d4ed8;">
+                            <i class="fa-solid fa-paper-plane"></i> {{ number_format($thisMonthForwarded) }} This Month
+                        </span>
+                        <span class="card-subtext">{{ $currentYear }} &bull; {{ number_format($totalForwardedCount) }} Forwarded</span>
+                    </div>
+                </div>
+
+                <!-- Card 3: DTS Completed Transactions (12-Month Grouped Bar Chart) -->
+                <div class="stat-card graph-card">
+                    <div class="card-top">
+                        <div class="stat-info">
+                            <span class="stat-label">DTS Completed</span>
+                            <span class="stat-value">{{ number_format($totalCompletedCount) }}</span>
                         </div>
-                        <div class="gauge-breakdown">
-                            <div class="breakdown-item">
-                                <span class="breakdown-dot active"></span>
-                                <span class="breakdown-text">Active: <strong>{{ $activeUsers }}</strong> accounts</span>
+                        <div class="card-top-right">
+                            <div class="stat-icon-wrapper dts-comp-card-icon">
+                                <i class="fa-solid fa-circle-check" style="font-size: 20px;"></i>
                             </div>
-                            <div class="breakdown-item">
-                                <span class="breakdown-dot inactive"></span>
-                                <span class="breakdown-text">Inactive: <strong>{{ $inactiveUsers }}</strong> accounts</span>
-                            </div>
-                            <div class="mini-progress-track">
-                                <div class="mini-progress-fill" style="width: {{ $activeUserPercent }}%;"></div>
+                            <div class="telemetry-legend-pills">
+                                @foreach($displayActionOptions as $opt)
+                                    <span class="telemetry-chip" title="{{ $opt }}">
+                                        <i class="chip-dot" style="background: {{ $actionOptionColors[$opt] ?? '#7c3aed' }}; width: 6px; height: 6px; border-radius: 50%; display: inline-block;"></i>
+                                        {{ Str::limit($opt, 14) }}
+                                    </span>
+                                @endforeach
                             </div>
                         </div>
+                    </div>
+
+                    <!-- 12-Month Grouped Bar Chart -->
+                    <div class="chart-container">
+                        @php
+                            $optCount = max(1, count($displayActionOptions));
+                            $barW = $optCount <= 2 ? 6 : ($optCount == 3 ? 4.2 : 3.2);
+                            $barGap = 1.0;
+                            $groupW = ($optCount * $barW) + (($optCount - 1) * $barGap);
+                            $axisGutter = 20;
+                            $usableW = 340 - $axisGutter - 6;
+                            $slotW = $usableW / 12;
+                            $maxV = $maxCompletedVal;
+                        @endphp
+                        <svg class="graph-svg" viewBox="0 0 340 85" preserveAspectRatio="none">
+                            <!-- Guide lines -->
+                            <text x="2" y="14" fill="#94a3b8" font-size="7.5" font-weight="700">{{ $maxV }}</text>
+                            <line x1="{{ $axisGutter }}" y1="11" x2="338" y2="11" stroke="#e2e8f0" stroke-width="1" stroke-dasharray="3,3" />
+
+                            <text x="2" y="40" fill="#94a3b8" font-size="7.5" font-weight="700">{{ round($maxV / 2) }}</text>
+                            <line x1="{{ $axisGutter }}" y1="37" x2="338" y2="37" stroke="#f1f5f9" stroke-width="1" stroke-dasharray="3,3" />
+
+                            <text x="2" y="67" fill="#94a3b8" font-size="7.5" font-weight="700">0</text>
+                            <line x1="{{ $axisGutter }}" y1="65" x2="338" y2="65" stroke="#cbd5e1" stroke-width="1" />
+
+                            @for($m = 1; $m <= 12; $m++)
+                                @php
+                                    $slotCenter = $axisGutter + (($m - 1) * $slotW) + ($slotW / 2);
+                                    $startX = $slotCenter - ($groupW / 2);
+                                    $mLabel = $monthLabels[$m] ?? $m;
+                                @endphp
+                                @foreach($displayActionOptions as $oIdx => $opt)
+                                    @php
+                                        $val = $completedMonthly[$m][$opt] ?? 0;
+                                        $barH = $maxV > 0 && $val > 0 ? max(2, round(($val / $maxV) * 52)) : 0;
+                                        $bx = round($startX + ($oIdx * ($barW + $barGap)), 1);
+                                        $by = 65 - $barH;
+                                        $color = $actionOptionColors[$opt] ?? '#7c3aed';
+                                    @endphp
+                                    @if($barH > 0)
+                                        <rect x="{{ $bx }}" y="{{ $by }}" width="{{ $barW }}" height="{{ $barH }}" rx="1" fill="{{ $color }}">
+                                            <title>{{ $mLabel }} - {{ $opt }}: {{ $val }}</title>
+                                        </rect>
+                                    @endif
+                                @endforeach
+                                <text x="{{ $slotCenter }}" y="77" text-anchor="middle" font-size="7" font-weight="600" fill="#94a3b8">{{ $mLabel }}</text>
+                            @endfor
+                        </svg>
                     </div>
 
                     <div class="card-bottom">
                         <span class="trend-badge positive">
-                            <i class="fa-solid fa-check"></i> {{ $activeUserPercent }}% Healthy
+                            <i class="fa-solid fa-circle-check"></i> {{ number_format($thisMonthCompleted) }} This Month
                         </span>
-                        <span class="card-subtext">Active authorization</span>
-                    </div>
-                </div>
-
-                <!-- Card 3: Subsystems Status (Graph Box 3) -->
-                <div class="stat-card graph-card">
-                    <div class="card-top">
-                        <div class="stat-info">
-                            <span class="stat-label">Subsystems</span>
-                            <span class="stat-value">{{ $activeSubsystems }} <span class="stat-total-label">/ {{ $totalSubsystems }}</span></span>
-                        </div>
-                        <div class="stat-icon-wrapper subsystems-card-icon">
-                            <i class="fa-solid fa-server" style="font-size: 22px;"></i>
-                        </div>
-                    </div>
-
-                    <!-- Clean Modular Subsystem Grid (Non-stretched) -->
-                    <div class="chart-container">
-                        <div class="subsystems-modular-grid">
-                            @foreach($coreSubsystemLabels as $sub)
-                                <div class="subsystem-pill-col" title="{{ $sub['name'] }}: {{ $sub['active'] ? 'Online' : 'Standby' }}">
-                                    <span class="sub-code">{{ $sub['code'] }}</span>
-                                    <div class="sub-indicator {{ $sub['active'] ? 'online' : 'standby' }}"></div>
-                                </div>
-                            @endforeach
-                        </div>
-                    </div>
-
-                    <div class="card-bottom">
-                        <span class="trend-badge {{ $activeSubsystems >= $totalSubsystems ? 'positive' : 'warning' }}">
-                            <i class="fa-solid fa-shield"></i> {{ $activeSubsystems >= $totalSubsystems ? '100% Online' : 'Check Standby' }}
-                        </span>
-                        <span class="card-subtext">Service telemetry</span>
+                        <span class="card-subtext">{{ $currentYear }} &bull; {{ number_format($totalCompletedCount) }} Completed</span>
                     </div>
                 </div>
 

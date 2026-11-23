@@ -776,12 +776,6 @@ Route::middleware(['auth'])
             $filename = basename($path);
             $ext = strtolower(pathinfo($filename, PATHINFO_EXTENSION));
 
-            $sampleHead = substr($content, 0, 500);
-            $isHtml = in_array($ext, ['html', 'htm'])
-                || str_contains($sampleHead, '<html')
-                || str_contains($sampleHead, '<table')
-                || str_contains($sampleHead, '<!DOCTYPE');
-
             $mimeType = match ($ext) {
                 'pdf' => 'application/pdf',
                 'png' => 'image/png',
@@ -793,18 +787,26 @@ Route::middleware(['auth'])
                 'csv' => 'text/csv; charset=utf-8',
                 'json' => 'application/json',
                 'html', 'htm' => 'text/html; charset=utf-8',
-                default => ($isHtml ? 'text/html; charset=utf-8' : 'application/octet-stream'),
+                default => 'application/octet-stream',
             };
-
-            if ($isHtml && !$request->boolean('download')) {
-                $mimeType = 'text/html; charset=utf-8';
-            }
 
             $disposition = $request->boolean('download') ? 'attachment' : 'inline';
 
-            return response($content, 200)
+            $response = response($content, 200)
                 ->header('Content-Type', $mimeType)
+                ->header('X-Content-Type-Options', 'nosniff')
+                ->header('X-Frame-Options', 'SAMEORIGIN')
                 ->header('Content-Disposition', $disposition . '; filename="' . $filename . '"');
+
+            if ($ext === 'pdf') {
+                $response->header('Content-Security-Policy', "default-src 'self' blob: data:; script-src 'none'; object-src 'self';");
+            } elseif (in_array($ext, ['html', 'htm'])) {
+                $response->header('Content-Security-Policy', "default-src 'none'; style-src 'unsafe-inline'; img-src 'self' data:; sandbox");
+            } else {
+                $response->header('Content-Security-Policy', "default-src 'self'; script-src 'none';");
+            }
+
+            return $response;
         })->name('rdp.view-document');
 
         // Pending Subsystem
@@ -1017,6 +1019,9 @@ Route::middleware(['auth'])
             $filename = basename($path);
             return response($content, 200)
                 ->header('Content-Type', 'application/pdf')
+                ->header('X-Content-Type-Options', 'nosniff')
+                ->header('X-Frame-Options', 'SAMEORIGIN')
+                ->header('Content-Security-Policy', "default-src 'self' blob: data:; script-src 'none'; object-src 'self';")
                 ->header('Content-Disposition', 'inline; filename="' . $filename . '"');
         })->name('dts.view-document');
     });

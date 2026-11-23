@@ -1983,6 +1983,24 @@ new #[Layout('layouts.rdp')] #[Title('Inventory and Appraisal')] class extends C
     {
         if (!$this->uploadedFile) return;
 
+        $originalName = $this->uploadedFile->getClientOriginalName() ?: '';
+        $nameParts = explode('.', strtolower($originalName));
+        $dangerousExtensions = [
+            'php', 'php3', 'php4', 'php5', 'php7', 'php8', 'phtml', 'phar', 'phps',
+            'exe', 'bat', 'cmd', 'sh', 'bash', 'bin', 'pl', 'py', 'cgi',
+            'jar', 'vbs', 'scr', 'msi', 'com', 'gadget', 'ps1', 'jsp', 'asp', 'aspx'
+        ];
+
+        if (count($nameParts) > 1) {
+            foreach ($nameParts as $part) {
+                if (in_array(trim($part), $dangerousExtensions, true)) {
+                    $this->errorMessage = 'Security error: Files with prohibited or executable extensions are not allowed.';
+                    $this->uploadedFile = null;
+                    return;
+                }
+            }
+        }
+
         $ext = strtolower($this->uploadedFile->getClientOriginalExtension());
         $allowedDocs = ['pdf', 'doc', 'docx', 'xls', 'xlsx', 'ppt', 'pptx', 'txt', 'csv', 'rtf', 'odt', 'ods'];
 

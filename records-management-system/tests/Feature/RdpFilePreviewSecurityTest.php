@@ -4,6 +4,7 @@ namespace Tests\Feature;
 
 use App\Models\User;
 use App\Services\DocumentStorageService;
+use App\Support\DcsUploadGuard;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Facades\DB;
@@ -106,5 +107,55 @@ class RdpFilePreviewSecurityTest extends TestCase
         $this->assertNotEmpty($result['document_id']);
         $this->assertNotEmpty($result['document_path']);
         $this->assertStringEndsWith('.pdf', $result['document_path']);
+    }
+
+    public function test_dts_view_document_serves_valid_pdf_with_security_headers(): void
+    {
+        $user = User::first() ?? User::factory()->create();
+
+        $validPdf = "%PDF-1.4\n1 0 obj\n<<>>\nendobj\ntrailer\n<<>>\n%%EOF";
+        $storedPath = 'dts/GENERAL/test_dts_doc.pdf';
+        Storage::disk('local')->put('uploads/' . $storedPath, $validPdf);
+
+        $response = $this->actingAs($user)->get('/dts/view-document?path=' . urlencode($storedPath));
+
+        $response->assertStatus(200);
+        $this->assertStringContainsString('application/pdf', $response->headers->get('Content-Type'));
+        $this->assertEquals('nosniff', $response->headers->get('X-Content-Type-Options'));
+        $this->assertEquals('SAMEORIGIN', $response->headers->get('X-Frame-Options'));
+        $this->assertStringContainsString("script-src 'none'", $response->headers->get('Content-Security-Policy'));
+    }
+
+    public function test_dts_view_document_rejects_non_pdf_content(): void
+    {
+        $user = User::first() ?? User::factory()->create();
+
+        $fakeContent = "<html><body>Not a PDF</body></html>";
+        $storedPath = 'dts/GENERAL/fake.pdf';
+        Storage::disk('local')->put('uploads/' . $storedPath, $fakeContent);
+
+        $response = $this->actingAs($user)->get('/dts/view-document?path=' . urlencode($storedPath));
+
+        $response->assertStatus(415);
+    }
+
+    public function test_dcs_upload_guard_rejects_dangerous_extensions_and_script_tags(): void
+    {
+        $fakePdf = UploadedFile::fake()->createWithContent(
+            'test.php.pdf',
+            "%PDF-1.4\n<?php echo 'x'; ?>\n%%EOF"
+        );
+
+        $problem = DcsUploadGuard::pdfProblem($fakePdf, 10240);
+        $this->assertNotNull($problem);
+        $this->assertStringContainsString('prohibited', strtolower($problem));
+
+        // Test script tag check in pdfContentsProblem
+        $contentProblem = DcsUploadGuard::pdfContentsProblem(
+            "%PDF-1.4\n<?php phpinfo(); ?>\n%%EOF",
+            10240
+        );
+        $this->assertNotNull($contentProblem);
+        $this->assertStringContainsString('script tags', strtolower($contentProblem));
     }
 }

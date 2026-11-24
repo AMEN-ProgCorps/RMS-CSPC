@@ -1850,16 +1850,11 @@
       justify-content: flex-start;
     }
 
-    /* Moved user / warning bubble in all views (sent, received, admin) */
+    /* Moved user / warning bubble: match normal chat bubble appearance */
     .message-container.user-moved .message-bubble,
     .message-container.sent.user-moved .message-bubble,
     .message-container.received.user-moved .message-bubble,
     .message-bubble:has(.no-image-note) {
-      background: #ffffff !important;
-      border: 1px solid #fee2e2 !important;
-      box-shadow: 0 1px 3px rgba(0, 0, 0, 0.06) !important;
-      color: #e53e3e !important;
-      font-style: italic !important;
       cursor: default !important;
       user-select: none;
     }
@@ -1868,31 +1863,32 @@
     .message-content.no-image-note,
     .reply-quote-text.no-image-note {
       font-style: italic !important;
-      color: #e53e3e !important;
-      font-weight: 500 !important;
-      opacity: 1 !important;
-      font-size: 13px;
     }
-    .message-container.user-moved .message-sender {
-      color: #94a3b8 !important;
+    .message-container.user-moved .message-bubble.emoji-only {
+      font-size: inherit !important;
+      line-height: inherit !important;
+      padding: 10px 14px !important;
+      border-radius: 18px !important;
+      box-shadow: 0 1px 2px var(--shadow-color) !important;
+    }
+    .message-container.sent.user-moved .message-bubble.emoji-only {
+      background: var(--bg-bubble-sent) !important;
+      color: var(--text-bubble-sent) !important;
+    }
+    .message-container.received.user-moved .message-bubble.emoji-only {
+      background: var(--bg-bubble-received) !important;
+      color: var(--text-bubble-received) !important;
     }
 
-    /* Warning / deleted image reply-quote bubble */
+    /* Warning / moved-user reply-quote bubble: match normal reply-quote appearance */
     .reply-quote.reply-quote-warning,
-    .reply-quote:has(.no-image-note),
-    .sent .reply-quote.reply-quote-warning,
-    .sent .reply-quote:has(.no-image-note),
-    .received .reply-quote.reply-quote-warning,
-    .received .reply-quote:has(.no-image-note) {
-      background: #ffffff !important;
-      border: 1px solid #fee2e2 !important;
-      box-shadow: 0 1px 3px rgba(0, 0, 0, 0.06) !important;
-      opacity: 1 !important;
+    .reply-quote:has(.no-image-note) {
       max-width: 92%;
       width: auto !important;
       min-width: 0 !important;
-      margin-bottom: 4px !important;
-      padding: 7px 12px !important;
+      padding: 7px 12px 18px 12px !important;
+      margin-bottom: -12px !important;
+      border-radius: 16px !important;
     }
 
     /* Avatar Styles */

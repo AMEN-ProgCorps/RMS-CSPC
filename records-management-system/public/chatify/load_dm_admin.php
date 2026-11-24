@@ -210,7 +210,7 @@ function adminBuildReplyQuoteHtml(?string $encryptedReplyMessage, string $replyT
 
     if (!empty($replySenderStatus)) {
         $noticeText = is_string($replySenderStatus) ? $replySenderStatus : 'This user has been moved to other office';
-        return "<div class='reply-quote reply-quote-warning'{$replyToAttr}><div class='reply-quote-text no-image-note' style='font-style:italic;color:#e53e3e !important;font-weight:500;'>{$noticeText}</div></div>";
+        return "<div class='reply-quote reply-quote-warning'{$replyToAttr}><div class='reply-quote-text no-image-note'>{$noticeText}</div></div>";
     }
 
     if ($replyType === 'upload') {
@@ -343,7 +343,7 @@ for ($i = 0; $i < $msgCount; $i++) {
             : (($senderOfficeId <= 0) ? 'No office assigned for this user' : 'This user has been moved to other office');
         $bodyHtml .= $replyQuoteHtml;
         $bodyHtml .= "<div class='message-bubble'>";
-        $bodyHtml .= "<div class='message-content no-image-note' style='font-style:italic;color:#e53e3e !important;font-weight:500;'>{$noticeText}</div>";
+        $bodyHtml .= "<div class='message-content no-image-note'>{$noticeText}</div>";
         $bodyHtml .= "<div class='message-info'><span class='message-sender'>{$senderLabel}</span></div>";
         $bodyHtml .= "</div>";
     } elseif ($type === 'text') {

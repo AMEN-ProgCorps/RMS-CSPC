@@ -171,7 +171,7 @@ function gcBuildReplyQuoteHtml(?string $encryptedReplyMessage, string $replyType
 
     if (!empty($replySenderStatus)) {
         $noticeText = is_string($replySenderStatus) ? $replySenderStatus : 'This user has been moved to other office';
-        return "<div class='reply-quote reply-quote-warning'{$replyToAttr}><div class='reply-quote-text no-image-note' style='font-style:italic;color:#e53e3e !important;font-weight:500;'>{$noticeText}</div></div>";
+        return "<div class='reply-quote reply-quote-warning'{$replyToAttr}><div class='reply-quote-text no-image-note'>{$noticeText}</div></div>";
     }
 
     if ($replyType === 'upload') {
@@ -421,7 +421,7 @@ for ($i = 0; $i < $msgCount; $i++) {
         $html .= "<div class='message-click-timestamp'>{$fullTimeDisplay}</div>";
         $html .= $replyQuoteHtml;
         $html .= "<div class='message-bubble'>";
-        $html .= "<div class='message-content no-image-note' style='font-style:italic;color:#e53e3e !important;font-weight:500;'>{$noticeText}</div>";
+        $html .= "<div class='message-content no-image-note'>{$noticeText}</div>";
         $html .= "<div class='message-info'><span class='message-sender'>{$senderLabel}{$adminBadge}</span></div>";
         $html .= "</div>"; // .message-bubble
         $html .= Reactions::buildBadgesHtml($reactions[$msgId] ?? [], $myAccountId);

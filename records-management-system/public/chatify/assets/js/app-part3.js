@@ -1932,7 +1932,7 @@
     function isWarningContainer(container) {
       if (!container) return false;
       if (container.classList.contains('user-moved')) return true;
-      if (container.querySelector('.message-bubble > .no-image-note, .message-bubble .message-content.no-image-note, .no-image-note')) return true;
+      if (container.querySelector('.message-bubble > .no-image-note, .message-bubble .message-content.no-image-note, .message-bubble .no-image-note')) return true;
       if (container.querySelector('.chat-image-lazy-load, .chat-image-broken')) return true;
       return false;
     }
@@ -1942,7 +1942,19 @@
       if (isAdminAllChatsView || activeAdminConv) return false;
       if (container.hasAttribute('data-sending-uid') || container.hasAttribute('data-upload-uid')) return false;
       if (container.classList.contains('user-moved')) return false;
-      if (container.querySelector('.message-bubble > .no-image-note, .message-bubble .message-content.no-image-note, .no-image-note')) return false;
+      if (container.querySelector('.message-bubble > .no-image-note, .message-bubble .message-content.no-image-note, .message-bubble .no-image-note')) return false;
+
+      const mc = container.querySelector('.message-bubble .message-content');
+      if (mc) {
+        const txt = (mc.textContent || '').trim();
+        if (
+          txt === 'This user has been moved to other office' ||
+          txt === 'No office assigned for this user' ||
+          txt === 'This user has been removed from the group'
+        ) {
+          return false;
+        }
+      }
 
       // Disallow replying to unloaded images ("Load image") and unavailable images (broken image placeholder)
       if (container.querySelector('.chat-image-lazy-load, .chat-image-broken')) return false;
@@ -3417,6 +3429,12 @@
       scope.querySelectorAll('.message-bubble').forEach(function(bubble) {
         const contentEl = bubble.querySelector('.message-content');
         if (!contentEl) return;
+        if (bubble.closest('.message-container.user-moved') || contentEl.classList.contains('no-image-note')) {
+          bubble.classList.remove('emoji-only');
+          contentEl.dataset.emojiChecked = '1';
+          contentEl.dataset.readmoreChecked = '1';
+          return;
+        }
         if (contentEl.dataset.emojiChecked === '1' && contentEl.dataset.readmoreChecked === '1') {
           if (typeof window.renderEmojiMartInElement === 'function' && contentEl.dataset.emRendered !== '1') {
             window.renderEmojiMartInElement(contentEl);

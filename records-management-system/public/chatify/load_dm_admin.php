@@ -209,8 +209,8 @@ function adminBuildReplyQuoteHtml(?string $encryptedReplyMessage, string $replyT
     $replyToAttr = $replyToUuid ? " data-reply-to='" . htmlspecialchars($replyToUuid, ENT_QUOTES) . "'" : '';
 
     if (!empty($replySenderStatus)) {
-        $noticeText = is_string($replySenderStatus) ? $replySenderStatus : 'This user has been moved to other office';
-        return "<div class='reply-quote reply-quote-warning'{$replyToAttr}><div class='reply-quote-text no-image-note' style='font-style:italic;color:#e53e3e !important;font-weight:500;'>{$noticeText}</div></div>";
+        $noticeText = is_string($replySenderStatus) ? $replySenderStatus : 'This user has been moved to another office';
+        return "<div class='reply-quote reply-quote-warning'{$replyToAttr}><div class='reply-quote-text no-image-note'>{$noticeText}</div></div>";
     }
 
     if ($replyType === 'upload') {
@@ -326,7 +326,7 @@ for ($i = 0; $i < $msgCount; $i++) {
                 $rSenderOfficeId = $userOfficeId;
             }
             if ($rSenderOfficeId !== $targetOfficeId) {
-                $replySenderStatus = ($rSenderOfficeId <= 0) ? 'No office assigned for this user' : 'This user has been moved to other office';
+                $replySenderStatus = ($rSenderOfficeId <= 0) ? 'This user has no assigned office' : 'This user has been moved to another office';
             }
         } elseif ($isCustomGc && !empty($msg['reply_sender_id']) && !empty($customGcMemberIds)) {
             $rSenderId = (int) $msg['reply_sender_id'];
@@ -340,10 +340,10 @@ for ($i = 0; $i < $msgCount; $i++) {
     if ($isUserMoved || $isUserRemovedFromGc) {
         $noticeText = $isUserRemovedFromGc
             ? 'This user has been removed from the group'
-            : (($senderOfficeId <= 0) ? 'No office assigned for this user' : 'This user has been moved to other office');
+            : (($senderOfficeId <= 0) ? 'This user has no assigned office' : 'This user has been moved to another office');
         $bodyHtml .= $replyQuoteHtml;
         $bodyHtml .= "<div class='message-bubble'>";
-        $bodyHtml .= "<div class='message-content no-image-note' style='font-style:italic;color:#e53e3e !important;font-weight:500;'>{$noticeText}</div>";
+        $bodyHtml .= "<div class='message-content no-image-note'>{$noticeText}</div>";
         $bodyHtml .= "<div class='message-info'><span class='message-sender'>{$senderLabel}</span></div>";
         $bodyHtml .= "</div>";
     } elseif ($type === 'text') {

@@ -1850,13 +1850,25 @@
       justify-content: flex-start;
     }
 
-    /* Moved user / warning bubble: match normal chat bubble appearance */
+    /* Moved user / warning bubble: normal bubble colors with subtle dashed trace */
     .message-container.user-moved .message-bubble,
     .message-container.sent.user-moved .message-bubble,
     .message-container.received.user-moved .message-bubble,
     .message-bubble:has(.no-image-note) {
       cursor: default !important;
       user-select: none;
+    }
+    .message-container.received.user-moved .message-bubble,
+    .received .message-bubble:has(.no-image-note) {
+      border: 1.5px dashed rgba(100, 116, 139, 0.45) !important;
+    }
+    .message-container.sent.user-moved .message-bubble,
+    .sent .message-bubble:has(.no-image-note) {
+      border: 1.5px dashed rgba(255, 255, 255, 0.55) !important;
+    }
+    [data-theme="dark"] .message-container.received.user-moved .message-bubble,
+    [data-theme="dark"] .received .message-bubble:has(.no-image-note) {
+      border: 1.5px dashed rgba(148, 163, 184, 0.42) !important;
     }
     .message-container.user-moved .message-content,
     .message-container.user-moved .message-content.no-image-note,
@@ -1880,7 +1892,7 @@
       color: var(--text-bubble-received) !important;
     }
 
-    /* Warning / moved-user reply-quote bubble: match normal reply-quote appearance */
+    /* Warning / moved-user reply-quote bubble: normal reply-quote with subtle dashed trace */
     .reply-quote.reply-quote-warning,
     .reply-quote:has(.no-image-note) {
       max-width: 92%;
@@ -1889,6 +1901,15 @@
       padding: 7px 12px 18px 12px !important;
       margin-bottom: -12px !important;
       border-radius: 16px !important;
+      border: 1.5px dashed rgba(100, 116, 139, 0.45) !important;
+    }
+    .sent .reply-quote.reply-quote-warning,
+    .sent .reply-quote:has(.no-image-note) {
+      border: 1.5px dashed rgba(255, 255, 255, 0.55) !important;
+    }
+    [data-theme="dark"] .received .reply-quote.reply-quote-warning,
+    [data-theme="dark"] .received .reply-quote:has(.no-image-note) {
+      border: 1.5px dashed rgba(148, 163, 184, 0.42) !important;
     }
 
     /* Avatar Styles */

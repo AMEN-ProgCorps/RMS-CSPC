@@ -403,6 +403,7 @@ new class extends Component {
     }"
     @click.outside="open = false"
     @close-urgent-notices.window="open = false"
+    @keydown.escape.window="open = false"
     @rms-urgent-alert-ping.window="playUrgentPing()"
 >
     <!-- Notice/Urgent Button -->
@@ -468,7 +469,7 @@ new class extends Component {
                         <p class="notif-message">
                             <strong>{{ $item['control_number'] }}</strong> — {{ $item['subject'] }}
                         </p>
-                        <div style="display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-top: 4px;">
+                        <div style="display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-top: 4px; flex-wrap: wrap;">
                             <span class="notif-time" style="margin-top: 0; font-weight: 700; color: {{ $dotColor }};">
                                 {{ $item['urgency_label'] }} ({{ $item['elapsed_formatted'] }})
                             </span>

@@ -162,13 +162,13 @@ body.manual-widget-open .guide-container {
 /* Dropdown Menu */
 .notif-dropdown {
     position: absolute;
-    top: 35px; /* Adjusted to sit cleanly below the 30px height bell button */
-    right: -60px; /* Centered relative to the bell button */
-    width: 420px;
+    top: 38px; /* Adjusted to sit cleanly below the 30px height bell button */
+    right: -25px; /* Centered cleanly beneath the notification cluster */
+    width: 410px;
     max-width: calc(100vw - 24px);
     background-color: #ffffff;
-    border-radius: 12px;
-    box-shadow: 0 10px 25px -5px rgba(0, 0, 0, 0.1), 0 8px 10px -6px rgba(0, 0, 0, 0.1);
+    border-radius: 14px;
+    box-shadow: 0 10px 25px -5px rgba(0, 0, 0, 0.1), 0 8px 10px -6px rgba(0, 0, 0, 0.08);
     border: 1px solid #e5e7eb;
     z-index: 100;
     display: flex;
@@ -212,6 +212,12 @@ body.manual-widget-open .guide-container {
     border-bottom: 1px solid #f3f4f6;
     background: #ffffff;
     overflow-x: auto;
+    scrollbar-width: none;
+    -ms-overflow-style: none;
+}
+
+.notif-subsystem-tabs::-webkit-scrollbar {
+    display: none;
 }
 
 .notif-subsystem-tab {
@@ -229,6 +235,7 @@ body.manual-widget-open .guide-container {
     align-items: center;
     gap: 5px;
     white-space: nowrap;
+    flex-shrink: 0;
     transition: background 0.15s ease, color 0.15s ease, border-color 0.15s ease;
 }
 
@@ -328,9 +335,12 @@ body.manual-widget-open .guide-container {
 }
 
 .notif-dropdown-body {
+    min-height: 130px;
     max-height: 380px;
     overflow-y: auto;
+    overflow-x: hidden;
     background-color: #ffffff;
+    overscroll-behavior: contain;
 }
 
 /* Custom Scrollbar for Dropdown Body */
@@ -459,14 +469,19 @@ body.manual-widget-open .guide-container {
     right: 0;
     background-color: #ffffff;
     border: 1px solid #e5e7eb;
-    border-radius: 6px;
-    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
-    z-index: 110;
+    border-radius: 8px;
+    box-shadow: 0 10px 25px -5px rgba(0, 0, 0, 0.12), 0 8px 10px -6px rgba(0, 0, 0, 0.08);
+    z-index: 120;
     display: flex;
     flex-direction: column;
-    width: 120px;
-    padding: 4px 0;
+    width: 130px;
+    padding: 5px;
     animation: menu_appear 0.15s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+}
+
+.notif-item:last-child:not(:only-child) .notif-actions-menu {
+    top: auto;
+    bottom: 4px;
 }
 
 @keyframes menu_appear {
@@ -484,14 +499,20 @@ body.manual-widget-open .guide-container {
     background: transparent;
     border: none;
     cursor: pointer;
-    padding: 8px 12px;
+    padding: 7px 10px;
     text-align: left;
     font-family: 'Inter', sans-serif;
     font-size: 12px;
+    font-weight: 500;
     color: #374151;
-    transition: background-color 0.2s ease, color 0.2s ease;
+    border-radius: 6px;
+    transition: background-color 0.15s ease, color 0.15s ease;
     width: 100%;
     outline: none;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    box-sizing: border-box;
 }
 
 .notif-action-item:hover {

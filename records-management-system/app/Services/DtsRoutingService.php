@@ -11,6 +11,53 @@ use Illuminate\Support\Str;
 
 class DtsRoutingService
 {
+    public const BUILT_IN_ACTION_OPTIONS = [
+        'For Approval',
+        'For Endorsement',
+        'For Recommendation',
+        'For Revision',
+        'For Signature',
+        'To be Forwarded to',
+    ];
+
+    /**
+     * Get action options query builder ordered with system built-in options first, followed by custom user/admin options.
+     *
+     * @param bool|null $canForward Clearance to include "To be Forwarded to"; defaults to checking auth user.
+     * @return \Illuminate\Database\Query\Builder
+     */
+    public static function getActionOptionsQuery(?bool $canForward = null)
+    {
+        $canForward = $canForward ?? self::canForwardToOtherOffice();
+
+        $query = DB::table('dts_action_options');
+        if (!$canForward) {
+            $query->where('option_name', '!=', 'To be Forwarded to');
+        }
+
+        $builtIns = self::BUILT_IN_ACTION_OPTIONS;
+        $inList = "'" . implode("','", array_map('addslashes', $builtIns)) . "'";
+
+        return $query->orderByRaw("CASE WHEN option_name IN ({$inList}) THEN 0 ELSE 1 END ASC, option_name ASC");
+    }
+
+    /**
+     * Get action option names ordered with system built-in options first, followed by custom user/admin options.
+     *
+     * @param bool|null $canForward Clearance to include "To be Forwarded to"; defaults to checking auth user.
+     * @return array<int, string>
+     */
+    public static function getActionOptions(?bool $canForward = null): array
+    {
+        if (!Schema::hasTable('dts_action_options')) {
+            return self::BUILT_IN_ACTION_OPTIONS;
+        }
+
+        $options = self::getActionOptionsQuery($canForward)->pluck('option_name')->toArray();
+
+        return !empty($options) ? $options : self::BUILT_IN_ACTION_OPTIONS;
+    }
+
     /**
      * Check if a user has clearance to dynamically forward a transaction to an ad-hoc other office.
      *

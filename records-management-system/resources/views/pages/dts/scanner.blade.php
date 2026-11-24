@@ -82,19 +82,9 @@ new #[Layout('layouts.dts')] #[Title('Advanced Scanner Console - DTS')] class ex
         }
 
         try {
-            if (\Illuminate\Support\Facades\Schema::hasTable('dts_action_options')) {
-                $query = DB::table('dts_action_options')->orderBy('option_name', 'asc');
-                if (!\App\Services\DtsRoutingService::canForwardToOtherOffice()) {
-                    $query->where('option_name', '!=', 'To be Forwarded to');
-                }
-                $this->actionOptions = $query->pluck('option_name')->toArray();
-            }
+            $this->actionOptions = \App\Services\DtsRoutingService::getActionOptions();
         } catch (\Throwable $e) {
-            $this->actionOptions = [];
-        }
-
-        if (empty($this->actionOptions)) {
-            $this->actionOptions = ['For Action', 'For Approval', 'For Review', 'For Signature', 'For Appropriate Action', 'For Information'];
+            $this->actionOptions = \App\Services\DtsRoutingService::BUILT_IN_ACTION_OPTIONS;
         }
 
         $this->actionNeeded = $this->actionOptions[0] ?? 'For Action';
@@ -275,6 +265,32 @@ new #[Layout('layouts.dts')] #[Title('Advanced Scanner Console - DTS')] class ex
         $this->isEditingControlNumber = false;
         $this->editingControlNumberValue = '';
         $this->dispatch('focus-scanner-input');
+    }
+
+    /**
+     * Navigates to the full transaction details modal/page for a completed transaction.
+     *
+     * @param string|null $id
+     * @return void
+     */
+    public function openTransactionDetails(?string $id = null): void
+    {
+        $transId = $id ?: ($this->activeTransaction['id'] ?? null);
+        if (!$transId) {
+            return;
+        }
+
+        $this->redirect(route('dts', ['open' => $transId]), navigate: true);
+    }
+
+    /**
+     * Navigates to the RDP archives for a completed record converted to RDP.
+     *
+     * @return void
+     */
+    public function openRdpDetails(): void
+    {
+        $this->redirect(route('rdp.reports.nap-form-1'), navigate: true);
     }
 
     /**
@@ -718,9 +734,67 @@ new #[Layout('layouts.dts')] #[Title('Advanced Scanner Console - DTS')] class ex
 
         $rawStatus = strtolower($transaction->status);
         if ($rawStatus === 'completed') {
-            $this->errorMessage = 'That QR code is already finished its transaction.';
-            $this->dispatch('scanner-audio-error');
-            $this->logSessionScan($code, 'Finished Transaction', 'warning');
+            $isConvertedToRdp = false;
+            $rdpRecordId = null;
+            if (\Illuminate\Support\Facades\Schema::hasTable('rdp_received_documents')) {
+                $rdpDoc = DB::table('rdp_received_documents')
+                    ->where('source_subsystem', 'DTS')
+                    ->where('document_code', $transaction->control_number)
+                    ->first();
+                if ($rdpDoc) {
+                    $isConvertedToRdp = true;
+                    $rdpRecordId = $rdpDoc->appraised_record_id ?? $rdpDoc->id;
+                }
+            }
+            if (!$isConvertedToRdp && \Illuminate\Support\Facades\Schema::hasTable('rdp_record')) {
+                $rdpRec = DB::table('rdp_record')
+                    ->where('description', 'like', '%' . $transaction->control_number . '%')
+                    ->orWhere('description', mb_strtoupper($transaction->subject ?: '___'))
+                    ->first();
+                if ($rdpRec) {
+                    $isConvertedToRdp = true;
+                    $rdpRecordId = $rdpRec->id;
+                }
+            }
+
+            $formattedDateCreated = !empty($transaction->tx_created_at) 
+                ? date('M d, Y', strtotime($transaction->tx_created_at)) 
+                : 'N/A';
+
+            $this->activeTransaction = [
+                'id' => $transaction->transaction_id,
+                'control_number' => $transaction->control_number,
+                'qr_code' => $transaction->qr_code,
+                'type' => ucfirst($transaction->type),
+                'subject' => $transaction->subject ?: 'No subject specified',
+                'classification' => ucfirst($transaction->classification ?: 'Standard'),
+                'requestor_name' => $transaction->requestor_name ?: 'N/A',
+                'requestor_label' => $transaction->requestor_label ?: '',
+                'originated_office' => $transaction->originated_office_name ?: $transaction->originated_from,
+                'originated_office_code' => $transaction->originated_from,
+                'current_office' => $isConvertedToRdp ? 'Archived in RDP' : 'Completed (Finished Flow)',
+                'current_office_code' => 'COMPLETED',
+                'next_office' => $isConvertedToRdp ? 'RDP Archives' : 'End of Flow',
+                'next_office_code' => null,
+                'status' => 'Completed',
+                'raw_status' => 'completed',
+                'is_completed' => true,
+                'is_cancelled' => false,
+                'is_converted_rdp' => $isConvertedToRdp,
+                'rdp_record_id' => $rdpRecordId,
+                'sequence' => $transaction->sequence,
+                'document_name' => $transaction->document_name,
+                'document_path' => $transaction->document_path,
+                'is_received_here' => true,
+                'revision_requested_by_office' => null,
+                'revision_requested_by_sequence' => null,
+                'transaction_flow' => $transaction->transaction_flow,
+                'created_at' => $formattedDateCreated,
+            ];
+
+            $this->logSessionScan($code, $isConvertedToRdp ? 'Completed & Converted to RDP' : 'Completed Transaction', 'success');
+            $this->successMessage = "Completed transaction '{$transaction->control_number}' loaded. Click below to view transaction details.";
+            $this->dispatch('scanner-code-success');
             return;
         }
 
@@ -851,6 +925,11 @@ new #[Layout('layouts.dts')] #[Title('Advanced Scanner Console - DTS')] class ex
 
         if (!$this->activeTransaction) {
             $this->errorMessage = 'No document selected.';
+            return;
+        }
+
+        if (!empty($this->activeTransaction['is_completed'])) {
+            $this->openTransactionDetails();
             return;
         }
 
@@ -996,6 +1075,11 @@ new #[Layout('layouts.dts')] #[Title('Advanced Scanner Console - DTS')] class ex
 
         if (!$this->activeTransaction) {
             $this->errorMessage = 'No document selected.';
+            return;
+        }
+
+        if (!empty($this->activeTransaction['is_completed'])) {
+            $this->openTransactionDetails();
             return;
         }
 
@@ -1261,6 +1345,11 @@ new #[Layout('layouts.dts')] #[Title('Advanced Scanner Console - DTS')] class ex
 
         if (!$this->activeTransaction) {
             $this->errorMessage = 'No document selected.';
+            return;
+        }
+
+        if (!empty($this->activeTransaction['is_completed'])) {
+            $this->openTransactionDetails();
             return;
         }
 
@@ -1609,7 +1698,11 @@ new #[Layout('layouts.dts')] #[Title('Advanced Scanner Console - DTS')] class ex
                                 </span>
                                 @if($activeTransaction['raw_status'] === 'completed')
                                     <span style="font-size: 11px; font-weight: 700; background: #dcfce7; color: #15803d; padding: 3px 8px; border-radius: 6px;">
-                                        Completed
+                                        @if(!empty($activeTransaction['is_converted_rdp']))
+                                            Completed &amp; Converted to RDP
+                                        @else
+                                            Completed
+                                        @endif
                                     </span>
                                 @elseif($activeTransaction['raw_status'] === 'revision')
                                     <span style="font-size: 11px; font-weight: 700; background: #fee2e2; color: #b91c1c; padding: 3px 8px; border-radius: 6px;">
@@ -1762,6 +1855,11 @@ new #[Layout('layouts.dts')] #[Title('Advanced Scanner Console - DTS')] class ex
                                 </div>
                             @endif
 
+                            @php
+                                $pageIsLastStep = empty($this->activeTransaction['next_office_code']) || ($this->activeTransaction['next_office'] ?? '') === 'End of Flow (Complete)' || ($this->activeTransaction['next_office'] ?? '') === 'End of Flow' || str_contains($this->activeTransaction['next_office'] ?? '', 'End of Flow');
+                            @endphp
+
+                            @if(!$pageIsLastStep)
                             <div style="display: grid; grid-template-columns: 1fr 1.5fr; gap: 12px; margin-bottom: 12px;">
                                 <div>
                                     <label style="display: block; font-size: 12px; font-weight: 600; color: #475569; margin-bottom: 6px;">
@@ -1836,6 +1934,7 @@ new #[Layout('layouts.dts')] #[Title('Advanced Scanner Console - DTS')] class ex
                                     </div>
                                 </div>
                             @endif
+                            @endif
 
                             @php
                                 $pageActionLower = strtolower(trim($actionNeeded));
@@ -1856,6 +1955,10 @@ new #[Layout('layouts.dts')] #[Title('Advanced Scanner Console - DTS')] class ex
                                     $pageForwardLabel = 'Return for Revision';
                                     $pageForwardBg = '#dc2626';
                                     $pageForwardIcon = 'fa-rotate-left';
+                                } elseif ($pageIsLastStep) {
+                                    $pageForwardLabel = 'Complete Transaction';
+                                    $pageForwardBg = '#059669';
+                                    $pageForwardIcon = 'fa-check';
                                 } elseif ($pageIsToBeForwarded) {
                                     $pageForwardLabel = 'Proceed Action';
                                     $pageForwardBg = '#2563eb';
@@ -1883,7 +1986,42 @@ new #[Layout('layouts.dts')] #[Title('Advanced Scanner Console - DTS')] class ex
                                 @endif
                             </div>
 
-                        {{-- Case C: Already completed or cancelled --}}
+                        {{-- Case C: Already completed --}}
+                        @elseif(!empty($activeTransaction['is_completed']))
+                            <div style="display: flex; flex-direction: column; gap: 14px;">
+                                <div style="padding: 14px 16px; background: {{ !empty($activeTransaction['is_converted_rdp']) ? '#f0fdf4' : '#eff6ff' }}; border: 1.5px solid {{ !empty($activeTransaction['is_converted_rdp']) ? '#86efac' : '#93c5fd' }}; border-radius: 10px;">
+                                    <div style="display: flex; align-items: center; gap: 10px;">
+                                        <i class="fa-solid fa-circle-check" style="font-size: 20px; color: {{ !empty($activeTransaction['is_converted_rdp']) ? '#16a34a' : '#2563eb' }};"></i>
+                                        <div>
+                                            <div style="font-size: 14px; font-weight: 700; color: #0f172a;">
+                                                @if(!empty($activeTransaction['is_converted_rdp']))
+                                                    Transaction Fully Completed &amp; Converted to RDP
+                                                @else
+                                                    Transaction Fully Completed
+                                                @endif
+                                            </div>
+                                            <div style="font-size: 12px; color: #64748b; margin-top: 2px;">
+                                                This document has finished its DTS workflow. Use the button below to open the complete digital transaction dossier, attachments, and routing history.
+                                            </div>
+                                        </div>
+                                    </div>
+                                </div>
+
+                                <div style="display: flex; justify-content: flex-end; align-items: center; gap: 10px;">
+                                    @if(!empty($activeTransaction['is_converted_rdp']))
+                                        <button type="button" wire:click="openRdpDetails" 
+                                                style="height: 44px; padding: 0 16px; background: #0284c7; color: #ffffff; border: none; border-radius: 10px; font-size: 13px; font-weight: 700; cursor: pointer; display: flex; align-items: center; gap: 8px;">
+                                            <i class="fa-solid fa-box-archive"></i> View in RDP NAP Form 1
+                                        </button>
+                                    @endif
+
+                                    <button type="button" wire:click="openTransactionDetails" 
+                                            style="height: 44px; padding: 0 22px; background: #2563eb; color: #ffffff; border: none; border-radius: 10px; font-size: 14px; font-weight: 700; cursor: pointer; display: flex; align-items: center; gap: 8px; box-shadow: 0 4px 12px rgba(37, 99, 235, 0.25);">
+                                        <i class="fa-solid fa-arrow-up-right-from-square"></i> Open Transaction Details
+                                    </button>
+                                </div>
+                            </div>
+                        {{-- Case D: Cancelled or other terminal state --}}
                         @else
                             <div style="padding: 16px; background: #f8fafc; border-radius: 10px; text-align: center; color: #64748b; font-size: 13px; font-weight: 500;">
                                 <i class="fa-solid fa-lock" style="margin-right: 6px;"></i> Document is in a terminal state ({{ $activeTransaction['status'] }}). No further workflow actions can be executed.

@@ -178,6 +178,8 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - NAP Form 2')
     public ?string $editItemNumber = '';
     public string $editRemarks = '';
     public bool $isRootParentForEdit = false;
+    public string $editHierarchyLabel = '';
+    public string $editAncestorPath = '';
     public bool $isSeriesUsedInNap1 = false;
     public bool $canEditDescription = true;
     public bool $canCancelRecord = true;
@@ -369,6 +371,29 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - NAP Form 2')
             $record->is_inherited = $eff->inherited;
             $record->is_root_parent = empty($record->parent_id);
 
+            // Compute ancestor lineage for view modal
+            $ancestors = [];
+            $currId = $record->parent_id;
+            $visited = [];
+            while (!empty($currId) && isset($allFetchedMap[$currId])) {
+                if (in_array($currId, $visited, true)) break;
+                $visited[] = $currId;
+                $pObj = $allFetchedMap[$currId];
+                $ancestors[] = $pObj->series_title;
+                $currId = $pObj->parent_id;
+            }
+            $record->ancestor_path = !empty($ancestors) ? implode(' › ', array_reverse($ancestors)) : '';
+            $depth = count($ancestors);
+            if ($depth === 0) {
+                $record->hierarchy_label = 'Root Series';
+            } elseif ($depth === 1) {
+                $record->hierarchy_label = 'Subsection / Sub-series';
+            } elseif ($depth === 2) {
+                $record->hierarchy_label = 'Subsection of Subsection (Level 3)';
+            } else {
+                $record->hierarchy_label = 'Nested Subsection (Level ' . ($depth + 1) . ')';
+            }
+
             $this->viewSeriesData = $record;
             $this->showViewModal = true;
         }
@@ -412,6 +437,30 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - NAP Form 2')
             $this->editRemarks = \App\Services\RdpRemarksService::textFor($record->remarks) ?? '';
             $this->isRootParentForEdit = empty($record->parent_id);
 
+            // Compute ancestor lineage for edit modal
+            $ancestors = [];
+            $currId = $record->parent_id;
+            $visited = [];
+            while (!empty($currId)) {
+                if (in_array($currId, $visited, true)) break;
+                $visited[] = $currId;
+                $pRow = DB::table('rdp_record_series')->where('id', $currId)->first(['id', 'series_title', 'parent_id']);
+                if (!$pRow) break;
+                $ancestors[] = $pRow->series_title;
+                $currId = $pRow->parent_id;
+            }
+            $this->editAncestorPath = !empty($ancestors) ? implode(' › ', array_reverse($ancestors)) : '';
+            $depth = count($ancestors);
+            if ($depth === 0) {
+                $this->editHierarchyLabel = 'Root Series';
+            } elseif ($depth === 1) {
+                $this->editHierarchyLabel = 'Subsection / Sub-series';
+            } elseif ($depth === 2) {
+                $this->editHierarchyLabel = 'Subsection of Subsection (Level 3)';
+            } else {
+                $this->editHierarchyLabel = 'Nested Subsection (Level ' . ($depth + 1) . ')';
+            }
+
             // Check if this record series (or any of its child series) is currently used in NAP Form 1 (rdp_record)
             $checkIds = [$record->id];
             $childIds = DB::table('rdp_record_series')
@@ -440,6 +489,11 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - NAP Form 2')
     {
         $this->showEditModal = false;
         $this->editingSeriesId = null;
+        $this->editSeriesTitle = '';
+        $this->editItemNumber = '';
+        $this->editRemarks = '';
+        $this->editHierarchyLabel = '';
+        $this->editAncestorPath = '';
         $this->isSeriesUsedInNap1 = false;
     }
 
@@ -638,7 +692,7 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - NAP Form 2')
     }
 
     /**
-     * Builds tree hierarchy.
+     * Builds tree hierarchy with recursive ancestor resolution.
      *
      * @param array $records
      *
@@ -646,20 +700,25 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - NAP Form 2')
      */
     private function buildTreeHierarchy(array $records): array
     {
-        $allParentIds = [];
-        foreach ($records as $r) {
-            if (!empty($r->parent_id)) {
-                $allParentIds[] = (int)$r->parent_id;
-            }
-        }
-
         $recordsById = [];
         foreach ($records as $r) {
             $recordsById[(int)$r->id] = $r;
         }
 
-        $missingParentIds = array_diff(array_unique($allParentIds), array_keys($recordsById));
-        if (!empty($missingParentIds)) {
+        // 1. Recursively resolve all missing ancestor records (parents, grandparents, etc.)
+        $maxPasses = 10;
+        while ($maxPasses-- > 0) {
+            $neededParentIds = [];
+            foreach ($recordsById as $r) {
+                if (!empty($r->parent_id)) {
+                    $neededParentIds[] = (int)$r->parent_id;
+                }
+            }
+            $missingParentIds = array_diff(array_unique($neededParentIds), array_keys($recordsById));
+            if (empty($missingParentIds)) {
+                break;
+            }
+
             $missingParents = DB::table('rdp_record_series')
                 ->leftJoin('rdp_retention_period', 'rdp_record_series.retention_period', '=', 'rdp_retention_period.id')
                 ->leftJoin('rdp_record_series as parent', 'rdp_record_series.parent_id', '=', 'parent.id')
@@ -677,9 +736,81 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - NAP Form 2')
                 ->whereIn('rdp_record_series.id', $missingParentIds)
                 ->get();
 
+            if ($missingParents->isEmpty()) {
+                break;
+            }
+
             foreach ($missingParents as $mp) {
                 $mp->is_parent_context = true;
                 $recordsById[(int)$mp->id] = $mp;
+            }
+        }
+
+        // 2. Compute ancestors, depth, hierarchy level, and breadcrumb path for every record
+        foreach ($recordsById as $id => $item) {
+            $chain = [];
+            $curr = $item;
+            $visited = [];
+            while (!empty($curr->parent_id) && isset($recordsById[(int)$curr->parent_id])) {
+                $pId = (int)$curr->parent_id;
+                if (in_array($pId, $visited, true)) {
+                    break;
+                }
+                $visited[] = $pId;
+                $pObj = $recordsById[$pId];
+                $chain[] = $pObj;
+                $curr = $pObj;
+            }
+
+            $ancestors = array_reverse($chain);
+            $depth = count($ancestors);
+            $item->depth = $depth;
+            $item->hierarchy_level = $depth + 1;
+            $item->is_root_parent = empty($item->parent_id) || $depth === 0;
+
+            if ($depth === 0) {
+                $item->hierarchy_badge = 'ROOT SERIES';
+                $item->hierarchy_badge_type = 'root';
+                $item->ancestor_path = '';
+                $item->root_ancestor_id = (int)$item->id;
+            } elseif ($depth === 1) {
+                $item->hierarchy_badge = 'SUBSECTION';
+                $item->hierarchy_badge_type = 'sub';
+                $item->ancestor_path = $ancestors[0]->series_title ?? 'Parent Series';
+                $item->root_ancestor_id = (int)($ancestors[0]->id ?? $item->id);
+            } elseif ($depth === 2) {
+                $item->hierarchy_badge = 'SUBSECTION OF SUBSECTION';
+                $item->hierarchy_badge_type = 'sub_sub';
+                $pathTitles = array_filter(array_map(fn($a) => $a->series_title ?? '', $ancestors));
+                $item->ancestor_path = implode(' › ', $pathTitles);
+                $item->root_ancestor_id = (int)($ancestors[0]->id ?? $item->id);
+            } else {
+                $item->hierarchy_badge = 'NESTED SUBSECTION (L' . ($depth + 1) . ')';
+                $item->hierarchy_badge_type = 'nested';
+                $pathTitles = array_filter(array_map(fn($a) => $a->series_title ?? '', $ancestors));
+                $item->ancestor_path = implode(' › ', $pathTitles);
+                $item->root_ancestor_id = (int)($ancestors[0]->id ?? $item->id);
+            }
+
+            if (!empty($ancestors)) {
+                $lastParent = end($ancestors);
+                $item->parent_title = $lastParent->series_title ?? ($item->parent_title ?? null);
+                $item->parent_item_number = $lastParent->item_number ?? null;
+            }
+        }
+
+        // 3. Align parent context records to their child's office if needed so they appear in the same office section
+        foreach ($recordsById as $item) {
+            if (!empty($item->is_parent_context)) {
+                foreach ($recordsById as $child) {
+                    if (empty($child->is_parent_context) && !empty($child->parent_id)) {
+                        if ((int)$child->parent_id === (int)$item->id || (int)($child->root_ancestor_id ?? 0) === (int)$item->id) {
+                            $item->recorded_at_office = $child->recorded_at_office;
+                            $item->recorded_office_name = $child->recorded_office_name;
+                            break;
+                        }
+                    }
+                }
             }
         }
 
@@ -711,9 +842,6 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - NAP Form 2')
         $addedIds = array_column($ordered, 'id');
         foreach ($allRecords as $r) {
             if (!in_array($r->id, $addedIds, true)) {
-                $r->depth = 0;
-                $r->root_id = (int)$r->id;
-                $r->has_children = isset($byParent[$r->id]) && count($byParent[$r->id]) > 0;
                 $ordered[] = $r;
             }
         }
@@ -803,7 +931,7 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - NAP Form 2')
             $item->is_root_parent = empty($item->parent_id);
 
             $officeKey = $item->recorded_office_name ?? $item->recorded_at_office ?? 'default';
-            $isRoot = empty($item->parent_id) || ($item->depth ?? 0) === 0;
+            $isRoot = empty($item->parent_id);
 
             if ($isRoot) {
                 $rootCountersByOffice[$officeKey] = ($rootCountersByOffice[$officeKey] ?? 0) + 1;
@@ -816,9 +944,11 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - NAP Form 2')
             } else {
                 $pId = (int)$item->parent_id;
                 $childCountersByParent[$pId] = ($childCountersByParent[$pId] ?? 0) + 1;
-                $parentBase = $parentNumberMap[$pId] ?? (string)($rootCountersByOffice[$officeKey] ?? 1);
+                $parentBase = $parentNumberMap[$pId] 
+                    ?? (!empty($item->parent_item_number) ? (string)$item->parent_item_number : null)
+                    ?? (string)($rootCountersByOffice[$officeKey] ?? 1);
 
-                $item->display_item_no = $parentBase . ' - ' . $childCountersByParent[$pId];
+                $item->display_item_no = $parentBase . '.' . $childCountersByParent[$pId];
                 $parentNumberMap[$item->id] = $item->display_item_no;
             }
         }
@@ -1324,46 +1454,88 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - NAP Form 2')
                                 </div>
                             </td>
                             <td style="text-align: left; padding-left: 12px; font-weight: 800; font-size: 13px; color: #1e293b; white-space: nowrap;">
-                                {{ $item->display_item_no ?: '—' }}
+                                @if(empty($item->parent_id))
+                                    <span>{{ $item->display_item_no ?: '—' }}</span>
+                                @else
+                                    <div style="display: flex; flex-direction: column; align-items: flex-start;">
+                                        <span style="font-size: 12px; color: #2563eb; font-weight: 700;">{{ $item->display_item_no }}</span>
+                                        <span style="font-size: 10px; font-weight: 600; color: #64748b; line-height: 1;">(Sub-item)</span>
+                                    </div>
+                                @endif
                             </td>
                             <td style="padding-left: {{ (($item->depth ?? 0) * 22) + 14 }}px; font-weight: {{ $isRoot ? '700' : '600' }}; color: #0f172a;">
-                                <div style="display: flex; align-items: center; gap: 6px; flex-wrap: wrap;">
-                                    @if(($item->depth ?? 0) > 0)
-                                        <span style="font-family: monospace; font-weight: 800; color: #2563eb; margin-right: 2px;">└─</span> 
-                                    @endif
+                                <div style="display: flex; flex-direction: column; gap: 4px;">
+                                    <div style="display: flex; align-items: center; gap: 6px; flex-wrap: wrap;">
+                                        @if(($item->depth ?? 0) > 0)
+                                            <span style="font-family: monospace; font-weight: 800; color: #2563eb; margin-right: 2px;">└─</span> 
+                                        @endif
 
-                                    @if($item->has_children)
-                                        <span @click="toggleRoot('root-{{ $item->id }}')" style="cursor: pointer;" title="Click to hide/unhide group">{{ $item->series_title }}</span>
-                                    @else
-                                        <span>{{ $item->series_title }}</span>
-                                    @endif
+                                        @if($item->has_children)
+                                            <span @click="toggleRoot('root-{{ $item->id }}')" style="cursor: pointer;" title="Click to hide/unhide group">{{ $item->series_title }}</span>
+                                        @else
+                                            <span>{{ $item->series_title }}</span>
+                                        @endif
 
-                                    @php
-                                        $tagVal = $item->shorted_type ?? ($item->series_type_tag ?? '');
-                                    @endphp
-                                    @if(!(bool)($item->is_verified ?? false))
-                                        <span style="padding: 2px 7px; background: #fef2f2; color: #dc2626; border: 1px solid #fecaca; border-radius: 6px; font-weight: 800; font-size: 11px; display: inline-block;">
-                                            [ UNREGISTERED ]
-                                        </span>
-                                    @elseif($tagVal === 'PH-NAP')
-                                        <span style="padding: 2px 7px; background: #eff6ff; color: #1d4ed8; border: 1px solid #bfdbfe; border-radius: 6px; font-weight: 800; font-size: 11px; display: inline-block;">
-                                            [ PH-NAP ]
-                                        </span>
-                                    @elseif($tagVal === 'CSPC')
-                                        <span style="padding: 2px 7px; background: #f0fdf4; color: #15803d; border: 1px solid #bbf7d0; border-radius: 6px; font-weight: 800; font-size: 11px; display: inline-block;">
-                                            [ CSPC ]
-                                        </span>
-                                    @elseif($tagVal)
-                                        <span style="padding: 2px 7px; background: #f0f9ff; color: #0284c7; border: 1px solid #bae6fd; border-radius: 6px; font-weight: 800; font-size: 11px; display: inline-block;">
-                                            [ {{ strtoupper($tagVal) }} ]
-                                        </span>
-                                    @endif
+                                        {{-- 1. ROOT vs SUBSECTION BADGE --}}
+                                        @if(empty($item->parent_id) || ($item->depth ?? 0) === 0)
+                                            <span style="padding: 2px 7px; background: #f1f5f9; color: #334155; border: 1px solid #cbd5e1; border-radius: 6px; font-weight: 800; font-size: 10.5px; display: inline-flex; align-items: center; gap: 3px;" title="Top-level Root Series">
+                                                <svg xmlns="http://www.w3.org/2000/svg" width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><circle cx="12" cy="12" r="8"/></svg>
+                                                ROOT SERIES
+                                            </span>
+                                        @elseif(($item->depth ?? 0) === 1)
+                                            <span style="padding: 2px 7px; background: #eff6ff; color: #1d4ed8; border: 1px solid #bfdbfe; border-radius: 6px; font-weight: 800; font-size: 10.5px; display: inline-flex; align-items: center; gap: 3px;" title="Level 2 Sub-series / Subsection">
+                                                <svg xmlns="http://www.w3.org/2000/svg" width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="9 18 15 12 9 6"/></svg>
+                                                SUBSECTION
+                                            </span>
+                                        @elseif(($item->depth ?? 0) === 2)
+                                            <span style="padding: 2px 7px; background: #faf5ff; color: #7e22ce; border: 1px solid #e9d5ff; border-radius: 6px; font-weight: 800; font-size: 10.5px; display: inline-flex; align-items: center; gap: 3px;" title="Level 3 Subsection of Subsection">
+                                                <svg xmlns="http://www.w3.org/2000/svg" width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="13 17 18 12 13 7"/><polyline points="6 17 11 12 6 7"/></svg>
+                                                SUBSECTION OF SUBSECTION
+                                            </span>
+                                        @else
+                                            <span style="padding: 2px 7px; background: #fdf2f8; color: #be185d; border: 1px solid #fbcfe8; border-radius: 6px; font-weight: 800; font-size: 10.5px; display: inline-flex; align-items: center; gap: 3px;" title="Nested Subsection Level {{ ($item->depth ?? 0) + 1 }}">
+                                                NESTED SUBSECTION (L{{ ($item->depth ?? 0) + 1 }})
+                                            </span>
+                                        @endif
 
-                                    @if($isParentCtx)
-                                        <span style="font-size: 10px; font-weight: 800; background: #e2e8f0; color: #475569; padding: 2px 6px; border-radius: 4px;">PARENT SERIES</span>
-                                    @endif
-                                    @if(!empty($item->is_inherited))
-                                        <span style="font-size: 11px; color: #64748b; font-weight: 500;">(Inherited)</span>
+                                        {{-- 2. REGISTRATION / NAP TYPE BADGE --}}
+                                        @php
+                                            $tagVal = $item->shorted_type ?? ($item->series_type_tag ?? '');
+                                        @endphp
+                                        @if(!(bool)($item->is_verified ?? false))
+                                            <span style="padding: 2px 7px; background: #fef2f2; color: #dc2626; border: 1px solid #fecaca; border-radius: 6px; font-weight: 800; font-size: 10.5px; display: inline-block;">
+                                                [ UNREGISTERED ]
+                                            </span>
+                                        @elseif($tagVal === 'PH-NAP')
+                                            <span style="padding: 2px 7px; background: #eff6ff; color: #1d4ed8; border: 1px solid #bfdbfe; border-radius: 6px; font-weight: 800; font-size: 10.5px; display: inline-block;">
+                                                [ PH-NAP ]
+                                            </span>
+                                        @elseif($tagVal === 'CSPC')
+                                            <span style="padding: 2px 7px; background: #f0fdf4; color: #15803d; border: 1px solid #bbf7d0; border-radius: 6px; font-weight: 800; font-size: 10.5px; display: inline-block;">
+                                                [ CSPC ]
+                                            </span>
+                                        @elseif($tagVal)
+                                            <span style="padding: 2px 7px; background: #f0f9ff; color: #0284c7; border: 1px solid #bae6fd; border-radius: 6px; font-weight: 800; font-size: 10.5px; display: inline-block;">
+                                                [ {{ strtoupper($tagVal) }} ]
+                                            </span>
+                                        @endif
+
+                                        @if($isParentCtx)
+                                            <span style="font-size: 10px; font-weight: 800; background: #e2e8f0; color: #475569; padding: 2px 6px; border-radius: 4px;">PARENT SERIES</span>
+                                        @endif
+                                        @if(!empty($item->is_inherited))
+                                            <span style="font-size: 11px; color: #64748b; font-weight: 500;">(Inherited)</span>
+                                        @endif
+                                    </div>
+
+                                    {{-- 3. HIERARCHY BREADCRUMB LINE (IF SUBSECTION) --}}
+                                    @if(!empty($item->ancestor_path))
+                                        <div style="font-size: 11px; color: #64748b; display: flex; align-items: center; gap: 4px; padding-left: {{ (($item->depth ?? 0) > 0) ? '18' : '0' }}px;">
+                                            <span style="color: #475569; font-weight: 700;">↳ Hierarchy:</span>
+                                            <span style="font-weight: 600; color: #1e293b; background: #f1f5f9; padding: 1px 6px; border-radius: 4px; border: 1px solid #e2e8f0;">
+                                                {{ $item->ancestor_path }}
+                                            </span>
+                                        </div>
                                     @endif
                                 </div>
                             </td>
@@ -1420,7 +1592,29 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - NAP Form 2')
                         <div style="font-size: 16px; font-weight: 800; color: #0f172a; margin-top: 2px;">{{ $viewSeriesData->series_title }}</div>
                     </div>
 
-                    @if(!empty($viewSeriesData->parent_title))
+                    <div>
+                        <span style="font-size: 12px; font-weight: 700; color: #64748b; text-transform: uppercase;">Hierarchy Level</span>
+                        <div style="margin-top: 4px;">
+                            @if(empty($viewSeriesData->parent_id))
+                                <span style="padding: 3px 9px; background: #f1f5f9; color: #334155; border: 1px solid #cbd5e1; border-radius: 6px; font-weight: 800; font-size: 12px; display: inline-flex; align-items: center; gap: 4px;">
+                                    ROOT SERIES
+                                </span>
+                            @else
+                                <span style="padding: 3px 9px; background: #eff6ff; color: #1d4ed8; border: 1px solid #bfdbfe; border-radius: 6px; font-weight: 800; font-size: 12px; display: inline-flex; align-items: center; gap: 4px;">
+                                    {{ $viewSeriesData->hierarchy_label ?? 'SUBSECTION' }}
+                                </span>
+                            @endif
+                        </div>
+                    </div>
+
+                    @if(!empty($viewSeriesData->ancestor_path))
+                        <div>
+                            <span style="font-size: 12px; font-weight: 700; color: #64748b; text-transform: uppercase;">Hierarchy Lineage</span>
+                            <div style="font-weight: 700; color: #1e293b; background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 6px; padding: 6px 10px; margin-top: 4px;">
+                                {{ $viewSeriesData->ancestor_path }}
+                            </div>
+                        </div>
+                    @elseif(!empty($viewSeriesData->parent_title))
                         <div>
                             <span style="font-size: 12px; font-weight: 700; color: #64748b; text-transform: uppercase;">Parent Series Title</span>
                             <div style="font-weight: 700; color: #2563eb; margin-top: 2px;">{{ $viewSeriesData->parent_title }}</div>
@@ -1497,6 +1691,23 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - NAP Form 2')
                 </div>
 
                 <form wire:submit.prevent="saveEditSeries" style="display: flex; flex-direction: column; gap: 16px;">
+                    <div style="background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 8px; padding: 10px 14px; font-size: 12px;">
+                        <div style="display: flex; align-items: center; justify-content: space-between;">
+                            <span style="font-weight: 700; color: #64748b; text-transform: uppercase;">Hierarchy Structure</span>
+                            @if($isRootParentForEdit)
+                                <span style="padding: 2px 8px; background: #f1f5f9; color: #334155; border: 1px solid #cbd5e1; border-radius: 6px; font-weight: 800; font-size: 11px;">ROOT SERIES</span>
+                            @else
+                                <span style="padding: 2px 8px; background: #eff6ff; color: #1d4ed8; border: 1px solid #bfdbfe; border-radius: 6px; font-weight: 800; font-size: 11px;">{{ $editHierarchyLabel ?: 'SUBSECTION' }}</span>
+                            @endif
+                        </div>
+                        @if(!empty($editAncestorPath))
+                            <div style="margin-top: 6px; color: #475569; font-size: 11.5px;">
+                                <span style="font-weight: 700; color: #64748b;">Lineage:</span>
+                                <span style="font-weight: 600; color: #1e293b;">{{ $editAncestorPath }}</span>
+                            </div>
+                        @endif
+                    </div>
+
                     <div>
                         <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 6px;">
                             <label style="font-size: 13px; font-weight: 700; color: #334155;">Series Title</label>
@@ -1740,8 +1951,16 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - NAP Form 2')
                                         </td>
                                         <td style="border-left: 1px solid #000; border-right: 1px solid #000; border-top: none; border-bottom: none; padding: 12px 6px 12px {{ (($item->depth ?? 0) * 14) + 6 }}px; vertical-align: top; line-height: 1.2;">
                                             <span style="{{ ($item->depth ?? 0) === 0 ? 'font-weight: bold;' : 'font-weight: 500;' }}">
+                                                @if(($item->depth ?? 0) > 0)
+                                                    <span style="font-family: monospace; font-weight: bold; margin-right: 2px;">└─</span>
+                                                @endif
                                                 {{ $item->series_title }}
                                             </span>
+                                            @if(!empty($item->ancestor_path))
+                                                <div style="font-size: 7.5px; color: #555; margin-top: 2px; font-style: italic;">
+                                                    (Under: {{ $item->ancestor_path }})
+                                                </div>
+                                            @endif
                                         </td>
                                         @if($isPermSeries)
                                             <td colspan="3" style="border-left: 1px solid #000; border-right: 1px solid #000; border-top: none; border-bottom: none; padding: 12px 4px; text-align: center; vertical-align: top; font-weight: bold; line-height: 1.2;">

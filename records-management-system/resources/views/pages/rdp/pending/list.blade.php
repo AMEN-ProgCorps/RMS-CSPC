@@ -903,8 +903,20 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - Pending List
             $recordsById[(int)$r->id] = $r;
         }
 
-        $missingParentIds = array_diff(array_unique($allParentIds), array_keys($recordsById));
-        if (!empty($missingParentIds)) {
+        // Recursively resolve all missing ancestor records
+        $maxPasses = 10;
+        while ($maxPasses-- > 0) {
+            $neededParentIds = [];
+            foreach ($recordsById as $r) {
+                if (!empty($r->parent_id)) {
+                    $neededParentIds[] = (int)$r->parent_id;
+                }
+            }
+            $missingParentIds = array_diff(array_unique($neededParentIds), array_keys($recordsById));
+            if (empty($missingParentIds)) {
+                break;
+            }
+
             $missingParents = DB::table('rdp_record_series')
                 ->leftJoin('rdp_retention_period', 'rdp_record_series.retention_period', '=', 'rdp_retention_period.id')
                 ->leftJoin('rdp_record_series as parent', 'rdp_record_series.parent_id', '=', 'parent.id')
@@ -919,6 +931,10 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - Pending List
                 ->addSelect('rdp_remarks_logic.remarks_value as remarks')
                 ->whereIn('rdp_record_series.id', $missingParentIds)
                 ->get();
+
+            if ($missingParents->isEmpty()) {
+                break;
+            }
 
             foreach ($missingParents as $mp) {
                 $mp->is_parent_context = true;

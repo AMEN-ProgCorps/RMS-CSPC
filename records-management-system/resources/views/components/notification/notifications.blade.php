@@ -974,11 +974,13 @@ new class extends Component {
                         <div class="notif-actions-menu" x-show="menuOpen" x-transition x-cloak>
                             @if ($notification->status === 'unread')
                                 <button class="notif-action-item" wire:click="markAsRead({{ $notification->id }}); menuOpen = false" type="button">
-                                    Mark as Read
+                                    <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" style="flex-shrink: 0;"><polyline points="20 6 9 17 4 12"></polyline></svg>
+                                    <span>Mark as Read</span>
                                 </button>
                             @endif
-                            <button class="notif-action-item" wire:click="clearNotification({{ $notification->id }}); menuOpen = false" type="button">
-                                Clear
+                            <button class="notif-action-item delete" wire:click="clearNotification({{ $notification->id }}); menuOpen = false" type="button">
+                                <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" style="flex-shrink: 0;"><path d="M18 6L6 18M6 6l12 12"></path></svg>
+                                <span>Clear</span>
                             </button>
                         </div>
                     </div>

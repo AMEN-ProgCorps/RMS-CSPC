@@ -3777,6 +3777,10 @@ new #[Layout('layouts.dts')] #[Title('DTS - Application Letters')] class extends
                                         $listBtnLabel = 'Return for Revision';
                                         $listBtnBg = '#dc2626';
                                         $listBtnIcon = 'fa-arrow-rotate-left';
+                                    } elseif ($this->isLastStep()) {
+                                        $listBtnLabel = 'Complete Transaction';
+                                        $listBtnBg = '#059669';
+                                        $listBtnIcon = 'fa-check';
                                     } elseif ($listIsToBeForwarded) {
                                         $listBtnLabel = 'Proceed Action';
                                         $listBtnBg = '#2563eb';

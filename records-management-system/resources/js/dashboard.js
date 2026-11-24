@@ -4,6 +4,7 @@ function toggleDropdown() {
 
     if (!dropdown?.classList.contains('show')) {
         window.dispatchEvent(new CustomEvent('close-notifications'));
+        window.dispatchEvent(new CustomEvent('close-urgent-notices'));
     }
 
     if (dropdownIcon?.classList.contains('rotate')) {

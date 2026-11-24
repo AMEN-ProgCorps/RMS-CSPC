@@ -234,8 +234,15 @@ new #[Layout('layouts.dts')] #[Title('Document Tracking System')] class extends 
 
         $openId = request()->query('open');
         if (!empty($openId)) {
-            $exists = DB::table('dts_transactions')->where('transaction_id', $openId)->exists();
-            if ($exists) {
+            $trans = DB::table('dts_transactions as dt')
+                ->join('dts_transaction_details as dtd', 'dtd.id', '=', 'dt.transaction_id')
+                ->where('dt.transaction_id', $openId)
+                ->orWhere('dtd.control_number', $openId)
+                ->select('dt.transaction_id')
+                ->first();
+            if ($trans) {
+                $this->openTransaction($trans->transaction_id);
+            } elseif (DB::table('dts_transactions')->where('transaction_id', $openId)->exists()) {
                 $this->openTransaction($openId);
             }
         }
@@ -1209,6 +1216,7 @@ new #[Layout('layouts.dts')] #[Title('Document Tracking System')] class extends 
      *
      * @return void
      */
+    #[On('open-transaction')]
     public function openTransaction(string $id): void
     {
         $this->selectedTransactionId = $id;
@@ -1374,7 +1382,10 @@ new #[Layout('layouts.dts')] #[Title('Document Tracking System')] class extends 
             ->leftJoin('dts_email_access as dea', 'dea.id', '=', 'dtd.email_access')
             ->leftJoin((\Illuminate\Support\Facades\Schema::hasTable('sys_account_details') ? 'sys_account_details' : 'account_details') . ' as creator_ad', 'creator_ad.account_id', '=', 'dtd.created_by')
             ->leftJoin((\Illuminate\Support\Facades\Schema::hasTable('sys_account') ? 'sys_account' : 'account') . ' as creator_acc', 'creator_acc.id', '=', 'dtd.created_by')
-            ->where('dt.transaction_id', $this->selectedTransactionId)
+            ->where(function ($q) {
+                $q->where('dt.transaction_id', $this->selectedTransactionId)
+                  ->orWhere('dtd.control_number', $this->selectedTransactionId);
+            })
             ->select(
                 'dt.*',
                 'dtd.*',
@@ -5571,6 +5582,10 @@ new #[Layout('layouts.dts')] #[Title('Document Tracking System')] class extends 
                                         $listBtnLabel = 'Return for Revision';
                                         $listBtnBg = '#dc2626';
                                         $listBtnIcon = 'fa-arrow-rotate-left';
+                                    } elseif ($this->isLastStep()) {
+                                        $listBtnLabel = 'Complete Transaction';
+                                        $listBtnBg = '#059669';
+                                        $listBtnIcon = 'fa-check';
                                     } elseif ($listIsToBeForwarded) {
                                         $listBtnLabel = 'Proceed Action';
                                         $listBtnBg = '#2563eb';

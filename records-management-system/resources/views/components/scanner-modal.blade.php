@@ -599,6 +599,35 @@ new class extends Component {
     }
 
     /**
+     * Navigates to the full transaction details modal/page for a completed transaction.
+     *
+     * @param string|null $id
+     * @return void
+     */
+    public function openTransactionDetails(?string $id = null): void
+    {
+        $transId = $id ?: ($this->activeTransaction['id'] ?? null);
+        if (!$transId) {
+            return;
+        }
+
+        $this->closeModal();
+        $this->dispatch('open-transaction', id: (string) $transId);
+        $this->redirect(route('dts', ['open' => $transId]), navigate: true);
+    }
+
+    /**
+     * Navigates to the RDP archives for a completed record converted to RDP.
+     *
+     * @return void
+     */
+    public function openRdpDetails(): void
+    {
+        $this->closeModal();
+        $this->redirect(route('rdp.reports.nap-form-1'), navigate: true);
+    }
+
+    /**
      * Clears all active status alerts (successMessage and errorMessage).
      *
      * @return void
@@ -738,7 +767,8 @@ new class extends Component {
                 'dtd.classification',
                 'dtd.originated_from',
                 'originated_office.office_name as originated_office_name',
-                'doc.document_name'
+                'doc.document_name',
+                'dtd.date_created'
             )
             ->first();
 
@@ -758,9 +788,76 @@ new class extends Component {
 
         $rawStatus = strtolower($transaction->status);
         if ($rawStatus === 'completed') {
-            $this->errorMessage = 'That QR code is already finished its transaction.';
-            $this->dispatch('scanner-code-invalid');
-            $this->dispatch('scanner-audio-error');
+            $isConvertedToRdp = false;
+            $rdpRecordId = null;
+            if (\Illuminate\Support\Facades\Schema::hasTable('rdp_received_documents')) {
+                $rdpDoc = DB::table('rdp_received_documents')
+                    ->where('source_subsystem', 'DTS')
+                    ->where('document_code', $transaction->control_number)
+                    ->first();
+                if ($rdpDoc) {
+                    $isConvertedToRdp = true;
+                    $rdpRecordId = $rdpDoc->appraised_record_id ?? $rdpDoc->id;
+                }
+            }
+            if (!$isConvertedToRdp && \Illuminate\Support\Facades\Schema::hasTable('rdp_record')) {
+                $rdpRec = DB::table('rdp_record')
+                    ->where('description', 'like', '%' . $transaction->control_number . '%')
+                    ->orWhere('description', mb_strtoupper($transaction->subject ?: '___'))
+                    ->first();
+                if ($rdpRec) {
+                    $isConvertedToRdp = true;
+                    $rdpRecordId = $rdpRec->id;
+                }
+            }
+
+            $formattedDateCreated = !empty($transaction->date_created) 
+                ? date('M d, Y', strtotime($transaction->date_created)) 
+                : 'N/A';
+
+            $this->activeTransaction = [
+                'id' => $transaction->transaction_id,
+                'control_number' => $transaction->control_number,
+                'qr_code' => $transaction->qr_code,
+                'type' => ucfirst($transaction->type),
+                'classification' => ucfirst($transaction->classification ?: $transaction->type),
+                'subject' => $transaction->subject ?: 'No subject specified',
+                'requestor_name' => $transaction->requestor_name ?: 'N/A',
+                'originated_office' => $transaction->originated_office_name ?: $transaction->originated_from,
+                'originated_office_code' => $transaction->originated_from,
+                'current_office' => $isConvertedToRdp ? 'Archived in RDP' : 'Completed (Finished Flow)',
+                'current_office_code' => 'COMPLETED',
+                'next_office' => $isConvertedToRdp ? 'RDP Archives' : 'End of Flow',
+                'next_office_code' => null,
+                'status' => 'Completed',
+                'raw_status' => 'completed',
+                'is_completed' => true,
+                'is_cancelled' => false,
+                'is_converted_rdp' => $isConvertedToRdp,
+                'rdp_record_id' => $rdpRecordId,
+                'sequence' => $transaction->sequence,
+                'document_name' => $transaction->document_name,
+                'is_received_here' => true,
+                'revision_requested_by_office' => null,
+                'revision_requested_by_sequence' => null,
+                'transaction_flow' => $transaction->transaction_flow,
+                'created_at' => $formattedDateCreated,
+            ];
+
+            // Push scan to session recent history
+            array_unshift($this->recentScans, [
+                'control_number' => $transaction->control_number,
+                'subject' => Str::limit($transaction->subject ?: 'No subject', 35),
+                'scanned_at' => now()->format('h:i:s A'),
+                'status' => 'completed',
+            ]);
+            $this->recentScans = array_slice($this->recentScans, 0, 5);
+            session()->put('dts_recent_scans', $this->recentScans);
+
+            $rdpStatusMsg = $isConvertedToRdp ? ' (Archived in RDP)' : '';
+            $this->successMessage = "Completed transaction '{$transaction->control_number}'{$rdpStatusMsg} loaded. Click below to view transaction details.";
+            $this->dispatch('scanner-code-success');
+            $this->dispatch('scanner-audio-action');
             return;
         }
 
@@ -936,6 +1033,7 @@ new class extends Component {
             'control_number' => $transaction->control_number,
             'qr_code' => $transaction->qr_code,
             'type' => ucfirst($transaction->type),
+            'classification' => ucfirst($transaction->classification ?: $transaction->type),
             'subject' => $transaction->subject ?: 'No subject specified',
             'requestor_name' => $transaction->requestor_name ?: 'N/A',
             'originated_office' => $transaction->originated_office_name ?: $transaction->originated_from,
@@ -952,6 +1050,7 @@ new class extends Component {
             'revision_requested_by_office' => $transaction->revision_requested_by_office ?? null,
             'revision_requested_by_sequence' => $transaction->revision_requested_by_sequence ?? null,
             'transaction_flow' => $transaction->transaction_flow,
+            'created_at' => !empty($transaction->date_created) ? date('M d, Y', strtotime($transaction->date_created)) : 'N/A',
         ];
 
         // Push scan to session recent history
@@ -989,6 +1088,11 @@ new class extends Component {
 
         if (!$this->activeTransaction) {
             $this->errorMessage = 'No transaction selected.';
+            return;
+        }
+
+        if (!empty($this->activeTransaction['is_completed'])) {
+            $this->openTransactionDetails();
             return;
         }
 
@@ -2290,7 +2394,11 @@ new class extends Component {
                                     @if($activeTransaction['is_completed'])
                                         <span class="scanner-badge badge-completed">
                                             <svg width="12" height="12" viewBox="0 0 20 20" fill="currentColor"><path fill-rule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clip-rule="evenodd"/></svg>
-                                            Completed
+                                            @if(!empty($activeTransaction['is_converted_rdp']))
+                                                Completed &amp; Converted to RDP
+                                            @else
+                                                Completed
+                                            @endif
                                         </span>
                                     @elseif($activeTransaction['is_received_here'])
                                         <span class="scanner-badge badge-received">
@@ -2319,11 +2427,57 @@ new class extends Component {
                                 <div><strong style="color: #64748b;">Date Created:</strong> {{ $activeTransaction['created_at'] ?? 'N/A' }}</div>
                             </div>
 
-                            <!-- Completed Transaction Alert -->
+                            <!-- Completed Transaction Alert & Open Actions -->
                             @if($activeTransaction['is_completed'])
-                                <div style="background: #fff7ed; border: 1px solid #fed7aa; color: #c2410c; padding: 10px 14px; border-radius: 8px; font-size: 12px; font-weight: 600; display: flex; align-items: center; gap: 8px;">
-                                    <svg width="15" height="15" viewBox="0 0 20 20" fill="currentColor" style="flex-shrink: 0;"><path fill-rule="evenodd" d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-7-4a1 1 0 11-2 0 1 1 0 012 0zM9 9a1 1 0 000 2v3a1 1 0 001 1h1a1 1 0 100-2v-3a1 1 0 00-1-1H9z" clip-rule="evenodd"/></svg>
-                                    <span>This transaction has already reached completion. No further routing actions are required.</span>
+                                <div style="margin-top: 10px; display: flex; flex-direction: column; gap: 12px;">
+                                    <div style="background: {{ !empty($activeTransaction['is_converted_rdp']) ? '#f0fdf4' : '#eff6ff' }}; border: 1.5px solid {{ !empty($activeTransaction['is_converted_rdp']) ? '#86efac' : '#93c5fd' }}; color: {{ !empty($activeTransaction['is_converted_rdp']) ? '#166534' : '#1e40af' }}; padding: 12px 14px; border-radius: 8px; font-size: 12px; display: flex; align-items: center; gap: 10px;">
+                                        <svg width="18" height="18" viewBox="0 0 20 20" fill="currentColor" style="flex-shrink: 0;"><path fill-rule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clip-rule="evenodd"/></svg>
+                                        <div>
+                                            <div style="font-weight: 700; font-size: 12.5px;">
+                                                @if(!empty($activeTransaction['is_converted_rdp']))
+                                                    Transaction Fully Completed &amp; Converted to RDP
+                                                @else
+                                                    Transaction Fully Completed
+                                                @endif
+                                            </div>
+                                            <div style="font-size: 11.5px; opacity: 0.9; margin-top: 2px;">
+                                                This document has completed its routing flow. Use the button below to view the digital dossier, attachments, and audit trail.
+                                            </div>
+                                        </div>
+                                    </div>
+
+                                    <div style="display: flex; justify-content: flex-end; align-items: center; gap: 8px;">
+                                        @if(!empty($activeTransaction['is_converted_rdp']))
+                                            <button 
+                                                type="button" 
+                                                wire:click="openRdpDetails" 
+                                                class="scanner-action-btn"
+                                                style="background: #0284c7; padding: 9px 15px; font-size: 12px; display: inline-flex; align-items: center; gap: 6px; border-radius: 8px; color: #ffffff; font-weight: 700; cursor: pointer; border: none;"
+                                                title="View record in RDP NAP Form 1"
+                                            >
+                                                <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+                                                    <path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"></path>
+                                                    <path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z"></path>
+                                                </svg>
+                                                <span>View in RDP NAP Form 1</span>
+                                            </button>
+                                        @endif
+
+                                        <button 
+                                            type="button" 
+                                            wire:click="openTransactionDetails('{{ $activeTransaction['id'] }}')" 
+                                            class="scanner-action-btn"
+                                            style="background: #2563eb; padding: 9px 18px; font-size: 12.5px; display: inline-flex; align-items: center; gap: 6px; border-radius: 8px; color: #ffffff; font-weight: 700; cursor: pointer; border: none; box-shadow: 0 2px 6px rgba(37, 99, 235, 0.35);"
+                                            title="Open Transaction Details"
+                                        >
+                                            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.3" stroke-linecap="round" stroke-linejoin="round">
+                                                <path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"></path>
+                                                <polyline points="15 3 21 3 21 9"></polyline>
+                                                <line x1="10" y1="14" x2="21" y2="3"></line>
+                                            </svg>
+                                            <span>Open Transaction Details</span>
+                                        </button>
+                                    </div>
                                 </div>
                             @else
                                 <!-- Action Form Controls (If not completed) -->
@@ -2356,6 +2510,11 @@ new class extends Component {
                                             </div>
                                         @endif
 
+                                        @php
+                                            $isLastStep = empty($activeTransaction['next_office_code']) || ($activeTransaction['next_office'] ?? '') === 'End of Flow' || str_contains($activeTransaction['next_office'] ?? '', 'End of Flow');
+                                        @endphp
+
+                                        @if(!$isLastStep)
                                         <div class="scanner-action-form-row" style="display: flex; gap: 8px; flex-wrap: wrap;">
                                             <div style="flex: 1; min-width: 150px;">
                                                 <label style="font-size: 10.5px; font-weight: 700; color: #475569; display: block; margin-bottom: 3px; text-transform: uppercase;">Action Needed</label>
@@ -2419,6 +2578,7 @@ new class extends Component {
                                                 @endif
                                             </div>
                                         @endif
+                                        @endif
                                     @endif
 
                                     <div style="display: flex; justify-content: flex-end; gap: 8px; margin-top: 4px;">
@@ -2436,6 +2596,7 @@ new class extends Component {
                                                 'returned for revision'
                                             ]);
                                             $isToBeForwarded = ($actionLower === 'to be forwarded to');
+                                            $isLastStep = empty($activeTransaction['next_office_code']) || ($activeTransaction['next_office'] ?? '') === 'End of Flow' || str_contains($activeTransaction['next_office'] ?? '', 'End of Flow');
 
                                             if (!$activeTransaction['is_received_here']) {
                                                 $btnLabel = 'Receive Transaction';
@@ -2445,6 +2606,10 @@ new class extends Component {
                                                 $btnLabel = 'Return for Revision';
                                                 $btnBg = '#dc2626';
                                                 $btnIcon = 'revision';
+                                            } elseif ($isLastStep) {
+                                                $btnLabel = 'Complete Transaction';
+                                                $btnBg = '#059669';
+                                                $btnIcon = 'complete';
                                             } elseif ($isToBeForwarded) {
                                                 $btnLabel = 'Proceed Action';
                                                 $btnBg = '#2563eb';
@@ -2467,6 +2632,8 @@ new class extends Component {
                                         >
                                             @if($btnIcon === 'receive')
                                                 <svg width="14" height="14" viewBox="0 0 20 20" fill="currentColor"><path fill-rule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm1-11a1 1 0 10-2 0v3.586L7.707 9.293a1 1 0 00-1.414 1.414l3 3a1 1 0 001.414 0l3-3a1 1 0 00-1.414-1.414L11 10.586V7z" clip-rule="evenodd"/></svg>
+                                            @elseif($btnIcon === 'complete')
+                                                <svg width="14" height="14" viewBox="0 0 20 20" fill="currentColor"><path fill-rule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clip-rule="evenodd"/></svg>
                                             @elseif($btnIcon === 'revision')
                                                 <svg width="14" height="14" viewBox="0 0 20 20" fill="currentColor"><path fill-rule="evenodd" d="M4 2a1 1 0 011 1v2.101a7.002 7.002 0 0111.601 2.566 1 1 0 11-1.885.666A5.002 5.002 0 005.999 7H9a1 1 0 010 2H4a1 1 0 01-1-1V3a1 1 0 011-1zm.008 9.057a1 1 0 011.276.61A5.002 5.002 0 0014.001 13H11a1 1 0 110-2h5a1 1 0 011 1v5a1 1 0 11-2 0v-2.101a7.002 7.002 0 01-11.601-2.566 1 1 0 01.61-1.276z" clip-rule="evenodd"/></svg>
                                             @else

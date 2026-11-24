@@ -959,14 +959,14 @@ new #[Layout('layouts.dts')] #[Title('Received Transactions - Document Tracking 
                         if ($rcvIsRevision) {
                             $rcvBtnLabel = 'Return for Revision';
                             $rcvBtnBg = '#dc2626';
+                        } elseif (($forwardTransData['is_last_step'] ?? false)) {
+                            $rcvBtnLabel = '✓ Complete Transaction';
+                            $rcvBtnBg = '#059669';
                         } elseif ($rcvIsToBeForwarded) {
                             $rcvBtnLabel = 'Proceed Action';
                             $rcvBtnBg = '#2563eb';
                         } elseif ($rcvIsApprovalFlow) {
                             $rcvBtnLabel = 'Proceed Forward';
-                            $rcvBtnBg = '#16a34a';
-                        } elseif (($forwardTransData['is_last_step'] ?? false)) {
-                            $rcvBtnLabel = '✓ Complete Transaction';
                             $rcvBtnBg = '#16a34a';
                         } else {
                             $rcvBtnLabel = 'Forward to Office';

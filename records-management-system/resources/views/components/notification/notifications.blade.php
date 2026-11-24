@@ -835,6 +835,7 @@ new class extends Component {
     }"
     @click.outside="open = false"
     @close-notifications.window="open = false"
+    @keydown.escape.window="open = false"
     @rms-popout-setting-changed.window="popoutEnabled = !!($event.detail?.enabled ?? $event.detail)"
     @rms-notification-overlay-show.window="triggerOverlay($event.detail)"
 >

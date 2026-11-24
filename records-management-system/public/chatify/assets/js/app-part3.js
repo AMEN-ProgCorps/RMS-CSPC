@@ -1430,6 +1430,9 @@
       // true here when the synthetic click bubbles up through chatBox.
       if (longPressJustFired) return;
 
+      if (e.target.closest('.read-more-link')) {
+        return;
+      }
       if (e.target.closest('a') && !e.target.closest('a').querySelector('img') && !e.target.closest('.message-media')) {
         return;
       }
@@ -1545,7 +1548,7 @@
       if (longPressJustFired) return;
       const container = e.target.closest('.message-container.sent');
       if (!container) return;
-      if (e.target.closest('.reply-quote')) return;
+      if (e.target.closest('.reply-quote, .read-more-link')) return;
       triggerEditForContainer(container);
     });
 

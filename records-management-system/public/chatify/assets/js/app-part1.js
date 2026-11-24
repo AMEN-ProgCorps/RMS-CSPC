@@ -469,7 +469,7 @@
         const senderOfficeId = senderUser && senderUser.office_id !== undefined && senderUser.office_id !== null ? Number(senderUser.office_id) : 0;
         if (senderOfficeId !== spiedOfficeId) {
           isSenderMoved = true;
-          movedNoticeText = (senderOfficeId <= 0) ? 'No office assigned for this user' : 'This user has been moved to other office';
+          movedNoticeText = (senderOfficeId <= 0) ? 'This user has no assigned office' : 'This user has been moved to another office';
           container.classList.add('user-moved');
         }
       }
@@ -1322,7 +1322,7 @@
             if (chatBox && changedUserId > 0) {
               const msgContainers = chatBox.querySelectorAll(`.message-container[data-sender-id="${changedUserId}"]`);
               if (newOfficeId !== spiedOfficeId) {
-                const noticeText = (newOfficeId <= 0) ? 'No office assigned for this user' : 'This user has been moved to other office';
+                const noticeText = (newOfficeId <= 0) ? 'This user has no assigned office' : 'This user has been moved to another office';
                 const changedMsgIds = new Set();
                 msgContainers.forEach(container => {
                   container.classList.add('user-moved');
@@ -1397,7 +1397,7 @@
               );
               if (chatBox) {
                 chatBox.innerHTML = '<div class="empty-chat" style="display:flex;flex-direction:column;align-items:center;justify-content:center;height:100%;gap:12px;padding:32px;">' +
-                  '<p style="margin:0;font-size:14px;font-weight:600;color:var(--text-primary);">You have been moved to other office.</p>' +
+                  '<p style="margin:0;font-size:14px;font-weight:600;color:var(--text-primary);">You have been moved to another office.</p>' +
                   '<p style="margin:0;font-size:13px;color:var(--text-secondary);">You no longer have access to <strong>' + _officeGcName + '</strong>.</p>' +
                 '</div>';
               }
@@ -1426,7 +1426,7 @@
               if (typeof hideReplyBanner === 'function') hideReplyBanner();
             } else {
               if (chatBox && changedUserId > 0 && currentOfficeId > 0 && newOfficeId !== currentOfficeId) {
-                const noticeText = (newOfficeId <= 0) ? 'No office assigned for this user' : 'This user has been moved to other office';
+                const noticeText = (newOfficeId <= 0) ? 'This user has no assigned office' : 'This user has been moved to another office';
                 const changedMsgIds = new Set();
                 const msgContainers = chatBox.querySelectorAll(`.message-container[data-sender-id="${changedUserId}"]`);
                 msgContainers.forEach(container => {

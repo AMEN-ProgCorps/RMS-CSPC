@@ -771,10 +771,7 @@ try {
   <div class="modal" id="customReactionModal" aria-hidden="true">
     <div class="modal-content" style="max-width:420px;min-height:0;">
       <div class="modal-header" style="padding:14px 16px;border-bottom:1px solid var(--border-color);display:flex;align-items:center;justify-content:space-between;gap:10px;">
-        <div style="display:flex;align-items:center;gap:8px;">
-          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="flex-shrink:0;"><circle cx="12" cy="12" r="10"></circle><path d="M8 14s1.5 2 4 2 4-2 4-2"></path><line x1="9" y1="9" x2="9.01" y2="9"></line><line x1="15" y1="9" x2="15.01" y2="9"></line></svg>
-          <h3 style="margin:0;font-size:16px;font-weight:600;color:var(--text-primary);">Customize Reactions</h3>
-        </div>
+        <h3 style="margin:0;font-size:16px;font-weight:600;color:var(--text-primary);">Customize Emoji</h3>
         <button type="button" id="resetReactionEmojisBtn" onclick="resetCustomReactionEmojis()" title="Reset to Default Emojis" style="background:none;border:1px solid var(--border-color);border-radius:6px;padding:4px 10px;font-size:12px;font-weight:600;color:var(--text-secondary);cursor:pointer;transition:all 0.15s;outline:none;">
           Reset
         </button>

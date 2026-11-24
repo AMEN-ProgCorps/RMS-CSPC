@@ -4806,6 +4806,8 @@
         cached._raw.readUpTo = dmReadUpTo;
       }
       isFirstLoad = true; // snap straight to bottom once the new conversation's messages arrive
+      userScrolledUp = false;
+      shouldAutoScroll = true;
       chatFullyLoaded = false; // suppress scroll buttons until new chat finishes loading
       dmViewingOlder = false;
       if (hadUnread) {
@@ -4899,6 +4901,8 @@
       if (typeof hideReplyBanner === 'function') hideReplyBanner();
       updateHeaderActiveStatus();
       isFirstLoad = true;
+      userScrolledUp = false;
+      shouldAutoScroll = true;
       chatFullyLoaded = false;
       window.replyJumpActive = false;
       hideScrollIndicator(true);
@@ -5022,6 +5026,8 @@
       if (typeof hideReplyBanner === 'function') hideReplyBanner();
       updateHeaderActiveStatus();
       isFirstLoad = true;
+      userScrolledUp = false;
+      shouldAutoScroll = true;
       chatFullyLoaded = false;
       window.replyJumpActive = false;
       hideScrollIndicator(true);
@@ -5168,6 +5174,8 @@
       if (typeof hideReplyBanner === 'function') hideReplyBanner();
       updateHeaderActiveStatus();
       isFirstLoad = true;
+      userScrolledUp = false;
+      shouldAutoScroll = true;
       chatFullyLoaded = false;
       window.replyJumpActive = false;
       hideScrollIndicator(true);
@@ -7391,6 +7399,9 @@
             }
             chatBox.appendChild(el);
           });
+          applyAdminBadges();
+          applyEmojiOnly();
+          attachImageLoadListeners();
           if (!adminConvViewingOlder) {
             if (isFirstLoad) {
               isFirstLoad = false;
@@ -7405,9 +7416,6 @@
               }
             }
           }
-          applyAdminBadges();
-          applyEmojiOnly();
-          attachImageLoadListeners();
           if (adminConvHasMore && !document.getElementById('loadOlderBtn') && !document.getElementById('noMoreOlderNotice')) insertLoadOlderBtn();
           return;
         }
@@ -7438,6 +7446,9 @@
           }
           chatBox.appendChild(el);
         });
+        applyAdminBadges();
+        applyEmojiOnly();
+        attachImageLoadListeners();
 
         if (isFirstLoad) {
           isFirstLoad = false;
@@ -7454,9 +7465,6 @@
             }
           }
         }
-        applyAdminBadges();
-        applyEmojiOnly();
-        attachImageLoadListeners();
         adminConvCursor = data.nextCursor || '';
         if (wasAtBottom && !userScrolledUp && !window.isTouchDown) {
           adminConvViewingOlder = false;

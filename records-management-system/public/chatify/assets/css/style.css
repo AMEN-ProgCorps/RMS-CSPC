@@ -1891,8 +1891,8 @@
       max-width: 92%;
       width: auto !important;
       min-width: 0 !important;
-      margin-bottom: -12px !important;
-      padding: 7px 12px 18px 12px !important;
+      margin-bottom: 4px !important;
+      padding: 7px 12px !important;
     }
 
     /* Avatar Styles */
@@ -4451,6 +4451,19 @@
       align-items: center;
       flex-shrink: 0;
       margin-bottom: 2px;
+    }
+
+    /* Hide the emoji button on mobile viewports & touch-only devices,
+       while keeping it visible on desktop PC and in the RMS desktop widget iframe. */
+    @media (max-width: 991px) {
+      html:not(.rms-desktop-widget) .emoji-picker-anchor {
+        display: none !important;
+      }
+    }
+    @media (hover: none) and (pointer: coarse) {
+      .emoji-picker-anchor {
+        display: none !important;
+      }
     }
 
     .emoji-picker-btn {

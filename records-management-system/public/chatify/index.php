@@ -207,7 +207,7 @@ try {
     };
     try { localStorage.removeItem('activeDM'); } catch(e) {}
   </script>
-  <!-- Apply dark mode BEFORE page renders to prevent flash -->
+  <!-- Apply dark mode & widget class BEFORE page renders to prevent flash -->
   <script>
     (function() {
       var saved = localStorage.getItem('darkMode');
@@ -223,6 +223,29 @@ try {
           localStorage.setItem('darkMode', 'enabled');
         }
       }
+      function syncRmsDesktopWidgetClass() {
+        try {
+          if (window.self !== window.top) {
+            var parentDesktop = true;
+            try {
+              if (window.parent && typeof window.parent.innerWidth === 'number') {
+                parentDesktop = window.parent.innerWidth > 991;
+              }
+            } catch (e) {}
+            var isCoarse = window.matchMedia && window.matchMedia('(hover: none) and (pointer: coarse)').matches;
+            document.documentElement.classList.toggle('rms-desktop-widget', parentDesktop && !isCoarse);
+          } else {
+            document.documentElement.classList.remove('rms-desktop-widget');
+          }
+        } catch (e) {}
+      }
+      syncRmsDesktopWidgetClass();
+      window.addEventListener('resize', syncRmsDesktopWidgetClass);
+      try {
+        if (window.parent && window.parent !== window) {
+          window.parent.addEventListener('resize', syncRmsDesktopWidgetClass);
+        }
+      } catch (e) {}
     })();
   </script>
   <script type="speculationrules">

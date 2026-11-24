@@ -4453,6 +4453,19 @@
       margin-bottom: 2px;
     }
 
+    /* Hide the emoji button on mobile viewports & touch-only devices,
+       while keeping it visible on desktop PC and in the RMS desktop widget iframe. */
+    @media (max-width: 991px) {
+      html:not(.rms-desktop-widget) .emoji-picker-anchor {
+        display: none !important;
+      }
+    }
+    @media (hover: none) and (pointer: coarse) {
+      .emoji-picker-anchor {
+        display: none !important;
+      }
+    }
+
     .emoji-picker-btn {
       display: inline-flex;
       align-items: center;

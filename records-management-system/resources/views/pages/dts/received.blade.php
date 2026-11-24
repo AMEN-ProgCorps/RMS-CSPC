@@ -160,12 +160,7 @@ new #[Layout('layouts.dts')] #[Title('Received Transactions - Document Tracking 
      */
     public function getActionOptionsProperty(): array
     {
-        $canForwardOtherOffice = \App\Services\DtsRoutingService::canForwardToOtherOffice();
-        $query = DB::table('dts_action_options')->orderBy('option_name', 'asc');
-        if (!$canForwardOtherOffice) {
-            $query->where('option_name', '!=', 'To be Forwarded to');
-        }
-        return $query->pluck('option_name')->toArray();
+        return \App\Services\DtsRoutingService::getActionOptions();
     }
 
     /**

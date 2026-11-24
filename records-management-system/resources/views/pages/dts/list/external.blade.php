@@ -296,12 +296,7 @@ new #[Layout('layouts.dts')] #[Title('DTS - External Transactions')] class exten
      */
     public function getActionOptionsProperty(): array
     {
-        $canForwardOtherOffice = \App\Services\DtsRoutingService::canForwardToOtherOffice();
-        $query = DB::table('dts_action_options')->orderBy('option_name', 'asc');
-        if (!$canForwardOtherOffice) {
-            $query->where('option_name', '!=', 'To be Forwarded to');
-        }
-        return $query->pluck('option_name')->toArray();
+        return \App\Services\DtsRoutingService::getActionOptions();
     }
 
     // Forward HUB Selection Modal State
@@ -3457,9 +3452,7 @@ new #[Layout('layouts.dts')] #[Title('DTS - External Transactions')] class exten
                                 <span class="dts-im-tile-k"><i class="fa-solid fa-clipboard-check" style="color: #10b981;"></i> Action Needed</span>
                                 @if ($editingAll)
                                     @php
-                                        $availableActionNeeded = DB::table('dts_action_options')
-                                            ->orderBy('option_name', 'asc')
-                                            ->get();
+                                        $availableActionNeeded = \App\Services\DtsRoutingService::getActionOptionsQuery(true)->get();
                                     @endphp
                                     <select class="receive-field-input" wire:model="actionNeeded" style="height: 36px; padding: 0 8px; border-radius: 6px; font-size: 12px;">
                                         <option value="">Select Action Needed...</option>

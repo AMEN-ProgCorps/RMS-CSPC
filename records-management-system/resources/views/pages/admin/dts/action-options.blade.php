@@ -193,7 +193,9 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Action Options')] class 
             $query->where('option_name', 'ilike', '%' . $this->search . '%');
         }
 
-        $options = $query->orderBy('option_name', 'asc')->get();
+        $builtIns = \App\Services\DtsRoutingService::BUILT_IN_ACTION_OPTIONS;
+        $inList = "'" . implode("','", array_map('addslashes', $builtIns)) . "'";
+        $options = $query->orderByRaw("CASE WHEN option_name IN ({$inList}) THEN 0 ELSE 1 END ASC, option_name ASC")->get();
 
         return [
             'options' => $options,

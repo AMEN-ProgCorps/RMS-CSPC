@@ -82,19 +82,9 @@ new #[Layout('layouts.dts')] #[Title('Advanced Scanner Console - DTS')] class ex
         }
 
         try {
-            if (\Illuminate\Support\Facades\Schema::hasTable('dts_action_options')) {
-                $query = DB::table('dts_action_options')->orderBy('option_name', 'asc');
-                if (!\App\Services\DtsRoutingService::canForwardToOtherOffice()) {
-                    $query->where('option_name', '!=', 'To be Forwarded to');
-                }
-                $this->actionOptions = $query->pluck('option_name')->toArray();
-            }
+            $this->actionOptions = \App\Services\DtsRoutingService::getActionOptions();
         } catch (\Throwable $e) {
-            $this->actionOptions = [];
-        }
-
-        if (empty($this->actionOptions)) {
-            $this->actionOptions = ['For Action', 'For Approval', 'For Review', 'For Signature', 'For Appropriate Action', 'For Information'];
+            $this->actionOptions = \App\Services\DtsRoutingService::BUILT_IN_ACTION_OPTIONS;
         }
 
         $this->actionNeeded = $this->actionOptions[0] ?? 'For Action';

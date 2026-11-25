@@ -766,9 +766,30 @@ body:has(.dcs-top-tabs-host .top-nav-tabs-wrapper) .reg-container {
 
 .reg-field input:disabled,
 .reg-field select:disabled {
-    background: #f8fafc;
-    color: #475569;
+    background: #f1f5f9;
+    color: #94a3b8;
+    border-color: #e2e8f0;
     cursor: not-allowed;
+    opacity: 1;
+    -webkit-text-fill-color: #94a3b8;
+}
+
+/* Syllabi / TOS: keep locked/empty controls clearly gray so they don’t look selectable yet. */
+#section-syllabi .reg-field select:disabled,
+#section-syllabi .reg-field input:disabled,
+#section-syllabi .reg-cp-trigger:disabled,
+#section-syllabi .reg-syllabi-years.is-empty,
+#section-syllabi select.reg-field-locked:disabled {
+    background: #f1f5f9;
+    color: #94a3b8;
+    border-color: #e2e8f0;
+    opacity: 1;
+    cursor: not-allowed;
+    -webkit-text-fill-color: #94a3b8;
+}
+
+#section-syllabi .reg-cp-trigger:disabled i {
+    color: #94a3b8;
 }
 
 .reg-field input::placeholder {
@@ -2276,14 +2297,15 @@ body:has(.dcs-top-tabs-host .top-nav-tabs-wrapper) .reg-container {
 
 #syllabiWizardTable thead th.col-code,
 #syllabiWizardTable tbody td.col-code {
-    width: 100px;
-    min-width: 100px;
-    max-width: 100px;
-    padding-left: 4px;
-    padding-right: 4px;
-    white-space: normal;
-    line-height: 1.15;
+    width: 1%;
+    min-width: 7.5rem;
+    max-width: none;
+    padding-left: 8px;
+    padding-right: 8px;
+    white-space: nowrap;
+    line-height: 1.25;
     text-align: center;
+    overflow: visible;
 }
 
 .reg-grid-syllabi-context .reg-field--year-level {
@@ -2295,6 +2317,194 @@ body:has(.dcs-top-tabs-host .top-nav-tabs-wrapper) .reg-container {
 .reg-grid-syllabi-context .reg-field--year-level > label {
     width: 100%;
     text-align: left;
+}
+
+.reg-cp-picker {
+    position: relative;
+    width: 100%;
+}
+
+.reg-cp-trigger {
+    box-sizing: border-box;
+    width: 100%;
+    min-height: 40px;
+    padding: 8px 12px;
+    border: 1px solid var(--reg-border, #cbd5e1);
+    border-radius: 8px;
+    background: var(--reg-bg, #fff);
+    color: var(--reg-text, #0f172a);
+    font-size: 0.9rem;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+    cursor: pointer;
+    text-align: left;
+}
+
+.reg-cp-trigger:disabled {
+    opacity: 1;
+    cursor: not-allowed;
+    background: #f1f5f9;
+    color: #94a3b8;
+    border-color: #e2e8f0;
+}
+
+.reg-cp-trigger.is-open {
+    border-color: var(--reg-accent, #1d4ed8);
+    box-shadow: 0 0 0 3px color-mix(in srgb, var(--reg-accent, #1d4ed8) 18%, transparent);
+}
+
+.reg-cp-trigger i {
+    color: var(--reg-text-muted, #64748b);
+    font-size: 0.75rem;
+}
+
+.reg-cp-panel {
+    position: absolute;
+    z-index: 40;
+    top: calc(100% + 4px);
+    left: 0;
+    right: 0;
+    min-width: 420px;
+    max-width: 560px;
+    height: 260px;
+    display: grid;
+    grid-template-columns: minmax(160px, 42%) 1fr;
+    border: 1px solid var(--reg-border, #cbd5e1);
+    border-radius: 10px;
+    background: var(--reg-bg, #fff);
+    box-shadow: 0 12px 28px rgba(15, 23, 42, 0.14);
+    overflow: hidden;
+}
+
+.reg-cp-panel[hidden] {
+    display: none !important;
+}
+
+.reg-cp-colleges,
+.reg-cp-programs {
+    overflow-y: auto;
+    height: 100%;
+}
+
+.reg-cp-colleges {
+    border-right: 1px solid var(--reg-border, #e2e8f0);
+    background: color-mix(in srgb, var(--reg-bg, #fff) 92%, #e2e8f0);
+}
+
+.reg-cp-college {
+    width: 100%;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 10px 12px;
+    border: 0;
+    background: transparent;
+    color: var(--reg-text, #0f172a);
+    font-size: 0.86rem;
+    text-align: left;
+    cursor: pointer;
+}
+
+.reg-cp-college span:first-child {
+    flex: 1;
+    min-width: 0;
+}
+
+.reg-cp-college-count {
+    color: var(--reg-text-muted, #64748b);
+    font-size: 0.75rem;
+}
+
+.reg-cp-college i {
+    color: var(--reg-text-muted, #94a3b8);
+    font-size: 0.7rem;
+}
+
+.reg-cp-college:hover,
+.reg-cp-college.is-active {
+    background: color-mix(in srgb, var(--reg-accent, #1d4ed8) 10%, var(--reg-bg, #fff));
+}
+
+.reg-cp-college.is-active {
+    color: var(--reg-accent, #1d4ed8);
+    font-weight: 600;
+}
+
+.reg-cp-programs {
+    padding: 8px;
+}
+
+.reg-cp-programs-heading {
+    font-size: 0.75rem;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.03em;
+    color: var(--reg-text-muted, #64748b);
+    padding: 4px 6px 8px;
+}
+
+.reg-cp-programs-empty {
+    color: var(--reg-text-muted, #64748b);
+    font-size: 0.86rem;
+    padding: 16px 10px;
+    text-align: center;
+}
+
+.reg-cp-program {
+    display: flex;
+    align-items: flex-start;
+    gap: 8px;
+    padding: 8px;
+    border-radius: 8px;
+    cursor: pointer;
+    font-size: 0.88rem;
+    color: var(--reg-text, #0f172a);
+}
+
+.reg-cp-program:hover {
+    background: color-mix(in srgb, var(--reg-accent, #1d4ed8) 8%, var(--reg-bg, #fff));
+}
+
+.reg-cp-program.is-locked-out {
+    opacity: 0.55;
+    cursor: not-allowed;
+}
+
+.reg-cp-program.is-locked-out:hover {
+    background: transparent;
+}
+
+.reg-cp-program input {
+    margin-top: 2px;
+}
+
+.reg-cp-selected {
+    display: none !important;
+}
+
+.reg-cp-chip {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    max-width: 100%;
+    padding: 4px 8px;
+    border-radius: 999px;
+    background: color-mix(in srgb, var(--reg-accent, #1d4ed8) 10%, var(--reg-bg, #fff));
+    border: 1px solid color-mix(in srgb, var(--reg-accent, #1d4ed8) 25%, var(--reg-border, #cbd5e1));
+    font-size: 0.78rem;
+    color: var(--reg-text, #0f172a);
+}
+
+.reg-cp-chip button {
+    border: 0;
+    background: transparent;
+    color: var(--reg-text-muted, #64748b);
+    cursor: pointer;
+    font-size: 1rem;
+    line-height: 1;
+    padding: 0;
 }
 
 .reg-syllabi-years {
@@ -2358,6 +2568,17 @@ body:has(.dcs-top-tabs-host .top-nav-tabs-wrapper) .reg-container {
     background: var(--reg-bg, #fff);
 }
 
+#syllabiWizardTable tbody tr.syllabi-program-header td {
+    background: color-mix(in srgb, var(--reg-accent, #1d4ed8) 18%, var(--reg-bg, #fff));
+    color: var(--reg-accent, #1d4ed8);
+    font-size: 0.8rem;
+    font-weight: 700;
+    letter-spacing: 0.03em;
+    text-transform: uppercase;
+    padding: 11px 12px;
+    border-top: 1px solid color-mix(in srgb, var(--reg-accent, #1d4ed8) 28%, var(--reg-border, #cbd5e1));
+}
+
 #syllabiWizardTable tbody tr.syllabi-year-header td {
     background: color-mix(in srgb, var(--reg-accent, #1d4ed8) 10%, var(--reg-bg, #fff));
     color: var(--reg-text, #0f172a);
@@ -2369,50 +2590,15 @@ body:has(.dcs-top-tabs-host .top-nav-tabs-wrapper) .reg-container {
     border-top: 1px solid var(--reg-border, #cbd5e1);
 }
 
+/* Year Level column removed — section headers (Year Level · 1st Year) are enough.
+   Row year value stays in a hidden .syllabi-merged-year for submit/grouping. */
 #syllabiWizardTable thead th.col-year,
 #syllabiWizardTable tbody td.col-year {
-    width: 148px;
-    min-width: 148px;
-    max-width: 168px;
-    padding-left: 4px;
-    padding-right: 4px;
-    text-align: center;
-    overflow: visible;
-    position: relative;
-    z-index: 2;
+    display: none !important;
 }
 
 #syllabiWizardTable .syllabi-merged-year {
-    max-width: 100%;
-    min-width: 0;
-    width: 100%;
-    padding: 4px 6px;
-    font-size: 0.78rem;
-    pointer-events: auto;
-    cursor: pointer;
-    position: relative;
-    z-index: 3;
-    appearance: auto;
-    background-image: none;
-}
-
-#syllabiWizardTable .syllabi-merged-year:disabled,
-#syllabiWizardTable .syllabi-merged-year.is-locked {
-    pointer-events: none;
-    cursor: default;
-    appearance: none;
-    background: #f1f5f9;
-    color: #0f172a;
-    opacity: 1;
-}
-
-#syllabiWizardTable .syllabi-year-lock {
-    display: block;
-    font-size: 0.78rem;
-    font-weight: 600;
-    line-height: 1.3;
-    text-align: center;
-    color: var(--reg-text, #0f172a);
+    display: none !important;
 }
 
 #syllabiWizardTable .syllabi-merged-code {
@@ -2521,8 +2707,17 @@ body:has(.dcs-top-tabs-host .top-nav-tabs-wrapper) .reg-container {
     text-align: center;
 }
 
-.syllabi-merged-course {
+/* Posted values stay in hidden inputs — never style type=hidden as a visible box
+   (display:block on hidden can cover the readonly display field and look "empty"). */
+input.syllabi-merged-course[type="hidden"],
+input.syllabi-merged-code[type="hidden"] {
+    display: none !important;
+}
+
+.syllabi-merged-course-display,
+.syllabi-merged-code-display {
     display: block;
+    box-sizing: border-box;
     width: 100%;
     min-height: 40px;
     border: none;
@@ -2531,12 +2726,41 @@ body:has(.dcs-top-tabs-host .top-nav-tabs-wrapper) .reg-container {
     padding: 10px 12px;
     font-family: inherit;
     font-size: 0.82rem;
-    color: var(--reg-text);
+    font-weight: 500;
+    color: var(--reg-text, #0f172a);
+    -webkit-text-fill-color: var(--reg-text, #0f172a);
     resize: none;
     overflow: hidden;
     white-space: normal;
     overflow-wrap: break-word;
     line-height: 1.4;
+    cursor: default;
+}
+
+.syllabi-merged-code-display {
+    min-height: 36px;
+    width: 100%;
+    min-width: 100%;
+    padding: 8px 6px;
+    font-size: 0.8rem;
+    font-weight: 600;
+    text-align: center;
+    white-space: nowrap;
+    overflow: visible;
+    text-overflow: clip;
+}
+
+/* Table sits inside .reg-field — don't gray-out locked course name/code like empty dropdowns. */
+#section-syllabi #syllabiWizardTable .syllabi-merged-course-display:disabled,
+#section-syllabi #syllabiWizardTable .syllabi-merged-code-display:disabled,
+#section-syllabi #syllabiWizardTable .syllabi-merged-course-display:read-only,
+#section-syllabi #syllabiWizardTable .syllabi-merged-code-display:read-only {
+    background: transparent;
+    color: var(--reg-text, #0f172a);
+    -webkit-text-fill-color: var(--reg-text, #0f172a);
+    opacity: 1;
+    cursor: default;
+    border-color: transparent;
 }
 
 .syllabi-faculty-wrap {
@@ -2633,7 +2857,6 @@ input[name="syllabiDrfReceived[]"].is-locked,
 
 #syllabiWizardTable[data-active-step="2"] td.col-pinned:first-child,
 #syllabiWizardTable[data-active-step="2"] td.col-code,
-#syllabiWizardTable[data-active-step="2"] td.col-year,
 #syllabiWizardTable[data-active-step="2"] td.col-shared {
     background: var(--reg-bg);
 }

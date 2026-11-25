@@ -2793,19 +2793,13 @@ class RegisterQueryHelper
             $semesterId = (int) ($syllabiContext['semester_id'] ?? 0);
             $schoolYearId = (int) ($syllabiContext['school_year_id'] ?? 0);
             $courseType = trim((string) ($syllabiContext['course_type'] ?? ''));
-            $shared = CourseTypeRules::isSharedType($courseType);
-            if ($collegeId > 0 && ($shared || $programId > 0)) {
-                $query->whereExists(function ($q) use ($collegeId, $programId, $semesterId, $schoolYearId, $courseType, $shared) {
+            if ($collegeId > 0) {
+                $query->whereExists(function ($q) use ($collegeId, $semesterId, $schoolYearId, $courseType) {
                     $q->select(DB::raw(1))
                         ->from('dcs_syllabi as s')
                         ->leftJoin('dcs_program_courses as pc', 'pc.id', '=', 's.course_id')
                         ->whereColumn('s.request_id', 'dr.id')
                         ->where('s.college_id', $collegeId);
-                    if ($shared) {
-                        $q->whereNull('s.program_id');
-                    } else {
-                        $q->where('s.program_id', $programId);
-                    }
                     if ($semesterId > 0) {
                         $q->where('s.semester_id', $semesterId);
                     }
@@ -9289,22 +9283,19 @@ class RegisterQueryHelper
         $courseType = trim((string) $request->input('course_type', ''));
         $subTypeId = $request->input('sub_type_id') ? (int) $request->input('sub_type_id') : null;
         $excludeRequestId = (int) $request->input('exclude_request_id', 0);
-        $shared = CourseTypeRules::isSharedType($courseType);
 
         if ($collegeId < 1 || $semesterId < 1 || $schoolYearId < 1 || $courseType === ''
-            || (! $shared && $programId < 1)) {
+            || $programId < 1) {
             return [
                 'taken' => false,
                 'incomplete' => true,
-                'message' => $shared
-                    ? 'Select college, semester, course type, and school year first.'
-                    : 'Select college, program, semester, course type, and school year first.',
+                'message' => 'Select college, program, semester, course type, and school year first.',
             ];
         }
 
         $duplicate = RegisterPersistHelper::findSyllabiContextDuplicate(
             $collegeId,
-            $shared ? 0 : $programId,
+            0,
             $semesterId,
             $schoolYearId,
             $courseType,
@@ -9321,12 +9312,13 @@ class RegisterQueryHelper
 
         $sy = DB::table('dcs_school_years')->where('id', $schoolYearId)->value('school_year');
         $sem = DB::table('dcs_semesters')->where('id', $semesterId)->value('semester_name');
+        $college = (string) (DB::table('dcs_colleges')->where('id', $collegeId)->value('college_name') ?? 'this college');
 
         return [
             'taken' => true,
             'request_id' => (int) ($duplicate->request_id ?? 0),
-            'message' => "Already registered for {$courseType}, {$sem}, S/Y {$sy}. "
-                . 'Only one registration is allowed per semester and school year for this course type.',
+            'message' => "Already registered for {$college}, {$courseType}, {$sem}, S/Y {$sy}. "
+                . 'Open the existing registration to add more programs.',
         ];
     }
 
@@ -10285,13 +10277,15 @@ class RegisterQueryHelper
         if (Schema::hasColumn('dcs_program_courses', 'course_type')) {
             $courseColumns[] = 'course_type';
         }
+        $hasCourseSchoolYear = Schema::hasColumn('dcs_program_courses', 'school_year_id');
+        if ($hasCourseSchoolYear) {
+            $courseColumns[] = 'school_year_id';
+        }
 
         $coursesByProgramSemester = [];
+        // Shared institutional catalog is retired; keep empty map for older JS readers.
         $coursesBySharedSemester = [];
-        // GE/PE/NSTP: one row per type+semester+year+name (prefer program_id null).
-        // Older Settings rows may still have a program_id until migration — still show them.
-        $sharedBest = [];
-        $coursesQ = DB::table('dcs_program_courses');
+        $coursesQ = DB::table('dcs_program_courses')->whereNotNull('program_id');
         if (Schema::hasColumn('dcs_program_courses', 'year_level')) {
             $coursesQ->orderByRaw("CASE year_level
                 WHEN '1st Year' THEN 1
@@ -10309,50 +10303,24 @@ class RegisterQueryHelper
                 WHEN 'Major' THEN 4
                 ELSE 99 END");
         }
+        if (Schema::hasColumn('dcs_program_courses', 'course_code')) {
+            $coursesQ->orderBy('course_code');
+        }
         $coursesQ->orderBy('course_name')->orderBy('id');
         SettingsRecycleHelper::applyNotDeleted($coursesQ, 'dcs_program_courses');
         foreach ($coursesQ->get($courseColumns) as $c) {
-            $type = trim((string) ($c->course_type ?? ''));
             $payload = [
                 'id' => $c->id,
+                'program_id' => (int) $c->program_id,
                 'course_name' => $c->course_name,
                 'course_code' => $c->course_code ?? '',
                 'year_level' => $c->year_level ?? '',
                 'course_type' => $c->course_type ?? '',
+                'school_year_id' => $hasCourseSchoolYear ? (int) ($c->school_year_id ?? 0) : 0,
                 // Faculty is chosen during Syllabi / TOS-Rubrics registration (college-scoped).
                 'faculties' => [],
             ];
-            if (CourseTypeRules::isSharedType($type)) {
-                $dedupeKey = mb_strtolower($type)
-                    . '|' . (int) $c->semester_id
-                    . '|' . mb_strtolower(trim((string) ($c->year_level ?? '')))
-                    . '|' . mb_strtolower(trim((string) ($c->course_name ?? '')));
-                $existing = $sharedBest[$dedupeKey] ?? null;
-                $isNull = $c->program_id === null;
-                $existingNull = is_array($existing) && ($existing['_null'] ?? false);
-                if (! $existing
-                    || ($isNull && ! $existingNull)
-                    || ($isNull === $existingNull && (int) $c->id < (int) ($existing['id'] ?? 0))
-                ) {
-                    $payload['_null'] = $isNull;
-                    $payload['_semester_id'] = (int) $c->semester_id;
-                    $sharedBest[$dedupeKey] = $payload;
-                }
-                continue;
-            }
-            if ($c->program_id === null) {
-                continue;
-            }
             $coursesByProgramSemester[$c->program_id.':'.$c->semester_id][] = $payload;
-        }
-        foreach ($sharedBest as $payload) {
-            $semesterId = (int) ($payload['_semester_id'] ?? 0);
-            $type = trim((string) ($payload['course_type'] ?? ''));
-            unset($payload['_null'], $payload['_semester_id']);
-            if ($type === '' || $semesterId < 1) {
-                continue;
-            }
-            $coursesBySharedSemester[$type.':'.$semesterId][] = $payload;
         }
 
         return $cache = [

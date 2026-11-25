@@ -5,7 +5,7 @@
 --}}
 {{--
 DCS file: Syllabi/TOS context fields on office DRF. Shown after Internal Forms + syllabi-like sub-type.
-GE/PE/NSTP = college only (shared catalog). Major = college + program.
+All course types require college + program (catalog is per program).
 --}}
 @php
     $sylOldCollege = (string) old('collegeId', (string) ($oldCollegeId ?? ''));
@@ -15,7 +15,6 @@ GE/PE/NSTP = college only (shared catalog). Major = college + program.
     $sylOldSchoolYear = (string) old('schoolYearId', (string) ($oldSchoolYearId ?? ''));
     $sylOldCourseType = (string) old('courseType', (string) ($oldCourseType ?? ''));
     $sylVisible = (bool) ($syllabiContextVisible ?? false);
-    $sylShared = \App\Helpers\CourseTypeRules::isSharedType($sylOldCourseType);
 @endphp
 <div
     class="ofi-syllabi-context{{ $sylVisible ? '' : ' is-ofi-hidden' }}"
@@ -39,21 +38,15 @@ GE/PE/NSTP = college only (shared catalog). Major = college + program.
                 <option value="" disabled selected hidden>Select college…</option>
             </select>
         </div>
-        {{-- Program is Major-only. GE/PE/NSTP use the shared institutional catalog (college only). --}}
-        <div
-            class="reg-field{{ ($sylShared || $sylOldCourseType === '') ? ' is-ofi-hidden' : '' }}"
-            style="margin:0;"
-            id="ofiDrfProgramWrap"
-            @if($sylShared || $sylOldCourseType === '') hidden @endif
-        >
+        <div class="reg-field{{ $sylOldCourseType === '' ? ' is-ofi-hidden' : '' }}" style="margin:0;" id="ofiDrfProgramWrap" @if($sylOldCourseType === '') hidden @endif>
             <label for="ofiDrfProgramId">Program <span class="ofi-req">*</span></label>
-            <select id="ofiDrfProgramId" name="programId" @disabled(! $sylVisible || $sylShared || $sylOldCollege === '') @required($sylVisible && ! $sylShared && $sylOldCourseType !== '')>
+            <select id="ofiDrfProgramId" name="programId" @disabled(! $sylVisible || $sylOldCollege === '') @required($sylVisible && $sylOldCourseType !== '')>
                 <option value="" disabled selected hidden>Select program…</option>
             </select>
         </div>
         <div class="reg-field" style="margin:0;">
             <label for="ofiDrfSemesterId">Semester <span class="ofi-req">*</span></label>
-            <select id="ofiDrfSemesterId" name="semesterId" @disabled(! $sylVisible || ($sylShared ? $sylOldCollege === '' : $sylOldProgram === '')) @required($sylVisible)>
+            <select id="ofiDrfSemesterId" name="semesterId" @disabled(! $sylVisible || $sylOldProgram === '') @required($sylVisible)>
                 <option value="" disabled selected hidden>Select semester…</option>
             </select>
         </div>

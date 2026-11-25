@@ -3,18 +3,15 @@
 namespace App\Helpers;
 
 /**
- * Shared vs Major course-type rules and year/semester caps.
+ * Course-type rules and year/semester caps.
  *
- * GE / PE / NSTP = institutional (program_id null).
- * Major = per-program.
+ * All course types (GE / PE / NSTP / Major) are per-program.
+ * GE is not campus-wide and is not capped at 3rd Year.
  */
 class CourseTypeRules
 {
-    public const SHARED_TYPES = [
-        'GE Courses',
-        'PE Courses',
-        'NSTP',
-    ];
+    /** @deprecated Kept for call-site compatibility; no type is institutional anymore. */
+    public const SHARED_TYPES = [];
 
     public const MAJOR = 'Major';
 
@@ -27,27 +24,30 @@ class CourseTypeRules
 
     /** @var array<string, list<string>> */
     private const YEAR_CAPS = [
-        'GE Courses' => ['1st Year', '2nd Year', '3rd Year'],
+        'GE Courses' => ['1st Year', '2nd Year', '3rd Year', '4th Year', '5th Year'],
         'PE Courses' => ['1st Year', '2nd Year'],
         'NSTP' => ['1st Year'],
         'Major' => ['1st Year', '2nd Year', '3rd Year', '4th Year', '5th Year'],
     ];
 
     /**
-     * Terminal year for each shared type may only go through 2nd Semester
-     * (and Mid Year). Earlier years allow all semesters.
+     * Terminal year for PE/NSTP may only go through 2nd Semester
+     * (and Mid Year). GE has no terminal-year semester restriction.
      *
      * @var array<string, string>
      */
     private const TERMINAL_YEAR = [
-        'GE Courses' => '3rd Year',
         'PE Courses' => '2nd Year',
         'NSTP' => '1st Year',
     ];
 
+    /**
+     * No course type is institutional / campus-wide anymore.
+     * Kept so existing call sites keep working without branching.
+     */
     public static function isSharedType(?string $courseType): bool
     {
-        return in_array(trim((string) $courseType), self::SHARED_TYPES, true);
+        return false;
     }
 
     public static function isMajor(?string $courseType): bool
@@ -101,7 +101,6 @@ class CourseTypeRules
             return true;
         }
 
-        // Terminal year: only through 2nd Semester (1st Sem and 2nd Sem OK; block later labels if any).
         if (str_contains($sem, '1st') || str_contains($sem, 'first')) {
             return true;
         }
@@ -109,7 +108,6 @@ class CourseTypeRules
             return true;
         }
 
-        // Unknown semester label on terminal year — allow rather than hard-block Mid Year variants.
         return ! (str_contains($sem, '3rd') || str_contains($sem, 'third') || str_contains($sem, 'summer'));
     }
 

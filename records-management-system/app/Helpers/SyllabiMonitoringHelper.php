@@ -62,29 +62,16 @@ class SyllabiMonitoringHelper
             return [];
         }
 
-        $shared = CourseTypeRules::isSharedType($courseType);
+        // All course types (GE/PE/NSTP/Major) are per-program under the college.
+        $programIds = DB::table('dcs_programs')->where('college_id', $collegeId)->pluck('id')->all();
         $query = DB::table('dcs_program_courses')
             ->where('semester_id', $semesterId)
             ->whereNotNull('year_level')
-            ->where('year_level', '!=', '');
-
-        if ($shared) {
-            // Include legacy program-scoped GE/PE/NSTP until migration clears program_id.
-            $query->where('course_type', $courseType);
-        } elseif (CourseTypeRules::isMajor($courseType)) {
-            $programIds = DB::table('dcs_programs')->where('college_id', $collegeId)->pluck('id')->all();
-            $query->whereIn('program_id', $programIds !== [] ? $programIds : [0]);
-        } else {
-            // No course-type filter: college majors + all GE/PE/NSTP (incl. legacy program-scoped).
-            $programIds = DB::table('dcs_programs')->where('college_id', $collegeId)->pluck('id')->all();
-            $query->where(function ($q) use ($programIds) {
+            ->where('year_level', '!=', '')
+            ->where(function ($q) use ($programIds) {
                 $q->whereIn('program_id', $programIds !== [] ? $programIds : [0])
-                    ->orWhereNull('program_id');
-                if (Schema::hasColumn('dcs_program_courses', 'course_type')) {
-                    $q->orWhereIn('course_type', CourseTypeRules::SHARED_TYPES);
-                }
+                    ->orWhereNull('program_id'); // legacy institutional rows still visible
             });
-        }
 
         if ($courseType && Schema::hasColumn('dcs_program_courses', 'course_type')) {
             $query->where('course_type', $courseType);
@@ -189,31 +176,12 @@ class SyllabiMonitoringHelper
         if ($hasCourseType) {
             $courseColumns[] = 'course_type';
         }
-        $sharedType = CourseTypeRules::isSharedType($courseType);
-        $majorOnly = CourseTypeRules::isMajor($courseType);
+        $ids = $programs->pluck('id')->all() ?: [0];
         $coursesQ = DB::table('dcs_program_courses')
-            ->where('semester_id', $semesterId);
-        if ($sharedType) {
-            // Include legacy program-scoped copies so Settings GE/PE/NSTP all appear.
-            $coursesQ->where('course_type', $courseType);
-        } elseif ($majorOnly) {
-            $coursesQ->whereIn('program_id', $programs->pluck('id')->all() ?: [0])
-                ->where(function ($q) {
-                    $q->whereNull('course_type')->orWhere('course_type', CourseTypeRules::MAJOR);
-                });
-        } else {
-            // All types: majors for this college + every GE/PE/NSTP row (legacy or institutional).
-            $ids = $programs->pluck('id')->all() ?: [0];
-            $coursesQ->where(function ($q) use ($ids) {
-                $q->where(function ($qq) use ($ids) {
-                    $qq->whereIn('program_id', $ids)
-                        ->where(function ($t) {
-                            $t->whereNull('course_type')->orWhere('course_type', CourseTypeRules::MAJOR);
-                        });
-                })->orWhereNull('program_id')
-                    ->orWhereIn('course_type', CourseTypeRules::SHARED_TYPES);
+            ->where('semester_id', $semesterId)
+            ->where(function ($q) use ($ids) {
+                $q->whereIn('program_id', $ids)->orWhereNull('program_id');
             });
-        }
         if ($hasYearLevel && $yearLevel) {
             $coursesQ->where('year_level', $yearLevel);
         }
@@ -229,31 +197,10 @@ class SyllabiMonitoringHelper
                 WHEN '5th Year' THEN 5
                 ELSE 99 END");
         }
-        $courses = $coursesQ->orderBy('course_name')->orderBy('id')->get($courseColumns);
-
-        // Collapse legacy per-program GE/PE/NSTP copies into one institutional set.
-        if ($hasCourseType) {
-            $majors = collect();
-            $sharedBest = [];
-            foreach ($courses as $c) {
-                $type = trim((string) ($c->course_type ?? ''));
-                if (! CourseTypeRules::isSharedType($type)) {
-                    $majors->push($c);
-                    continue;
-                }
-                $key = mb_strtolower($type)
-                    . '|' . mb_strtolower(trim((string) ($c->year_level ?? '')))
-                    . '|' . mb_strtolower(trim((string) ($c->course_name ?? '')));
-                $existing = $sharedBest[$key] ?? null;
-                $isNull = $c->program_id === null;
-                $existingNull = $existing && $existing->program_id === null;
-                if (! $existing || ($isNull && ! $existingNull) || ($isNull === $existingNull && (int) $c->id < (int) $existing->id)) {
-                    $c->program_id = null; // institutional bucket
-                    $sharedBest[$key] = $c;
-                }
-            }
-            $courses = $majors->concat(array_values($sharedBest))->values();
+        if (Schema::hasColumn('dcs_program_courses', 'course_code')) {
+            $coursesQ->orderBy('course_code');
         }
+        $courses = $coursesQ->orderBy('course_name')->orderBy('id')->get($courseColumns);
 
         $coursesByProgram = $courses->groupBy(fn ($c) => $c->program_id === null ? 0 : (int) $c->program_id);
 

@@ -1330,7 +1330,7 @@ class OfficeIntakeHelper
 
         $duplicate = RegisterPersistHelper::findSyllabiContextDuplicate(
             $collegeId,
-            CourseTypeRules::isSharedType($courseType) ? 0 : $programId,
+            0,
             $semesterId,
             $schoolYearId,
             $courseType,
@@ -5239,6 +5239,17 @@ class OfficeIntakeHelper
                 $filtered[] = $row;
             }
             if ($filtered !== []) {
+                usort($filtered, static function (array $a, array $b): int {
+                    $codeCmp = strcmp(
+                        (string) ($a['course_code'] ?? ''),
+                        (string) ($b['course_code'] ?? '')
+                    );
+                    if ($codeCmp !== 0) {
+                        return $codeCmp;
+                    }
+
+                    return strcmp((string) ($a['course_name'] ?? ''), (string) ($b['course_name'] ?? ''));
+                });
                 $courses[$key] = $filtered;
             }
         }
@@ -5433,13 +5444,12 @@ class OfficeIntakeHelper
         $course = $courseId > 0
             ? DB::table('dcs_program_courses')->where('id', $courseId)->first($courseCols)
             : null;
-        $courseType = trim((string) ($course->course_type ?? $courseTypeHint));
-        $shared = CourseTypeRules::isSharedType($courseType);
 
         $errors = [];
         if ($collegeId < 1) {
             $errors['collegeId'] = 'Select a college.';
         }
+        if ($programId < 1) {
         if (! $shared && $programId < 1) {
             $errors['programId'] = 'Select a program.';
         }
@@ -5455,29 +5465,16 @@ class OfficeIntakeHelper
         if ($errors !== []) {
             throw ValidationException::withMessages($errors);
         }
+        $program = DB::table('dcs_programs')->where('id', $programId)->first(['id', 'college_id']);
+        if (! $program || (int) ($program->college_id ?? 0) !== $collegeId) {
+            throw ValidationException::withMessages(['programId' => 'Selected program does not belong to that college.']);
+        }
 
-        if ($shared) {
-            $programId = 0;
-            if (! $course
-                || $course->program_id !== null
-                || (int) ($course->semester_id ?? 0) !== $semesterId
-            ) {
-                throw ValidationException::withMessages(['courseId' => 'Selected course does not match the institutional catalog and semester.']);
-            }
-            if (! DB::table('dcs_colleges')->where('id', $collegeId)->exists()) {
-                throw ValidationException::withMessages(['collegeId' => 'Select a valid college.']);
-            }
-        } else {
-            $program = DB::table('dcs_programs')->where('id', $programId)->first(['id', 'college_id']);
-            if (! $program || (int) ($program->college_id ?? 0) !== $collegeId) {
-                throw ValidationException::withMessages(['programId' => 'Selected program does not belong to that college.']);
-            }
-
-            if (! $course
-                || (int) ($course->program_id ?? 0) !== $programId
-                || (int) ($course->semester_id ?? 0) !== $semesterId
-            ) {
-                throw ValidationException::withMessages(['courseId' => 'Selected course does not match the program and semester.']);
+        if (! $course
+            || (int) ($course->program_id ?? 0) !== $programId
+            || (int) ($course->semester_id ?? 0) !== $semesterId
+        ) {
+            throw ValidationException::withMessages(['courseId' => 'Selected course does not match the program and semester.']);
             }
         }
 
@@ -5506,7 +5503,7 @@ class OfficeIntakeHelper
         }
 
         if (self::officeDrfSyllabiCourseSchoolYearTaken(
-            $collegeId,
+            $programId,
             $shared ? 0 : $programId,
             $semesterId,
             $courseId,
@@ -5525,7 +5522,7 @@ class OfficeIntakeHelper
         }
 
         return [
-            'college_id' => $collegeId,
+            'program_id' => $programId,
             'program_id' => $shared ? null : $programId,
             'course_id' => $courseId,
             'semester_id' => $semesterId,

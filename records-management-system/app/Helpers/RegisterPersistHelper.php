@@ -2929,23 +2929,21 @@ class RegisterPersistHelper
         }
 
         $collegeId = (int) $request->input('college_id', 0);
-        $programId = (int) $request->input('program_id', 0);
         $semesterId = (int) $request->input('semester_id', 0);
         $schoolYearId = (int) $request->input('school_year_id', 0);
         $courseType = trim((string) $request->input('course_type', ''));
         $subTypeId = $request->input('sub_type_id') ? (int) $request->input('sub_type_id') : null;
-        $sharedType = CourseTypeRules::isSharedType($courseType);
 
         if ($collegeId < 1 || $semesterId < 1 || $schoolYearId < 1 || $courseType === '') {
             return null;
         }
-        if (! $sharedType && $programId < 1) {
+        if (self::syllabiProgramIdsFromRequest($request) === []) {
             return null;
         }
 
         $duplicate = self::findSyllabiContextDuplicate(
             $collegeId,
-            $sharedType ? 0 : $programId,
+            0,
             $semesterId,
             $schoolYearId,
             $courseType,
@@ -2961,11 +2959,12 @@ class RegisterPersistHelper
             : 'Syllabi';
         $sy = DB::table('dcs_school_years')->where('id', $schoolYearId)->value('school_year');
         $sem = DB::table('dcs_semesters')->where('id', $semesterId)->value('semester_name');
+        $college = (string) (DB::table('dcs_colleges')->where('id', $collegeId)->value('college_name') ?? 'this college');
 
         return self::draftErrorResponse(
             $request,
-            "{$label} for {$courseType}, {$sem}, S/Y {$sy} is already registered. "
-            . 'Only one registration is allowed per semester and school year for this course type.'
+            "{$label} is already registered for {$college}, {$courseType}, {$sem}, S/Y {$sy}. "
+            . 'Open the existing registration to add more programs or courses.'
         );
     }
 
@@ -2987,7 +2986,6 @@ class RegisterPersistHelper
             ->map(fn ($name) => trim((string) $name))
             ->filter();
         $courseTypeEarly = trim((string) $request->input('course_type', ''));
-        $sharedType = CourseTypeRules::isSharedType($courseTypeEarly);
         $missingContext = [];
         foreach ([
             'college_id' => 'College',
@@ -2999,7 +2997,7 @@ class RegisterPersistHelper
                 $missingContext[] = $label;
             }
         }
-        if (! $sharedType && trim((string) $request->input('program_id', '')) === '') {
+        if (self::syllabiProgramIdsFromRequest($request) === []) {
             $missingContext[] = 'Program';
         }
         if ($missingContext !== []) {
@@ -3012,9 +3010,7 @@ class RegisterPersistHelper
         if (! self::settingsHasSyllabiCourses($request)) {
             return back()->withInput()->with(
                 'error',
-                $sharedType
-                    ? 'There are no institutional course names in Settings for this semester and course type. Add them in Settings before registering.'
-                    : 'There are no course names in Settings for this program, semester, and course type. Add them in Settings before registering.'
+                'There are no course names in Settings for the selected program(s), semester, and course type. Add them in Settings before registering.'
             );
         }
 
@@ -3061,7 +3057,7 @@ class RegisterPersistHelper
             if (! self::settingsCourseForSyllabiRow($request, trim((string) $courseName), $rowYear)) {
                 return back()->withInput()->with(
                     'error',
-                    "\"{$courseLabel}\" is not a course name in Settings for this program, semester, and course type."
+                    "\"{$courseLabel}\" is not a course name in Settings for the selected program(s), semester, and course type."
                 );
             }
 
@@ -3106,10 +3102,11 @@ class RegisterPersistHelper
         }
 
         $courseTypeForRules = trim((string) $request->input('course_type', ''));
-        $sharedForRules = CourseTypeRules::isSharedType($courseTypeForRules);
         $request->validate([
             'college_id' => 'required|integer|exists:dcs_colleges,id',
-            'program_id' => $sharedForRules ? 'nullable|integer' : 'required|integer|exists:dcs_programs,id',
+            'program_id' => 'nullable|integer|exists:dcs_programs,id',
+            'program_ids' => 'nullable|array',
+            'program_ids.*' => 'integer|exists:dcs_programs,id',
             'semester_id' => 'required|integer|exists:dcs_semesters,id',
             'school_year_id' => 'required|integer|exists:dcs_school_years,id',
             'course_type' => 'required|string|max:50|in:GE Courses,PE Courses,NSTP,Major',
@@ -3125,7 +3122,7 @@ class RegisterPersistHelper
 
         $duplicate = self::findSyllabiContextDuplicate(
             (int) $request->input('college_id'),
-            $sharedForRules ? 0 : (int) $request->input('program_id'),
+            0,
             (int) $request->input('semester_id'),
             (int) $request->input('school_year_id'),
             $courseTypeForRules,
@@ -3140,11 +3137,12 @@ class RegisterPersistHelper
             $sy = DB::table('dcs_school_years')->where('id', (int) $request->input('school_year_id'))->value('school_year');
             $sem = DB::table('dcs_semesters')->where('id', (int) $request->input('semester_id'))->value('semester_name');
             $courseType = trim((string) $request->input('course_type'));
+            $college = (string) (DB::table('dcs_colleges')->where('id', (int) $request->input('college_id'))->value('college_name') ?? 'this college');
 
             return back()->withInput()->with(
                 'error',
-                "{$label} for {$courseType}, {$sem}, S/Y {$sy} is already registered. "
-                . 'Only one registration is allowed per semester and school year for this course type.'
+                "{$label} is already registered for {$college}, {$courseType}, {$sem}, S/Y {$sy}. "
+                . 'Open the existing registration to add more programs or courses.'
             );
         }
 
@@ -3152,9 +3150,28 @@ class RegisterPersistHelper
     }
 
     /**
+     * @return list<int>
+     */
+    private static function syllabiProgramIdsFromRequest(Request $request): array
+    {
+        $ids = collect((array) $request->input('program_ids', []))
+            ->map(fn ($id) => (int) $id)
+            ->filter(fn ($id) => $id > 0)
+            ->unique()
+            ->values()
+            ->all();
+        if ($ids === [] && (int) $request->input('program_id', 0) > 0) {
+            $ids = [(int) $request->input('program_id')];
+        }
+
+        return $ids;
+    }
+
+    /**
      * Syllabi / TOS-like registrations are once per college + semester
-     * + school year + course type (+ document sub-type). Major also keys by program.
-     * Shared GE/PE/NSTP ignore program (stored null). Year levels live on course rows.
+     * + school year + course type (+ document sub-type).
+     * Programs are not part of the pack key — multiple programs append into the same pack.
+     * Year levels live on course rows. $programId is kept for call-site compatibility only.
      *
      * DEBUG: duplicate blocked or slipped through → check here.
      */
@@ -3167,11 +3184,7 @@ class RegisterPersistHelper
         ?int $subTypeId = null,
         ?int $exceptRequestId = null
     ): ?object {
-        $shared = CourseTypeRules::isSharedType($courseType);
         if ($collegeId < 1 || $semesterId < 1 || $schoolYearId < 1) {
-            return null;
-        }
-        if (! $shared && $programId < 1) {
             return null;
         }
         if ($courseType === '') {
@@ -3181,16 +3194,14 @@ class RegisterPersistHelper
             return null;
         }
 
+        // Pack uniqueness ignores program so later programs append into the same registration.
+        unset($programId);
+
         $query = DB::table('dcs_syllabi as s')
             ->join('dcs_document_requests as dr', 'dr.id', '=', 's.request_id')
             ->where('s.college_id', $collegeId)
             ->where('s.semester_id', $semesterId)
             ->where('s.school_year_id', $schoolYearId);
-        if ($shared) {
-            $query->whereNull('s.program_id');
-        } else {
-            $query->where('s.program_id', $programId);
-        }
 
         if ($subTypeId) {
             $query->where('dr.sub_type_id', $subTypeId);
@@ -3479,19 +3490,15 @@ class RegisterPersistHelper
         }
 
         $courseType = trim((string) $request->input('course_type', ''));
-        $shared = CourseTypeRules::isSharedType($courseType);
-        if (! $shared && empty($request->program_id)) {
+        $programIds = self::syllabiProgramIdsFromRequest($request);
+        if ($programIds === []) {
             return false;
         }
 
         $query = DB::table('dcs_program_courses')
             ->where('semester_id', $request->semester_id)
-            ->whereRaw("TRIM(COALESCE(course_name, '')) <> ''");
-        if ($shared) {
-            $query->whereNull('program_id');
-        } else {
-            $query->where('program_id', $request->program_id);
-        }
+            ->whereRaw("TRIM(COALESCE(course_name, '')) <> ''")
+            ->whereIn('program_id', $programIds);
 
         if (Schema::hasColumn('dcs_program_courses', 'course_type') && $courseType !== '') {
             $query->where('course_type', $courseType);
@@ -3511,20 +3518,16 @@ class RegisterPersistHelper
         }
 
         $courseType = trim((string) $request->input('course_type', ''));
-        $shared = CourseTypeRules::isSharedType($courseType);
-        if (! $shared && empty($request->program_id)) {
+        $programIds = self::syllabiProgramIdsFromRequest($request);
+        if ($programIds === []) {
             return null;
         }
 
-        $build = function (?string $year, bool $withType) use ($request, $courseName, $shared, $courseType) {
+        $build = function (?string $year, bool $withType) use ($request, $courseName, $programIds, $courseType) {
             $query = DB::table('dcs_program_courses')
                 ->where('semester_id', $request->semester_id)
-                ->whereRaw('LOWER(TRIM(course_name)) = ?', [mb_strtolower($courseName)]);
-            if ($shared) {
-                $query->whereNull('program_id');
-            } else {
-                $query->where('program_id', $request->program_id);
-            }
+                ->whereRaw('LOWER(TRIM(course_name)) = ?', [mb_strtolower($courseName)])
+                ->whereIn('program_id', $programIds);
 
             if ($withType && Schema::hasColumn('dcs_program_courses', 'course_type') && $courseType !== '') {
                 $query->where('course_type', $courseType);
@@ -3588,9 +3591,7 @@ class RegisterPersistHelper
                 continue;
             }
 
-            $courseTypeSave = trim((string) $request->input('course_type', ''));
-            $sharedSave = CourseTypeRules::isSharedType($courseTypeSave);
-            if (empty($request->semester_id) || (! $sharedSave && empty($request->program_id))) {
+            if (empty($request->semester_id) || self::syllabiProgramIdsFromRequest($request) === []) {
                 $i += $copies;
                 continue;
             }
@@ -3601,11 +3602,16 @@ class RegisterPersistHelper
                 continue;
             }
             $courseId = $course->id;
+            $rowProgramId = isset($course->program_id) ? (int) $course->program_id : null;
+            if ($rowProgramId < 1) {
+                $legacy = (int) $request->input('program_id', 0);
+                $rowProgramId = $legacy > 0 ? $legacy : null;
+            }
 
             $syllabiId = DB::table('dcs_syllabi')->insertGetId([
                 'request_id' => $requestId,
                 'college_id' => $request->college_id,
-                'program_id' => $sharedSave ? null : $request->program_id,
+                'program_id' => $rowProgramId,
                 'semester_id' => $request->semester_id,
                 'school_year_id' => $request->school_year_id,
                 'course_id' => $courseId,

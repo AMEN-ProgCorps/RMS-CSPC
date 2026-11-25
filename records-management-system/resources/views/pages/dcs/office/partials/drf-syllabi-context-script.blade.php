@@ -5,12 +5,11 @@
 --}}
 {{--
 DCS file: Office DRF syllabi context cascade + auto title.
-GE/PE/NSTP = college only + shared catalog. Major = college + program.
+All course types use college + program (per-program catalog).
 --}}
 <script>
 (function () {
     const catalog = window.__ofiSyllabiCatalog || {};
-    const SHARED_TYPES = { 'GE Courses': true, 'PE Courses': true, 'NSTP': true };
     const form = document.getElementById('ofiDrfForm');
     const block = document.getElementById('ofiDrfSyllabiContext');
     const courseTypeSel = document.getElementById('ofiDrfCourseType');
@@ -65,8 +64,14 @@ GE/PE/NSTP = college only + shared catalog. Major = college + program.
         return courseTypeSel ? String(courseTypeSel.value || '').trim() : '';
     }
 
-    function isSharedType(type) {
-        return !!SHARED_TYPES[String(type || '').trim()];
+    function sortCoursesByCode(list) {
+        return (list || []).slice().sort(function (a, b) {
+            const ca = String(a.course_code || '');
+            const cb = String(b.course_code || '');
+            const codeCmp = ca.localeCompare(cb, undefined, { sensitivity: 'base' });
+            if (codeCmp !== 0) return codeCmp;
+            return String(a.course_name || '').localeCompare(String(b.course_name || ''), undefined, { sensitivity: 'base' });
+        });
     }
 
     /**
@@ -126,10 +131,7 @@ GE/PE/NSTP = college only + shared catalog. Major = college + program.
 
     function applyCourseTypeLayout(keep) {
         const type = selectedCourseType();
-        const shared = isSharedType(type);
-        // GE/PE/NSTP: hide Program entirely (shared catalog is college-scoped).
-        // Major: show Program after course type is chosen.
-        setProgramWrapVisible(!!type && !shared);
+        setProgramWrapVisible(!!type);
         if (!type) {
             setEnabled(collegeSel, false, false);
             setEnabled(programSel, false, false);
@@ -140,15 +142,7 @@ GE/PE/NSTP = college only + shared catalog. Major = college + program.
         }
         setEnabled(collegeSel, true, true);
         fillSelect(collegeSel, catalog.colleges || [], 'college_id', 'college_name', 'Select college…', keep);
-        if (shared) {
-            setEnabled(programSel, false, false);
-            if (programSel) {
-                programSel.value = '';
-                programSel.removeAttribute('required');
-            }
-        } else {
-            rebuildPrograms(keep);
-        }
+        rebuildPrograms(keep);
     }
 
     /**
@@ -157,11 +151,6 @@ GE/PE/NSTP = college only + shared catalog. Major = college + program.
      * @param {*} keep
      */
     function rebuildPrograms(keep) {
-        if (isSharedType(selectedCourseType())) {
-            setEnabled(programSel, false, false);
-            if (programSel) programSel.value = '';
-            return;
-        }
         const collegeId = String(collegeSel.value || '');
         const programs = collegeId ? ((catalog.programsByCollege || {})[collegeId] || []) : [];
         fillSelect(programSel, programs, 'program_id', 'program_name', 'Select program…', keep);
@@ -174,10 +163,7 @@ GE/PE/NSTP = college only + shared catalog. Major = college + program.
      * @param {*} keep
      */
     function rebuildSemesters(keep) {
-        const shared = isSharedType(selectedCourseType());
-        const ready = shared
-            ? !!(collegeSel && collegeSel.value)
-            : !!(programSel && programSel.value);
+        const ready = !!(programSel && programSel.value);
         fillSelect(semesterSel, catalog.semesters || [], 'semester_id', 'semester_name', 'Select semester…', keep);
         setEnabled(semesterSel, ready, true);
     }
@@ -189,42 +175,20 @@ GE/PE/NSTP = college only + shared catalog. Major = college + program.
      */
     function rebuildCourses(keep) {
         const type = selectedCourseType();
-        const shared = isSharedType(type);
         const programId = programSel ? String(programSel.value || '') : '';
         const semesterId = semesterSel ? String(semesterSel.value || '') : '';
-        let courses = [];
         let placeholder = 'Select course…';
-
-        if (shared) {
-            const key = type && semesterId ? (type + ':' + semesterId) : '';
-            const raw = key ? ((catalog.coursesBySharedSemester || {})[key] || []) : [];
-            courses = raw.filter(function (c) {
-                const year = String(c.year_level || '').trim();
-                const ct = String(c.course_type || '').trim();
-                return year !== '' && ct !== '';
-            });
-            if (!collegeSel.value || !semesterId) {
-                placeholder = 'Select college and semester first…';
-            } else if (!courses.length) {
-                placeholder = 'No institutional courses in Settings for this type and semester…';
-            }
-            fillSelect(courseSel, courses, 'id', 'course_name', placeholder, keep);
-            setEnabled(courseSel, !!(collegeSel.value && semesterId), true);
-            return;
-        }
-
-        // Major: Settings → Course Names for this program + this semester only.
         const key = programId && semesterId ? (programId + ':' + semesterId) : '';
         const raw = key ? ((catalog.coursesByProgramSemester || {})[key] || []) : [];
-        courses = raw.filter(function (c) {
+        let courses = sortCoursesByCode(raw.filter(function (c) {
             const year = String(c.year_level || '').trim();
             const ct = String(c.course_type || '').trim();
-            return year !== '' && ct === 'Major';
-        });
+            return year !== '' && ct !== '' && (!type || ct === type);
+        }));
         if (!programId || !semesterId) {
             placeholder = 'Select program and semester first…';
         } else if (!courses.length) {
-            placeholder = 'No complete Major courses in Settings for this semester…';
+            placeholder = 'No courses in Settings for this program, type, and semester…';
         }
         fillSelect(courseSel, courses, 'id', 'course_name', placeholder, keep);
         setEnabled(courseSel, !!(programId && semesterId), true);
@@ -243,13 +207,12 @@ GE/PE/NSTP = college only + shared catalog. Major = college + program.
      */
     function takenSchoolYearIdsForCourse() {
         const collegeId = collegeSel ? String(collegeSel.value || '') : '';
-        const shared = isSharedType(selectedCourseType());
-        const programId = shared ? '0' : (programSel ? String(programSel.value || '') : '');
+        const programId = programSel ? String(programSel.value || '') : '';
         const semesterId = semesterSel ? String(semesterSel.value || '') : '';
         const courseId = courseSel ? String(courseSel.value || '') : '';
         const subTypeId = selectedSubTypeId();
         // Taken years are scoped by sub-type (Syllabi registration does not block TOS).
-        if (!collegeId || (!shared && !programId) || !semesterId || !courseId || !subTypeId) return [];
+        if (!collegeId || !programId || !semesterId || !courseId || !subTypeId) return [];
         const key = collegeId + ':' + programId + ':' + semesterId + ':' + courseId + ':' + subTypeId;
         const raw = (catalog.takenSchoolYearsByCourse || {})[key] || [];
         return raw.map(function (id) { return String(id); });
@@ -308,13 +271,11 @@ GE/PE/NSTP = college only + shared catalog. Major = college + program.
         const course = selectText(courseSel);
         const semester = selectText(semesterSel);
         let schoolYear = selectText(schoolYearSel);
-        const shared = isSharedType(selectedCourseType());
         if (!college || !course || !semester || !schoolYear) return '';
-        if (!shared && !program) return '';
+        if (!program) return '';
         schoolYear = schoolYear.replace(/^\s*s\/?y\s*/i, '');
-        const forPart = shared ? college : program;
         return college + ' ' + connectorForSub() + ' ' + semester + ' S/Y ' + schoolYear
-            + ' for ' + forPart + ' in ' + course;
+            + ' for ' + program + ' in ' + course;
     }
 
     /**
@@ -404,10 +365,8 @@ GE/PE/NSTP = college only + shared catalog. Major = college + program.
         }
         applyCourseTypeLayout(false);
         if (collegeId) collegeSel.value = collegeId;
-        if (!isSharedType(selectedCourseType())) {
-            rebuildPrograms(false);
-            if (programSel) programSel.value = programId;
-        }
+        rebuildPrograms(false);
+        if (programSel) programSel.value = programId;
         rebuildSemesters(false);
         if (semesterSel) semesterSel.value = semesterId;
         rebuildCourses(false);

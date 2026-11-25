@@ -1031,7 +1031,7 @@ body {
 }
 
 .modal.modal--courses {
-    width: min(780px, 96vw);
+    width: min(920px, 96vw);
 }
 
 .st-doc-type-sub-rows .st-doc-type-sub-row,
@@ -1306,6 +1306,14 @@ body {
     grid-template-columns: minmax(100px, 0.55fr) minmax(240px, 2.4fr) 36px;
     gap: 8px;
     align-items: start;
+}
+
+.st-course-row--mixed {
+    grid-template-columns: minmax(88px, 0.85fr) minmax(96px, 0.95fr) minmax(88px, 0.75fr) minmax(160px, 2fr) 36px;
+}
+
+.st-course-rows--mixed {
+    max-height: min(48vh, 420px);
 }
 
 .st-course-row-head {

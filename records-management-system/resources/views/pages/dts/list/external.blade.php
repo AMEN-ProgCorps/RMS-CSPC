@@ -19,6 +19,7 @@ new #[Layout('layouts.dts')] #[Title('DTS - External Transactions')] class exten
     public bool $showFullConfiguredPath = false;
     public bool $showMoreDetails = false;
     public bool $showPassword = false;
+    public int $modalOpenNonce = 0;
 
     // Show More Details edit properties
     public string $requestorName = '';
@@ -1120,6 +1121,12 @@ new #[Layout('layouts.dts')] #[Title('DTS - External Transactions')] class exten
      */
     public function openTransaction(string $id): void
     {
+        $this->editingAll = false;
+        $this->showCopyFurnished = false;
+        $this->showPassword = false;
+        $this->showMoreDetails = false;
+        $this->showFullConfiguredPath = false;
+        $this->modalOpenNonce++;
         $this->selectedTransactionId = $id;
         $this->loadSelectedTransaction();
     }
@@ -3238,8 +3245,13 @@ new #[Layout('layouts.dts')] #[Title('DTS - External Transactions')] class exten
 
     <!-- Details Overlay Modal (Executive Dossier) -->
     @if($selectedTransactionId && $selectedTransaction)
-        <div class="dts-im-backdrop" wire:click="closeTransaction">
-            <div class="dts-im-card" wire:click.stop>
+        <div class="dts-im-backdrop"
+             wire:key="dts-modal-{{ $selectedTransactionId }}-{{ $modalOpenNonce }}"
+             x-data="{ open: true }"
+             x-show="open"
+             x-on:keydown.escape.window="if (open) { open = false; $wire.set('selectedTransactionId', '', false); }"
+             x-on:click="open = false; $wire.set('selectedTransactionId', '', false);">
+            <div class="dts-im-card" x-on:click.stop>
                 
                 <!-- ══ Header Banner ══ -->
                 <div class="dts-im-header">
@@ -3264,7 +3276,7 @@ new #[Layout('layouts.dts')] #[Title('DTS - External Transactions')] class exten
                                 <span>{{ $statusConfig['label'] }}</span>
                             </div>
                         </div>
-                        <button type="button" class="dts-im-close-btn" wire:click="closeTransaction" title="Close modal">&times;</button>
+                        <button type="button" class="dts-im-close-btn" x-on:click="open = false; $wire.set('selectedTransactionId', '', false);" title="Close modal">&times;</button>
                     </div>
 
                     <div class="dts-im-header-main">
@@ -3702,10 +3714,11 @@ new #[Layout('layouts.dts')] #[Title('DTS - External Transactions')] class exten
                                 <div style="display: flex; align-items: center; justify-content: {{ count($this->visiblePath) <= 1 ? 'center' : 'space-between' }}; width: 100%; min-width: max-content; padding: 0; position: relative;">
                                     @forelse ($this->visiblePath as $index => $step)
                                         @php
-                                            $seqRank = $step->sequence_ranking ?? ($index + 1);
+                                            $seqRank = (int) ($step->sequence_ranking ?? ($index + 1));
+                                            $currentSeq = (int) ($selectedTransaction->sequence ?? 1);
                                             $isReceived = !is_null($step->date_in) || $selectedTransaction->status === 'completed';
                                             $isForwarded = !is_null($step->date_out) || $selectedTransaction->status === 'completed';
-                                            $isCompleted = ($isReceived && $isForwarded) || strtolower($selectedTransaction->status ?? '') === 'completed';
+                                            $isCompleted = ($isReceived && $isForwarded) || ($seqRank < $currentSeq) || strtolower($selectedTransaction->status ?? '') === 'completed';
 
                                             $hasRevision = !empty($selectedTransaction->revision_requested_by_sequence);
                                             $revReqSeq = $selectedTransaction->revision_requested_by_sequence ?? null;
@@ -4123,7 +4136,7 @@ new #[Layout('layouts.dts')] #[Title('DTS - External Transactions')] class exten
                         @endif
 
                         <!-- Close Modal Button -->
-                        <button type="button" class="dts-im-btn" wire:click="closeTransaction">
+                        <button type="button" class="dts-im-btn" x-on:click="open = false; $wire.set('selectedTransactionId', '', false);">
                             Close
                         </button>
                     </div>

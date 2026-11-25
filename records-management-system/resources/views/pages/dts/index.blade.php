@@ -4785,13 +4785,6 @@ new #[Layout('layouts.dts')] #[Title('Document Tracking System')] class extends 
                                     <span class="dts-im-meta-v">{{ $selectedTransaction->originated_office_name ?? ($selectedTransaction->originated_from ?? 'N/A') }}</span>
                                 </div>
                             </div>
-                            <div class="dts-im-meta-item" title="Originating Office">
-                                <i class="fa-solid fa-landmark"></i>
-                                <div>
-                                    <span class="dts-im-meta-k">Origin Office</span>
-                                    <span class="dts-im-meta-v">{{ $selectedTransaction->originated_office_name ?? ($selectedTransaction->originated_from ?? 'N/A') }}</span>
-                                </div>
-                            </div>
                         </div>
                     </div>
                 </div>

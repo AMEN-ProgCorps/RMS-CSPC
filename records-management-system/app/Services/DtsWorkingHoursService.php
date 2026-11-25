@@ -629,6 +629,21 @@ class DtsWorkingHoursService
                                 'pending_working_hours_dispatch' => false,
                             ]);
 
+                        // Record Step 1 completion timestamp on the sequence list
+                        $firstStep = $steps->first();
+                        $step1Update = ['date_out' => now()];
+                        if ($firstStep && is_null($firstStep->date_in)) {
+                            $step1Update['date_in'] = now();
+                        }
+                        if ($firstStep && Schema::hasColumn('dts_sequence_list', 'account_forwarded') && !empty($firstStep->account_received)) {
+                            $step1Update['account_forwarded'] = $firstStep->account_received;
+                        }
+                        DB::table('dts_sequence_list')
+                            ->where('control_id', $flow->id)
+                            ->where('sequence_ranking', 1)
+                            ->whereNull('date_out')
+                            ->update($step1Update);
+
                         // Add log entry
                         $logTable = Schema::hasTable('dts_transaction_logs') ? 'dts_transaction_logs' : 'sub_document_tracking_system_logs';
                         DB::table($logTable)->insert([

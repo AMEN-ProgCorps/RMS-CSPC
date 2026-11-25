@@ -286,6 +286,12 @@ body.manual-widget-open .guide-container {
     display: block;
 }
 
+.notif-dropdown-body[data-active-tab="dcs"] .notif-empty-all,
+.notif-dropdown-body[data-active-tab="dts"] .notif-empty-all,
+.notif-dropdown-body[data-active-tab="rdp"] .notif-empty-all {
+    display: none;
+}
+
 .notif-dropdown-header h3 {
     font-family: 'Inter', sans-serif;
     font-size: 16px;

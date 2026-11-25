@@ -42,6 +42,7 @@ new #[Layout('layouts.dts')] #[Title('Document Tracking System')] class extends 
     // Modal state properties
     public string $attachedDocName = '';
     public string $selectedTransactionId = '';
+    public int $modalOpenNonce = 0;
     public $selectedTransaction = null;
     public string $controlNumber = '';
     public string $transactionFlow = '';
@@ -1219,6 +1220,12 @@ new #[Layout('layouts.dts')] #[Title('Document Tracking System')] class extends 
     #[On('open-transaction')]
     public function openTransaction(string $id): void
     {
+        $this->editingAll = false;
+        $this->showCopyFurnished = false;
+        $this->showPassword = false;
+        $this->showMoreDetails = false;
+        $this->showFullConfiguredPath = false;
+        $this->modalOpenNonce++;
         $this->selectedTransactionId = $id;
         $this->loadSelectedTransaction();
     }
@@ -4694,8 +4701,13 @@ new #[Layout('layouts.dts')] #[Title('Document Tracking System')] class extends 
     <!-- Details Overlay Modal -->
     <!-- Details Overlay Modal (Executive Dossier) -->
     @if($selectedTransactionId && $selectedTransaction)
-        <div class="dts-im-backdrop" wire:click="closeTransaction">
-            <div class="dts-im-card" wire:click.stop>
+        <div class="dts-im-backdrop"
+             wire:key="dts-modal-{{ $selectedTransactionId }}-{{ $modalOpenNonce }}"
+             x-data="{ open: true }"
+             x-show="open"
+             x-on:keydown.escape.window="if (open) { open = false; $wire.set('selectedTransactionId', '', false); }"
+             x-on:click="open = false; $wire.set('selectedTransactionId', '', false);">
+            <div class="dts-im-card" x-on:click.stop>
                 
                 <!-- ══ Header Banner ══ -->
                 <div class="dts-im-header">
@@ -4735,7 +4747,7 @@ new #[Layout('layouts.dts')] #[Title('Document Tracking System')] class extends 
                                 <span>{{ $statusConfig['label'] }}</span>
                             </div>
                         </div>
-                        <button type="button" class="dts-im-close-btn" wire:click="closeTransaction" title="Close modal">&times;</button>
+                        <button type="button" class="dts-im-close-btn" x-on:click="open = false; $wire.set('selectedTransactionId', '', false);" title="Close modal">&times;</button>
                     </div>
 
                     <div class="dts-im-header-main">
@@ -4776,13 +4788,6 @@ new #[Layout('layouts.dts')] #[Title('Document Tracking System')] class extends 
                                 <div>
                                     <span class="dts-im-meta-k">Created</span>
                                     <span class="dts-im-meta-v">{{ !empty($selectedTransaction->date_created) ? \Carbon\Carbon::parse($selectedTransaction->date_created)->format('M d, Y · h:i A') : 'N/A' }}</span>
-                                </div>
-                            </div>
-                            <div class="dts-im-meta-item" title="Originating Office">
-                                <i class="fa-solid fa-landmark"></i>
-                                <div>
-                                    <span class="dts-im-meta-k">Origin Office</span>
-                                    <span class="dts-im-meta-v">{{ $selectedTransaction->originated_office_name ?? ($selectedTransaction->originated_from ?? 'N/A') }}</span>
                                 </div>
                             </div>
                             <div class="dts-im-meta-item" title="Originating Office">
@@ -5210,10 +5215,11 @@ new #[Layout('layouts.dts')] #[Title('Document Tracking System')] class extends 
                                 <div style="display: flex; align-items: center; justify-content: {{ count($this->visiblePath) <= 1 ? 'center' : 'space-between' }}; width: 100%; min-width: max-content; padding: 0; position: relative;">
                                     @forelse ($this->visiblePath as $index => $step)
                                         @php
-                                            $seqRank = $step->sequence_ranking ?? ($index + 1);
+                                            $seqRank = (int) ($step->sequence_ranking ?? ($index + 1));
+                                            $currentSeq = (int) ($selectedTransaction->sequence ?? 1);
                                             $isReceived = !is_null($step->date_in) || $selectedTransaction->status === 'completed';
                                             $isForwarded = !is_null($step->date_out) || $selectedTransaction->status === 'completed';
-                                            $isCompleted = ($isReceived && $isForwarded) || strtolower($selectedTransaction->status ?? '') === 'completed';
+                                            $isCompleted = ($isReceived && $isForwarded) || ($seqRank < $currentSeq) || strtolower($selectedTransaction->status ?? '') === 'completed';
 
                                             $hasRevision = !empty($selectedTransaction->revision_requested_by_sequence);
                                             $revReqSeq = $selectedTransaction->revision_requested_by_sequence ?? null;
@@ -5649,7 +5655,7 @@ new #[Layout('layouts.dts')] #[Title('Document Tracking System')] class extends 
                         @endif
 
                         <!-- Close Modal Button -->
-                        <button type="button" class="dts-im-btn" wire:click="closeTransaction">
+                        <button type="button" class="dts-im-btn" x-on:click="open = false; $wire.set('selectedTransactionId', '', false);">
                             Close
                         </button>
                     </div>

@@ -76,6 +76,12 @@
     width: 100%;
 }
 
+.directory-panel .search-box-wrapper {
+    flex: 0 0 auto;
+    max-width: 100%;
+    width: 100%;
+}
+
 .search-box {
     width: 100%;
     padding: 10px 14px 10px 38px;

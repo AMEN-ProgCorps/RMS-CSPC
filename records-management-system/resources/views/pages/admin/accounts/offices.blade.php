@@ -1527,7 +1527,7 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Offices & Organizational
 @endpush
 
 @if($layoutMode === 'default')
-<div class="activity-logs-container">
+<div class="activity-logs-container" wire:key="offices-layout-default">
     <!-- Tabs Header -->
     <div class="tabs-header" style="display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 12px; margin-bottom: 14px;">
         <div style="display: flex; align-items: center; gap: 12px; flex-wrap: wrap;">
@@ -2202,7 +2202,7 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Offices & Organizational
                     </div>
                 </div>
 
-                <div class="search-box-wrapper" style="margin-top: 10px;">
+                <div class="search-box-wrapper" style="margin-top: 10px; flex: 0 0 auto; max-width: 100%;">
                     <i class="fa-solid fa-magnifying-glass search-icon"></i>
                     <input type="text" class="search-box" placeholder="Search external office name or code..." wire:model.live="otherOfficeSearch">
                 </div>
@@ -2363,7 +2363,7 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Offices & Organizational
     @endif
 </div>
 @else
-<div class="miller-container">
+<div class="miller-container" wire:key="offices-layout-horizontal">
     {{-- Top Action Toolbar --}}
     <div style="display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 12px; margin-bottom: 14px;">
         <div style="display: flex; align-items: center; gap: 14px; flex-wrap: wrap;">
@@ -2388,8 +2388,8 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Offices & Organizational
         </div>
 
         <div style="display: flex; align-items: center; gap: 8px;">
+            <x-admin.layout-trigger :mode="$layoutMode" />
             @if($activeTab === 'offices')
-                <x-admin.layout-trigger :mode="$layoutMode" />
             <button type="button" wire:click="startCreate" class="m-btn m-btn-primary">
                     <i class="fa-solid fa-plus"></i> New Office
                 </button>

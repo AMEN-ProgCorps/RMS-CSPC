@@ -2672,6 +2672,8 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - DTS Transaction Flows')]
                     'sys_account_details.last_name',
                     'office.office_name',
                     'office.office_code',
+                    'office.office_name as owner_office_name',
+                    'office.office_code as owner_office_code',
                     'rdp_record_series.series_title as rdp_series_title',
                     'rdp_record_series.item_number as rdp_item_number'
                 );
@@ -4487,7 +4489,7 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - DTS Transaction Flows')]
                                     @php
                                         $isSelected = $selectedCustom === (string) $flow->id;
                                         $creatorName = trim(($flow->first_name ?? '') . ' ' . ($flow->last_name ?? '')) ?: 'System / Admin';
-                                        $officeOwner = $flow->owner_office_name ? ($flow->owner_office_name . ' (' . $flow->owner_office_code . ')') : 'Global / Unassigned';
+                                        $officeOwner = !empty($flow->owner_office_name) ? ($flow->owner_office_name . ' (' . ($flow->owner_office_code ?? 'N/A') . ')') : 'Global / Unassigned';
                                         $dateCreatedFormatted = $flow->date_added ? \Carbon\Carbon::parse($flow->date_added)->format('M d, Y') : '—';
                                     @endphp
                                     <tr class="flow-tbl-row {{ $isSelected ? 'selected-row' : '' }}" 
@@ -4535,7 +4537,7 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - DTS Transaction Flows')]
                                 $isSelected = $selectedCustom === (string) $flow->id;
                                 $flowInitials = strtoupper(substr($flow->flow_code ?: '?', 0, 3));
                                 $creatorName = trim(($flow->first_name ?? '') . ' ' . ($flow->last_name ?? '')) ?: 'System / Admin';
-                                $officeOwner = $flow->owner_office_code ?: 'N/A';
+                                $officeOwner = ($flow->owner_office_code ?? null) ?: 'N/A';
                             @endphp
                             <div class="office-item-card {{ $isSelected ? 'active' : '' }}" wire:key="custom-flow-item-{{ $flow->id }}" wire:click="selectCustomFlow({{ $flow->id }})">
                                 <input type="checkbox" wire:click.stop="toggleCustomFlowSelection({{ $flow->id }})" {{ in_array($flow->id, $selectedCustomFlowIds) ? 'checked' : '' }} style="width: 16px; height: 16px; cursor: pointer; accent-color: #3b82f6; flex-shrink: 0;">

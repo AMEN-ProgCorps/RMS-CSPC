@@ -1049,6 +1049,13 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Users & Accounts')] clas
             } catch (\Throwable $e) {}
         }
 
+        $sourceOffices = \Illuminate\Support\Facades\Schema::hasTable('dts_source_office')
+            ? \DB::table('dts_source_office')
+                ->where('is_active', true)
+                ->orderBy('s_office_name', 'asc')
+                ->get(['s_office_code', 's_office_name'])
+            : collect();
+
         return [
             'clusters'            => $clusters,
             'roles'               => $roles,
@@ -1056,6 +1063,7 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Users & Accounts')] clas
             'roleUserCounts'      => $roleUserCounts,
             'totalUsersCount'     => $totalUsersCount,
             'offices'             => $offices,
+            'sourceOffices'       => $sourceOffices,
             'assignableOffices'   => $assignableOffices,
             'officeStaffCounts'   => $officeStaffCounts,
             'users'               => $users,

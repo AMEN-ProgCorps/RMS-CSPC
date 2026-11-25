@@ -149,6 +149,7 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Roles & Clearances')] cl
             $this->layoutMode = $mode;
             session(['admin_roles_layout_mode' => $mode]);
             session(['admin_management_layout_mode' => $mode]);
+            $this->resetPage();
         }
     }
 
@@ -1667,7 +1668,7 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Roles & Clearances')] cl
 <div>
 
 @if($layoutMode === 'default')
-<div class="admin-roles-outer">
+<div class="admin-roles-outer" wire:key="roles-layout-default">
     {{-- ======================================================== --}}
     {{-- MODE: DEFAULT (CLASSIC DUAL-PANE VIEW) --}}
     {{-- ======================================================== --}}
@@ -1695,9 +1696,6 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Roles & Clearances')] cl
     <div class="directory-panel">
         <div class="directory-header-row">
             <span class="form-label" style="margin: 0; font-size: 13px; color: #334155;">Roles Directory</span>
-            <button type="button" class="btn-create-new" wire:click="startCreate">
-                <i class="fa-solid fa-plus"></i> New Role
-            </button>
         </div>
 
         <div class="directory-controls-bar">
@@ -2552,7 +2550,7 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Roles & Clearances')] cl
 </div>
 
 @else
-<div class="miller-container">
+<div class="miller-container" wire:key="roles-layout-horizontal">
     {{-- Top Action Toolbar --}}
     <div style="display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 12px; margin-bottom: 14px;">
         <div>

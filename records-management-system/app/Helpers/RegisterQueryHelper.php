@@ -9506,6 +9506,10 @@ class RegisterQueryHelper
         if (Schema::hasColumn('dcs_program_courses', 'course_type')) {
             $syllabiSelect[] = 'pc.course_type';
         }
+        $hasCourseSchoolYear = Schema::hasColumn('dcs_program_courses', 'school_year_id');
+        if ($hasCourseSchoolYear) {
+            $syllabiSelect[] = 'pc.school_year_id as course_school_year_id';
+        }
 
         $syllabi = DB::table('dcs_syllabi as s')
             ->leftJoin('dcs_program_courses as pc', 'pc.id', '=', 's.course_id')
@@ -9513,7 +9517,7 @@ class RegisterQueryHelper
             ->orderBy('s.id')
             ->get($syllabiSelect);
 
-        $syllabiGroupsSeed = $syllabi->map(function ($syl) {
+        $syllabiGroupsSeed = $syllabi->map(function ($syl) use ($hasCourseSchoolYear) {
             $drfs = DB::table('dcs_syllabi_drf as sd')
                 ->leftJoin('dcs_faculties as f', 'f.id', '=', 'sd.faculty_id')
                 ->where('sd.syllabi_id', $syl->id)
@@ -9556,6 +9560,7 @@ class RegisterQueryHelper
                 'course_code' => $syl->course_code ?? '',
                 'year_level' => $syl->year_level ?? '',
                 'course_type' => $syl->course_type ?? '',
+                'course_school_year_id' => $hasCourseSchoolYear ? (int) ($syl->course_school_year_id ?? 0) : 0,
                 'availability' => self::pgBool($syl->is_available),
                 'no_pages' => $syl->no_pages,
                 'copies' => $copies,
@@ -10286,6 +10291,10 @@ class RegisterQueryHelper
         // Shared institutional catalog is retired; keep empty map for older JS readers.
         $coursesBySharedSemester = [];
         $coursesQ = DB::table('dcs_program_courses')->whereNotNull('program_id');
+        if ($hasCourseSchoolYear) {
+            $coursesQ->whereNotNull('school_year_id')
+                ->where('school_year_id', '>', 0);
+        }
         if (Schema::hasColumn('dcs_program_courses', 'year_level')) {
             $coursesQ->orderByRaw("CASE year_level
                 WHEN '1st Year' THEN 1

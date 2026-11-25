@@ -10176,6 +10176,9 @@ window.submitForm = function () {
         }
     } catch (_) { /* ignore */ }
     showSavingDocumentOverlay();
+    if (typeof clearSyllabiContextSelectionStorage === 'function') {
+        clearSyllabiContextSelectionStorage();
+    }
     const form = document.getElementById("masterForm");
     if (form && typeof sanitizeFormFields === 'function') sanitizeFormFields(form);
     form.submit();
@@ -10254,6 +10257,9 @@ function unlockSyllabiContextForSubmit() {
  */
 function prepareDraftSubmitDefaults() {
     unlockSyllabiContextForSubmit();
+    if (typeof clearSyllabiContextSelectionStorage === 'function') {
+        clearSyllabiContextSelectionStorage();
+    }
     const approvalChecked = document.querySelector('input[name="approval_status"]:checked');
     if (!approvalChecked) {
         const na = document.querySelector('input[name="approval_status"][value="not_applicable"]');
@@ -11081,6 +11087,50 @@ function wireSyllabiCpPickerOnce() {
     });
 }
 
+function syllabiRowHasUserEntry(firstRow) {
+    if (!firstRow) return false;
+    const avail = firstRow.querySelector('.syllabi-merged-availability');
+    if (avail && avail.checked) return true;
+    const copies = Number(firstRow.querySelector('.syllabi-merged-copies')?.value || 1);
+    if (copies > 1) return true;
+    const groupId = firstRow.dataset.group;
+    const rows = groupId
+        ? [...document.querySelectorAll(`#syllabiTableBody tr[data-group="${groupId}"]`)]
+        : [firstRow];
+    return rows.some((tr) => {
+        const fac = (tr.querySelector('input[name="syllabiFaculty[]"]')?.value || '').trim();
+        const pages = Number(tr.querySelector('input[name="syllabiNoPages[]"]')?.value || 0);
+        const dateRec = (tr.querySelector('input[name="syllabiDateReceived[]"]')?.value || '').trim();
+        const timeRec = (tr.querySelector('input[name="syllabiTimeReceived[]"]')?.value || '').trim();
+        const drfAvail = !!tr.querySelector('.syllabi-drf-availability')?.checked;
+        const drfNo = (tr.querySelector('input[name="syllabiDrfNo[]"]')?.value || '').trim();
+        const drfDate = (tr.querySelector('input[name="syllabiDrfDate[]"]')?.value || '').trim();
+        const drfRecv = (tr.querySelector('input[name="syllabiDrfReceived[]"]')?.value || '').trim();
+        const scan = (tr.querySelector('input[name="syllabiExistingScannedDrf[]"]')?.value || '').trim();
+        return !!(fac || pages > 0 || dateRec || timeRec || drfAvail || drfNo || drfDate || drfRecv || scan);
+    });
+}
+
+function pruneUnselectedProgramSyllabiRows() {
+    const tbody = document.getElementById('syllabiTableBody');
+    if (!tbody) return;
+    const selectedSet = new Set(getSelectedSyllabiProgramIds().map(String));
+    [...tbody.querySelectorAll('tr[data-is-first="true"]')].forEach((row) => {
+        const pid = String(row.dataset.programId || '').trim();
+        if (!pid || selectedSet.has(pid)) return;
+        if (syllabiRowHasUserEntry(row)) return;
+        const groupId = row.dataset.group;
+        if (groupId && typeof window.removeSyllabiGroup === 'function') {
+            document.querySelectorAll(`#syllabiTableBody tr[data-group="${groupId}"]`).forEach((r) => {
+                if (typeof removeSyllabiFacultyPicker === 'function') removeSyllabiFacultyPicker(r.dataset.uid);
+                r.remove();
+            });
+        } else {
+            row.remove();
+        }
+    });
+}
+
 function onSyllabiProgramToggle() {
     syncSyllabiProgramIdsHiddens();
     syncSyllabiProgramIdMirror();
@@ -11102,6 +11152,20 @@ function onSyllabiProgramToggle() {
     persistSyllabiContextSelection();
     window.__facultiesCacheKey = null;
     reloadFacultiesForCollege();
+    if (!hasPrograms) {
+        clearSyllabiCourseRows();
+        return;
+    }
+    pruneUnselectedProgramSyllabiRows();
+    if (!window.__officeIntakeSyllabiLocked && typeof syllabiContextComplete === 'function' && syllabiContextComplete()) {
+        const tbody = document.getElementById('syllabiTableBody');
+        const hasExistingRows = !!(tbody && tbody.querySelector('tr[data-is-first="true"]'));
+        if (!hasExistingRows && typeof autoPopulateSyllabiCourses === 'function') {
+            autoPopulateSyllabiCourses();
+        } else if (typeof applySyllabiYearLevelFilterToTable === 'function') {
+            applySyllabiYearLevelFilterToTable();
+        }
+    }
 }
 
 function syllabiCollegeProgramReady() {
@@ -11145,6 +11209,14 @@ function syncSyllabiContextCascade() {
 }
 
 const SYLLABI_CTX_STORAGE_KEY = 'dcs_reg_syllabi_ctx_v1';
+
+function clearSyllabiContextSelectionStorage() {
+    try {
+        sessionStorage.removeItem(SYLLABI_CTX_STORAGE_KEY);
+    } catch (_) {
+        // ignore
+    }
+}
 
 function persistSyllabiContextSelection() {
     if (window.__officeIntakeSyllabiLocked) return;
@@ -11235,14 +11307,16 @@ async function restoreSyllabiContextSelection() {
     if (semSel && data.semester_id && programIds.length) {
         semSel.disabled = false;
         semSel.value = String(data.semester_id);
-        refreshSyllabiYearLevelDisplay(
-            yearLevelsFromCourses(catalogCoursesForContext()),
-            Array.isArray(data.year_levels) ? data.year_levels : null
-        );
     }
     if (sySel && data.school_year_id && semSel?.value) {
         sySel.disabled = false;
         sySel.value = String(data.school_year_id);
+    }
+    if (semSel && data.semester_id && programIds.length) {
+        refreshSyllabiYearLevelDisplay(
+            yearLevelsFromCourses(catalogCoursesForContext()),
+            Array.isArray(data.year_levels) ? data.year_levels : null
+        );
     }
     if (titleInput && data.title) {
         titleInput.value = String(data.title);
@@ -11274,7 +11348,9 @@ function compareSyllabiCourseCode(a, b) {
 function catalogCoursesForContext() {
     const semesterId = document.getElementById('syllabiSemester')?.value;
     const courseType = document.getElementById('syllabiCourseType')?.value || '';
-    const schoolYearId = document.getElementById('syllabiSchoolYear')?.value || '';
+    const schoolYearId = (typeof syllabiContextFieldValue === 'function' ? syllabiContextFieldValue('syllabiSchoolYear') : '')
+        || document.getElementById('syllabiSchoolYear')?.value
+        || '';
     const programIds = getSelectedSyllabiProgramIds();
     if (!semesterId || !programIds.length) return [];
     const byKey = ((window.__registerCatalog || {}).coursesByProgramSemester || {});
@@ -11288,10 +11364,11 @@ function catalogCoursesForContext() {
             if (seen.has(dedupe)) return;
             seen.add(dedupe);
             if (courseType && String(c.course_type || '') !== courseType) return;
-            // Only courses tagged with this School Year in Settings appear.
+            // Only courses tagged with a School Year in Settings appear.
             // Rows with no school year are excluded from registration.
             const courseSy = Number(c.school_year_id || 0);
-            if (schoolYearId && (courseSy <= 0 || String(courseSy) !== String(schoolYearId))) return;
+            if (courseSy <= 0) return;
+            if (schoolYearId && String(courseSy) !== String(schoolYearId)) return;
             merged.push({
                 ...c,
                 program_id: String(programId),
@@ -11414,6 +11491,7 @@ function refreshSyllabiYearLevelDisplay(available, selected = null) {
 function onSyllabiYearLevelToggle() {
     syncSyllabiYearLevelHiddens();
     applySyllabiYearLevelFilterToTable();
+    persistSyllabiContextSelection();
 }
 
 /**
@@ -11464,6 +11542,8 @@ function appendSyllabiCatalogCourseRow(c) {
         newRow.dataset.programId = String(c.program_id);
         newRow.dataset.programName = String(c.program_name || '');
         newRow.dataset.programCode = String(c.program_code || '');
+        const pidHidden = newRow.querySelector('.syllabi-merged-program-id');
+        if (pidHidden) pidHidden.value = String(c.program_id);
     }
     fillSyllabiCatalogCourseFields(newRow, c);
     const yearSel = newRow.querySelector('.syllabi-merged-year');
@@ -11564,10 +11644,11 @@ function applySyllabiYearLevelFilterToTable() {
 
     const existingKeys = new Set(
         [...tbody.querySelectorAll('tr[data-is-first="true"]')].map((row) => {
+            const programId = String(row.dataset.programId || '').trim();
             const name = (row.querySelector('.syllabi-merged-course')?.value || '').trim().toLowerCase();
             const code = (row.querySelector('.syllabi-merged-code')?.value || '').trim().toLowerCase();
             const year = (row.querySelector('.syllabi-merged-year')?.value || '').trim();
-            return `${name}|${code}|${year}`;
+            return `${programId}|${name}|${code}|${year}`;
         })
     );
 
@@ -11575,8 +11656,12 @@ function applySyllabiYearLevelFilterToTable() {
         .filter((c) => {
             const year = String(c.year_level || '').trim();
             if (!year || !selected.has(year)) return false;
-            const key = `${String(c.course_name || '').trim().toLowerCase()}|${String(c.course_code || '').trim().toLowerCase()}|${year}`;
-            return !existingKeys.has(key);
+            const pid = String(c.program_id || '').trim();
+            const name = String(c.course_name || '').trim().toLowerCase();
+            const code = String(c.course_code || '').trim().toLowerCase();
+            const key = `${pid}|${name}|${code}|${year}`;
+            const legacyKey = `|${name}|${code}|${year}`;
+            return !existingKeys.has(key) && !existingKeys.has(legacyKey);
         })
         .sort((a, b) => {
             const yi = yearLevelSortIndex(String(a.year_level || '').trim()) - yearLevelSortIndex(String(b.year_level || '').trim());
@@ -12560,125 +12645,6 @@ function upsertLocalFaculty(faculty) {
         faculty_name: faculty.faculty_name,
         college_ids: Array.isArray(faculty.college_ids) ? faculty.college_ids : [],
     };
-    if (idx >= 0) {
-        allFaculties[idx] = { ...allFaculties[idx], ...row };
-    } else {
-        allFaculties.push(row);
-    }
-    if (window.__registerCatalog) {
-        window.__registerCatalog.faculties = allFaculties.slice();
-    }
-}
-
-/**
- * Creates or links faculty in Settings for the selected college.
- *
- * @param {*} name
- */
-async function ensureFacultyInSettings(name) {
-    const want = String(name || '').trim();
-    if (want.length < 2) {
-        if (typeof showToast === 'function') showToast('Enter at least 2 characters for the faculty name.', 'error');
-        return null;
-    }
-    const collegeId = getSyllabiCollegeId();
-    if (!collegeId) {
-        if (typeof showToast === 'function') showToast('Select a college first.', 'error');
-        return null;
-    }
-    const token = document.querySelector('meta[name="csrf-token"]')?.content
-        || document.querySelector('input[name="_token"]')?.value
-        || '';
-    const res = await fetch('/dcs/register/ensure-faculty', {
-        method: 'POST',
-        headers: {
-            'Content-Type': 'application/json',
-            Accept: 'application/json',
-            'X-Requested-With': 'XMLHttpRequest',
-            'X-CSRF-TOKEN': token,
-        },
-        credentials: 'same-origin',
-        body: JSON.stringify({
-            faculty_name: want,
-            college_id: Number(collegeId),
-            course_type: getSyllabiCourseType() || '',
-        }),
-    });
-    const data = await res.json().catch(() => ({}));
-    if (!res.ok || !data.ok || !data.faculty) {
-        if (typeof showToast === 'function') {
-            showToast(data.message || 'Could not save faculty to Settings.', 'error');
-        }
-        return null;
-    }
-    upsertLocalFaculty(data.faculty);
-    if (typeof showToast === 'function' && data.created) {
-        showToast('Faculty added to Settings.', 'success');
-    }
-    return data.faculty;
-}
-
-/**
- * Ensures faculty exists in Settings, then selects it on the row.
- *
- * @param {*} uid
- * @param {*} name
- * @param {*} focusNext
- */
-async function ensureAndAddSyllabiFaculty(uid, name, focusNext) {
-    const want = String(name || '').trim();
-    if (!want) return;
-    const known = getFacultyCandidates().find((f) => f.faculty_name.toLowerCase() === want.toLowerCase())
-        || (Array.isArray(allFaculties)
-            ? allFaculties.find((f) => String(f.faculty_name || '').toLowerCase() === want.toLowerCase())
-            : null);
-    if (!known) {
-        const saved = await ensureFacultyInSettings(want);
-        if (!saved) return;
-        addSyllabiFaculty(uid, saved.faculty_name || want, focusNext);
-        return;
-    }
-    // Existing name but maybe missing this college — still ensure link.
-    if (!getFacultyCandidates().some((f) => f.faculty_name.toLowerCase() === known.faculty_name.toLowerCase())) {
-        await ensureFacultyInSettings(known.faculty_name);
-    }
-    addSyllabiFaculty(uid, known.faculty_name, focusNext);
-}
-
-/**
- * Picks syllabi faculty from query.
- *
- * @param {*} uid
- * @param {*} query
- */
-async function pickSyllabiFacultyFromQuery(uid, query) {
-    const candidates = getFacultyCandidates();
-    const q = String(query || '').trim().toLowerCase();
-    const state = window.__syllabiFaculty[uid];
-    if (!state || !q) return;
-
-    const exact = candidates.find(f => f.faculty_name.toLowerCase() === q);
-    if (exact) {
-        addSyllabiFaculty(uid, exact.faculty_name, true);
-        return;
-    }
-
-    const partial = candidates.filter(f =>
-        f.faculty_name.toLowerCase().includes(q) &&
-        !state.selected.some(s => s.label.toLowerCase() === f.faculty_name.toLowerCase())
-    );
-    if (partial.length === 1) {
-        addSyllabiFaculty(uid, partial[0].faculty_name, true);
-        return;
-    }
-
-    // No catalog match — create in Settings and use the typed name.
-    await ensureAndAddSyllabiFaculty(uid, query, true);
-}
-
-/**
- * Binds and registers syllabi faculty input event listeners.
- *
  * @param {*} uid
  * @param {*} rootEl
  */
@@ -13424,6 +13390,7 @@ function buildSyllabiGroupFirstRow(groupId, rowspan) {
                 placeholder="Course name" title="From Settings → Course Names">
             <input type="hidden" name="syllabiCourseName[]" class="syllabi-merged-course"
                 oninput="syncSyllabiMergedFields('${groupId}')">
+            <input type="hidden" name="syllabiRowProgramId[]" class="syllabi-merged-program-id" value="">
             <select name="syllabiYearLevel[]" class="syllabi-merged-year" hidden aria-hidden="true" tabindex="-1"
                 onchange="onSyllabiRowYearChanged(this)">
                 ${syllabiYearLevelOptionsHtml('')}
@@ -13475,6 +13442,7 @@ function buildSyllabiContinuationRow(groupId, copyNo) {
 
     const mirrors = `
         <input type="hidden" name="syllabiCourseName[]" class="syllabi-mirror-course">
+        <input type="hidden" name="syllabiRowProgramId[]" class="syllabi-mirror-program-id">
         <input type="hidden" name="syllabiCourseCode[]" class="syllabi-mirror-code">
         <input type="hidden" name="syllabiYearLevel[]" class="syllabi-mirror-year">
         <input type="hidden" name="syllabiAvailability[]" value="0" class="syllabi-mirror-availability">
@@ -13508,8 +13476,11 @@ window.syncSyllabiMergedFields = function (groupId) {
     if (!firstRow) return;
 
     const courseVal = firstRow.querySelector('.syllabi-merged-course')?.value || firstRow.querySelector('.syllabi-merged-course-display')?.value || '';
+    const programIdVal = firstRow.querySelector('.syllabi-merged-program-id')?.value || firstRow.dataset.programId || '';
     const codeVal = firstRow.querySelector('.syllabi-merged-code')?.value || firstRow.querySelector('.syllabi-merged-code-display')?.value || '';
     const yearVal = firstRow.querySelector('.syllabi-merged-year')?.value || '';
+    const pidHidden = firstRow.querySelector('.syllabi-merged-program-id');
+    if (pidHidden && programIdVal) pidHidden.value = programIdVal;
     const availCheckbox = firstRow.querySelector('.syllabi-merged-availability');
     const availHidden = firstRow.querySelector('.syllabi-merged-availability-hidden');
     availHidden.value = availCheckbox.checked ? 'available' : 'not available';
@@ -13532,11 +13503,13 @@ window.syncSyllabiMergedFields = function (groupId) {
     document.querySelectorAll(`#syllabiTableBody tr[data-group="${groupId}"]:not([data-is-first="true"])`)
         .forEach(row => {
             const mc = row.querySelector('.syllabi-mirror-course');
+            const mpid = row.querySelector('.syllabi-mirror-program-id');
             const mcode = row.querySelector('.syllabi-mirror-code');
             const my = row.querySelector('.syllabi-mirror-year');
             const ma = row.querySelector('.syllabi-mirror-availability');
             const mp = row.querySelector('.syllabi-mirror-copies');
             if (mc) mc.value = courseVal;
+            if (mpid) mpid.value = programIdVal;
             if (mcode) mcode.value = codeVal;
             if (my) my.value = yearVal;
             if (ma) ma.value = availHidden.value;

@@ -3510,7 +3510,7 @@ class RegisterPersistHelper
     /**
      * Helper used for settings course for syllabi row.
      */
-    private static function settingsCourseForSyllabiRow(Request $request, string $courseName, ?string $yearLevel): ?object
+    private static function settingsCourseForSyllabiRow(Request $request, string $courseName, ?string $yearLevel, int $rowProgramId = 0): ?object
     {
         $courseName = trim($courseName);
         if ($courseName === '' || ! Schema::hasTable('dcs_program_courses') || empty($request->semester_id)) {
@@ -3518,16 +3518,28 @@ class RegisterPersistHelper
         }
 
         $courseType = trim((string) $request->input('course_type', ''));
+        $schoolYearId = (int) $request->input('school_year_id', 0);
+        $hasSchoolYear = Schema::hasColumn('dcs_program_courses', 'school_year_id');
         $programIds = self::syllabiProgramIdsFromRequest($request);
+        if ($rowProgramId > 0) {
+            $programIds = [$rowProgramId];
+        }
         if ($programIds === []) {
             return null;
         }
 
-        $build = function (?string $year, bool $withType) use ($request, $courseName, $programIds, $courseType) {
+        $build = function (?string $year, bool $withType) use ($request, $courseName, $programIds, $courseType, $schoolYearId, $hasSchoolYear) {
             $query = DB::table('dcs_program_courses')
                 ->where('semester_id', $request->semester_id)
                 ->whereRaw('LOWER(TRIM(course_name)) = ?', [mb_strtolower($courseName)])
                 ->whereIn('program_id', $programIds);
+
+            if ($hasSchoolYear) {
+                $query->whereNotNull('school_year_id');
+                if ($schoolYearId > 0) {
+                    $query->where('school_year_id', $schoolYearId);
+                }
+            }
 
             if ($withType && Schema::hasColumn('dcs_program_courses', 'course_type') && $courseType !== '') {
                 $query->where('course_type', $courseType);
@@ -3580,11 +3592,13 @@ class RegisterPersistHelper
         $now = now();
         $hasYearLevel = Schema::hasColumn('dcs_program_courses', 'year_level');
         $yearArr = $request->syllabiYearLevel ?? [];
+        $rowProgramIdArr = $request->input('syllabiRowProgramId', []);
 
         while ($i < $total) {
             $courseName = $courseNames[$i];
             $copies = max(1, (int) ($copiesArr[$i] ?? 1));
             $yearLevel = $hasYearLevel ? self::normalizeSyllabiYearLevel($yearArr[$i] ?? null) : null;
+            $rowProgramHint = (int) ($rowProgramIdArr[$i] ?? 0);
 
             if (empty($courseName)) {
                 $i += $copies;
@@ -3596,7 +3610,7 @@ class RegisterPersistHelper
                 continue;
             }
 
-            $course = self::settingsCourseForSyllabiRow($request, trim((string) $courseName), $yearLevel);
+            $course = self::settingsCourseForSyllabiRow($request, trim((string) $courseName), $yearLevel, $rowProgramHint);
             if (! $course) {
                 $i += $copies;
                 continue;

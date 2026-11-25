@@ -723,10 +723,12 @@ class RegisterUpdateHelper
                     ->values();
                 $courseTypeUpdate = trim((string) $request->input('course_type', ''));
                 $sharedSyllabiUpdate = \App\Helpers\CourseTypeRules::isSharedType($courseTypeUpdate);
+                $hasProgramIds = collect((array) $request->input('program_ids', []))
+                    ->contains(fn ($pid) => (int) $pid > 0);
                 $replaceSyllabi = $request->filled('college_id')
                     && $request->filled('semester_id')
                     && $request->filled('course_type')
-                    && ($sharedSyllabiUpdate || $request->filled('program_id'))
+                    && ($sharedSyllabiUpdate || $request->filled('program_id') || $hasProgramIds)
                     && $incomingCourseNames->isNotEmpty();
                 if ($replaceSyllabi) {
                     $keepPaths = DB::table('dcs_syllabi as s')

@@ -7200,6 +7200,99 @@ function wireSyllabiCpPickerOnce() {
     });
 }
 
+function editSyllabiCtxStorageKey() {
+    const reqId = document.getElementById('requestId')?.value || window.__excludeSyllabiRequestId || '';
+    return reqId ? ('dcs_edit_syllabi_ctx_v1_' + String(reqId)) : '';
+}
+
+function persistEditSyllabiContextSelection() {
+    if (syllabiContextFieldsLocked()) return;
+    const key = editSyllabiCtxStorageKey();
+    if (!key) return;
+    try {
+        const programs = [...(window.__syllabiSelectedPrograms || new Map()).values()];
+        const payload = {
+            college_id: document.getElementById('syllabiCollege')?.value || '',
+            course_type: document.getElementById('syllabiCourseType')?.value || '',
+            semester_id: document.getElementById('syllabiSemester')?.value || '',
+            school_year_id: document.getElementById('syllabiSchoolYear')?.value || '',
+            year_levels: typeof getSelectedSyllabiYearLevels === 'function' ? getSelectedSyllabiYearLevels() : [],
+            programs,
+        };
+        sessionStorage.setItem(key, JSON.stringify(payload));
+    } catch (_) {
+        // ignore quota / private mode
+    }
+}
+
+function readEditSyllabiContextSelection() {
+    if (syllabiContextFieldsLocked()) return null;
+    const key = editSyllabiCtxStorageKey();
+    if (!key) return null;
+    try {
+        const raw = sessionStorage.getItem(key);
+        if (!raw) return null;
+        const parsed = JSON.parse(raw);
+        return parsed && typeof parsed === 'object' ? parsed : null;
+    } catch (_) {
+        return null;
+    }
+}
+
+function clearEditSyllabiContextSelection() {
+    const key = editSyllabiCtxStorageKey();
+    if (!key) return;
+    try {
+        sessionStorage.removeItem(key);
+    } catch (_) {
+        // ignore
+    }
+}
+
+function syllabiRowHasUserEntry(firstRow) {
+    if (!firstRow) return false;
+    const avail = firstRow.querySelector('.syllabi-merged-availability');
+    if (avail && avail.checked) return true;
+    const copies = Number(firstRow.querySelector('.syllabi-merged-copies')?.value || 1);
+    if (copies > 1) return true;
+    const groupId = firstRow.dataset.group;
+    const rows = groupId
+        ? [...document.querySelectorAll(`#syllabiTableBody tr[data-group="${groupId}"]`)]
+        : [firstRow];
+    return rows.some((tr) => {
+        const fac = (tr.querySelector('input[name="syllabiFaculty[]"]')?.value || '').trim();
+        const pages = Number(tr.querySelector('input[name="syllabiNoPages[]"]')?.value || 0);
+        const dateRec = (tr.querySelector('input[name="syllabiDateReceived[]"]')?.value || '').trim();
+        const timeRec = (tr.querySelector('input[name="syllabiTimeReceived[]"]')?.value || '').trim();
+        const drfAvail = !!tr.querySelector('.syllabi-drf-availability')?.checked;
+        const drfNo = (tr.querySelector('input[name="syllabiDrfNo[]"]')?.value || '').trim();
+        const drfDate = (tr.querySelector('input[name="syllabiDrfDate[]"]')?.value || '').trim();
+        const drfRecv = (tr.querySelector('input[name="syllabiDrfReceived[]"]')?.value || '').trim();
+        const scan = (tr.querySelector('input[name="syllabiExistingScannedDrf[]"]')?.value || '').trim();
+        return !!(fac || pages > 0 || dateRec || timeRec || drfAvail || drfNo || drfDate || drfRecv || scan);
+    });
+}
+
+function pruneUnselectedProgramSyllabiRows() {
+    const tbody = document.getElementById('syllabiTableBody');
+    if (!tbody) return;
+    const selectedSet = new Set(getSelectedSyllabiProgramIds().map(String));
+    [...tbody.querySelectorAll('tr[data-is-first="true"]')].forEach((row) => {
+        const pid = String(row.dataset.programId || '').trim();
+        if (!pid || selectedSet.has(pid)) return;
+        if (syllabiRowHasUserEntry(row)) return;
+        const groupId = row.dataset.group;
+        if (groupId) {
+            document.querySelectorAll(`#syllabiTableBody tr[data-group="${groupId}"]`).forEach((r) => {
+                if (typeof removeSyllabiFacultyPicker === 'function') removeSyllabiFacultyPicker(r.dataset.uid);
+                r.remove();
+            });
+        } else {
+            row.remove();
+        }
+    });
+}
+
 function onSyllabiProgramToggle() {
     syncSyllabiProgramIdsHiddens();
     syncSyllabiProgramIdMirror();
@@ -7218,8 +7311,26 @@ function onSyllabiProgramToggle() {
     refreshSyllabiYearLevelDisplay(yearLevelsFromCourses(catalogCoursesForContext()));
     updateSyllabiTitle();
     syncSyllabiContextHidden();
+    persistEditSyllabiContextSelection();
+    if (typeof window.__regEditMarkDirty === 'function') {
+        window.__regEditMarkDirty();
+    }
     window.__facultiesCacheKey = null;
     reloadFacultiesForCollege();
+    if (!hasPrograms) {
+        clearSyllabiCourseRows();
+        return;
+    }
+    pruneUnselectedProgramSyllabiRows();
+    if (!syllabiContextFieldsLocked() && typeof syllabiContextComplete === 'function' && syllabiContextComplete()) {
+        const tbody = document.getElementById('syllabiTableBody');
+        const hasExistingRows = !!(tbody && tbody.querySelector('tr[data-is-first="true"]'));
+        if (!hasExistingRows && typeof autoPopulateSyllabiCourses === 'function') {
+            autoPopulateSyllabiCourses();
+        } else if (typeof applySyllabiYearLevelFilterToTable === 'function') {
+            applySyllabiYearLevelFilterToTable();
+        }
+    }
 }
 
 function syllabiCollegeProgramReady() {
@@ -7273,7 +7384,9 @@ function compareSyllabiCourseCode(a, b) {
 function catalogCoursesForContext() {
     const semesterId = document.getElementById('syllabiSemester')?.value;
     const courseType = document.getElementById('syllabiCourseType')?.value || '';
-    const schoolYearId = document.getElementById('syllabiSchoolYear')?.value || '';
+    const schoolYearId = document.getElementById('syllabiSchoolYear')?.value
+        || document.getElementById('syllabiSchoolYearHidden')?.value
+        || '';
     const programIds = getSelectedSyllabiProgramIds();
     if (!semesterId || !programIds.length) return [];
     const byKey = ((window.__registerCatalog || {}).coursesByProgramSemester || {});
@@ -7286,10 +7399,11 @@ function catalogCoursesForContext() {
             if (seen.has(dedupe)) return;
             seen.add(dedupe);
             if (courseType && String(c.course_type || '') !== courseType) return;
-            // Only courses tagged with this School Year in Settings appear.
+            // Only courses tagged with a School Year in Settings appear.
             // Rows with no school year are excluded from registration.
             const courseSy = Number(c.school_year_id || 0);
-            if (schoolYearId && (courseSy <= 0 || String(courseSy) !== String(schoolYearId))) return;
+            if (courseSy <= 0) return;
+            if (schoolYearId && String(courseSy) !== String(schoolYearId)) return;
             merged.push({
                 ...c,
                 program_id: String(programId),
@@ -7418,6 +7532,7 @@ function refreshSyllabiYearLevelDisplay(available, selected = null) {
 function onSyllabiYearLevelToggle() {
     syncSyllabiYearLevelHiddens();
     applySyllabiYearLevelFilterToTable();
+    persistEditSyllabiContextSelection();
 }
 
 /**
@@ -7467,6 +7582,8 @@ function appendSyllabiCatalogCourseRow(c) {
         newRow.dataset.programId = String(c.program_id);
         newRow.dataset.programName = String(c.program_name || '');
         newRow.dataset.programCode = String(c.program_code || '');
+        const pidHidden = newRow.querySelector('.syllabi-merged-program-id');
+        if (pidHidden) pidHidden.value = String(c.program_id);
     }
 
     fillSyllabiCatalogCourseFields(newRow, c);
@@ -7568,10 +7685,11 @@ function applySyllabiYearLevelFilterToTable() {
 
     const existingKeys = new Set(
         [...tbody.querySelectorAll('tr[data-is-first="true"]')].map((row) => {
+            const programId = String(row.dataset.programId || '').trim();
             const name = (row.querySelector('.syllabi-merged-course')?.value || '').trim().toLowerCase();
             const code = (row.querySelector('.syllabi-merged-code')?.value || '').trim().toLowerCase();
             const year = (row.querySelector('.syllabi-merged-year')?.value || '').trim();
-            return `${name}|${code}|${year}`;
+            return `${programId}|${name}|${code}|${year}`;
         })
     );
 
@@ -7579,8 +7697,12 @@ function applySyllabiYearLevelFilterToTable() {
         .filter((c) => {
             const year = String(c.year_level || '').trim();
             if (!year || !selected.has(year)) return false;
-            const key = `${String(c.course_name || '').trim().toLowerCase()}|${String(c.course_code || '').trim().toLowerCase()}|${year}`;
-            return !existingKeys.has(key);
+            const pid = String(c.program_id || '').trim();
+            const name = String(c.course_name || '').trim().toLowerCase();
+            const code = String(c.course_code || '').trim().toLowerCase();
+            const key = `${pid}|${name}|${code}|${year}`;
+            const legacyKey = `|${name}|${code}|${year}`;
+            return !existingKeys.has(key) && !existingKeys.has(legacyKey);
         })
         .sort((a, b) => {
             const yi = yearLevelSortIndex(String(a.year_level || '').trim()) - yearLevelSortIndex(String(b.year_level || '').trim());
@@ -8093,6 +8215,7 @@ async function initSyllabiContextWiring() {
             refreshSyllabiProgramPicker(this.value, []);
             syncSyllabiContextCascade();
             syncSyllabiContextHidden();
+            persistEditSyllabiContextSelection();
             window.__facultiesCacheKey = null;
             if (this.value) await reloadFacultiesForCollege();
         });
@@ -8104,6 +8227,7 @@ async function initSyllabiContextWiring() {
             refreshSyllabiProgramPicker(collegeSel?.value || '', []);
             syncSyllabiContextCascade();
             syncSyllabiContextHidden();
+            persistEditSyllabiContextSelection();
             window.__facultiesCacheKey = null;
         });
     }
@@ -8117,6 +8241,7 @@ async function initSyllabiContextWiring() {
             window.__facultiesCacheKey = null;
             reloadFacultiesForCollege();
             syncSyllabiContextHidden();
+            persistEditSyllabiContextSelection();
         });
     }
     if (sySel && !sySel.dataset.wired) {
@@ -8124,6 +8249,7 @@ async function initSyllabiContextWiring() {
         sySel.addEventListener("change", function () {
             updateSyllabiTitle();
             syncSyllabiContextHidden();
+            persistEditSyllabiContextSelection();
             autoPopulateSyllabiCourses();
         });
     }
@@ -9232,6 +9358,24 @@ async function applyOfficeIntakeStampOnEdit() {
 /**
  * Seed existing syllabi groups.
  */
+function syllabiSeedGroupHasData(group) {
+    if (!group) return false;
+    if (group.availability) return true;
+    if (group.no_pages !== null && group.no_pages !== undefined && String(group.no_pages) !== '' && Number(group.no_pages) > 0) {
+        return true;
+    }
+    return (group.rows || []).some((r) => !!(
+        r.faculty
+        || r.date_received
+        || r.time_received
+        || r.drf_available
+        || r.drf_no
+        || r.drf_date
+        || r.drf_received_date
+        || r.scanned_drf
+    ));
+}
+
 async function seedExistingSyllabiGroups() {
     const groups = window.__existingSyllabiGroups || [];
     await loadSyllabiContextDropdowns();
@@ -9241,7 +9385,56 @@ async function seedExistingSyllabiGroups() {
     tbody.innerHTML = "";
     syllabiGroupCounter = 0;
 
+    const restoredDraftCtx = (window.__isDraftDoc && !window.__officeIntakeSyllabiLocked)
+        ? readEditSyllabiContextSelection()
+        : null;
+
     if (groups.length === 0) {
+        if (restoredDraftCtx) {
+            const collegeSel = document.getElementById("syllabiCollege");
+            const semSel = document.getElementById("syllabiSemester");
+            const courseTypeSel = document.getElementById("syllabiCourseType");
+            const sySel = document.getElementById("syllabiSchoolYear");
+            if (collegeSel && restoredDraftCtx.college_id) {
+                collegeSel.value = String(restoredDraftCtx.college_id);
+                collegeSel.disabled = false;
+            }
+            if (courseTypeSel && restoredDraftCtx.course_type) {
+                courseTypeSel.value = String(restoredDraftCtx.course_type);
+                courseTypeSel.disabled = false;
+            }
+            const restoredIds = Array.isArray(restoredDraftCtx.programs)
+                ? restoredDraftCtx.programs.map((p) => String(p.program_id || '')).filter(Boolean)
+                : [];
+            refreshSyllabiProgramPicker(String(restoredDraftCtx.college_id || ''), restoredIds);
+            syncSyllabiContextCascade();
+            if (semSel && restoredDraftCtx.semester_id) {
+                semSel.value = String(restoredDraftCtx.semester_id);
+                semSel.disabled = false;
+                semSel.removeAttribute('disabled');
+            }
+            if (sySel && restoredDraftCtx.school_year_id) {
+                sySel.value = String(restoredDraftCtx.school_year_id);
+                sySel.disabled = false;
+                sySel.removeAttribute('disabled');
+            }
+            window.__syllabiEditLocked = false;
+            unlockSyllabiContextDropdowns();
+            syncSyllabiContextHidden();
+            if (typeof refreshSyllabiYearLevelDisplay === 'function') {
+                refreshSyllabiYearLevelDisplay(
+                    yearLevelsFromCourses(catalogCoursesForContext()),
+                    Array.isArray(restoredDraftCtx.year_levels) ? restoredDraftCtx.year_levels : null
+                );
+            }
+            if (typeof updateSyllabiTitle === 'function') updateSyllabiTitle();
+            if (restoredDraftCtx.college_id) await reloadFacultiesForCollege();
+            setSyllabiStep(1);
+            if (syllabiContextComplete() && typeof autoPopulateSyllabiCourses === 'function') {
+                await autoPopulateSyllabiCourses();
+            }
+            return;
+        }
         addSyllabiRow();
         setSyllabiStep(1);
         unlockSyllabiContextDropdowns();
@@ -9254,29 +9447,36 @@ async function seedExistingSyllabiGroups() {
     const courseTypeSel = document.getElementById("syllabiCourseType");
     const sySel = document.getElementById("syllabiSchoolYear");
 
-    const courseType = String(first.course_type || '').trim();
-    if (collegeSel && first.college_id) {
-        collegeSel.value = String(first.college_id);
+    const courseType = String((restoredDraftCtx?.course_type || first.course_type || '')).trim();
+    const seedCollegeId = String(restoredDraftCtx?.college_id || first.college_id || '');
+    if (collegeSel && seedCollegeId) {
+        collegeSel.value = seedCollegeId;
         collegeSel.disabled = false;
     }
     if (courseTypeSel && courseType) {
         courseTypeSel.value = courseType;
         courseTypeSel.disabled = false;
     }
-  const programIds = [...new Set(groups.map((g) => String(g.program_id || '')).filter(Boolean))];
+    const dbProgramIds = [...new Set(groups.map((g) => String(g.program_id || '')).filter(Boolean))];
+    const restoredProgramIds = Array.isArray(restoredDraftCtx?.programs)
+        ? restoredDraftCtx.programs.map((p) => String(p.program_id || '')).filter(Boolean)
+        : [];
+    const programIds = restoredProgramIds.length ? restoredProgramIds : dbProgramIds;
     const appendRaw = new URLSearchParams(window.location.search).get('append_program_ids') || '';
     appendRaw.split(',').map((s) => s.trim()).filter(Boolean).forEach((id) => {
         if (!programIds.includes(id)) programIds.push(id);
     });
-    refreshSyllabiProgramPicker(String(first.college_id || ''), programIds);
+    refreshSyllabiProgramPicker(seedCollegeId, programIds);
     syncSyllabiContextCascade();
-    if (semSel && first.semester_id) {
-        semSel.value = String(first.semester_id);
+    const seedSemesterId = String(restoredDraftCtx?.semester_id || first.semester_id || '');
+    if (semSel && seedSemesterId) {
+        semSel.value = seedSemesterId;
         semSel.disabled = false;
         semSel.removeAttribute('disabled');
     }
-    if (sySel && first.school_year_id) {
-        sySel.value = String(first.school_year_id);
+    const seedSchoolYearId = String(restoredDraftCtx?.school_year_id || first.school_year_id || '');
+    if (sySel && seedSchoolYearId) {
+        sySel.value = seedSchoolYearId;
         sySel.disabled = false;
         sySel.removeAttribute('disabled');
     }
@@ -9299,7 +9499,27 @@ async function seedExistingSyllabiGroups() {
     if (typeof updateSyllabiTitle === 'function') updateSyllabiTitle();
     if (first.college_id) await reloadFacultiesForCollege();
 
-    groups.forEach(group => {
+    // Exclude empty seeded rows whose course in Settings has no school year.
+    const renderGroups = groups.filter((group) => {
+        const hasCourseId = Number(group.course_id || 0) > 0;
+        const courseSy = Number(group.course_school_year_id || 0);
+        if (hasCourseId && courseSy <= 0 && !syllabiSeedGroupHasData(group)) {
+            return false;
+        }
+        return true;
+    });
+
+    if (renderGroups.length === 0) {
+        setSyllabiStep(1);
+        if (typeof autoPopulateSyllabiCourses === 'function' && syllabiContextComplete()) {
+            await autoPopulateSyllabiCourses();
+        } else if (typeof showSyllabiEmptyCatalogHint === 'function') {
+            showSyllabiEmptyCatalogHint();
+        }
+        return;
+    }
+
+    renderGroups.forEach(group => {
         syllabiGroupCounter++;
         const groupId = "g" + syllabiGroupCounter;
         const rowCount = Math.max(1, group.copies || group.rows?.length || 1);
@@ -9314,6 +9534,8 @@ async function seedExistingSyllabiGroups() {
             firstRow.dataset.programId = pid;
             firstRow.dataset.programName = String(group.program_name || meta.program_name || '');
             firstRow.dataset.programCode = String(group.program_code || meta.program_code || '');
+            const pidHidden = firstRow.querySelector('.syllabi-merged-program-id');
+            if (pidHidden) pidHidden.value = pid;
         }
 
         const availCheckbox = firstRow.querySelector('.syllabi-merged-availability');
@@ -9392,11 +9614,20 @@ async function seedExistingSyllabiGroups() {
     updateSyllabiTotals();
     const availableYears = yearLevelsFromCourses(catalogCoursesForContext());
     const selectedYears = collectSyllabiYearLevelsFromRows();
+    const restoredYears = Array.isArray(restoredDraftCtx?.year_levels) && restoredDraftCtx.year_levels.length
+        ? restoredDraftCtx.year_levels
+        : null;
     refreshSyllabiYearLevelDisplay(
         availableYears.length ? availableYears : selectedYears,
-        selectedYears.length ? selectedYears : null
+        restoredYears || (selectedYears.length ? selectedYears : null)
     );
-    refreshSyllabiYearSectionHeaders();
+    pruneUnselectedProgramSyllabiRows();
+    if (!window.__officeIntakeSyllabiLocked && typeof syllabiContextComplete === 'function' && syllabiContextComplete()
+        && typeof applySyllabiYearLevelFilterToTable === 'function') {
+        applySyllabiYearLevelFilterToTable();
+    } else {
+        refreshSyllabiYearSectionHeaders();
+    }
 }
 
 /**
@@ -10033,6 +10264,7 @@ function buildSyllabiGroupFirstRow(groupId, rowspan) {
                 placeholder="Course name" title="From Settings → Course Names">
             <input type="hidden" name="syllabiCourseName[]" class="syllabi-merged-course"
                 oninput="syncSyllabiMergedFields('${groupId}')">
+            <input type="hidden" name="syllabiRowProgramId[]" class="syllabi-merged-program-id" value="">
             <select name="syllabiYearLevel[]" class="syllabi-merged-year" hidden aria-hidden="true" tabindex="-1"
                 onchange="onSyllabiRowYearChanged(this)">
                 ${syllabiYearLevelOptionsHtml('')}
@@ -10088,6 +10320,7 @@ function buildSyllabiContinuationRow(groupId, copyNo) {
 
     const mirrors = `
         <input type="hidden" name="syllabiCourseName[]" class="syllabi-mirror-course">
+        <input type="hidden" name="syllabiRowProgramId[]" class="syllabi-mirror-program-id">
         <input type="hidden" name="syllabiCourseCode[]" class="syllabi-mirror-code">
         <input type="hidden" name="syllabiYearLevel[]" class="syllabi-mirror-year">
         <input type="hidden" name="syllabiAvailability[]" value="0" class="syllabi-mirror-availability">
@@ -10112,8 +10345,11 @@ window.syncSyllabiMergedFields = function (groupId) {
     if (!firstRow) return;
 
     const courseVal = firstRow.querySelector('.syllabi-merged-course')?.value || firstRow.querySelector('.syllabi-merged-course-display')?.value || '';
+    const programIdVal = firstRow.querySelector('.syllabi-merged-program-id')?.value || firstRow.dataset.programId || '';
     const codeVal = firstRow.querySelector('.syllabi-merged-code')?.value || firstRow.querySelector('.syllabi-merged-code-display')?.value || '';
     const yearVal = firstRow.querySelector('.syllabi-merged-year')?.value || '';
+    const pidHidden = firstRow.querySelector('.syllabi-merged-program-id');
+    if (pidHidden && programIdVal) pidHidden.value = programIdVal;
     const availCheckbox = firstRow.querySelector('.syllabi-merged-availability');
     const availHidden = firstRow.querySelector('.syllabi-merged-availability-hidden');
     availHidden.value = availCheckbox.checked ? 'available' : 'not available';
@@ -10136,12 +10372,14 @@ window.syncSyllabiMergedFields = function (groupId) {
     document.querySelectorAll(`#syllabiTableBody tr[data-group="${groupId}"]:not([data-is-first="true"])`)
         .forEach(row => {
             const mc = row.querySelector('.syllabi-mirror-course');
+            const mpid = row.querySelector('.syllabi-mirror-program-id');
             const mcode = row.querySelector('.syllabi-mirror-code');
             const my = row.querySelector('.syllabi-mirror-year');
             const ma = row.querySelector('.syllabi-mirror-availability');
             const mp = row.querySelector('.syllabi-mirror-copies');
             const mpg = row.querySelector('.syllabi-mirror-pages');
             if (mc) mc.value = courseVal;
+            if (mpid) mpid.value = programIdVal;
             if (mcode) mcode.value = codeVal;
             if (my) my.value = yearVal;
             if (ma) ma.value = availHidden.value;
@@ -11694,6 +11932,9 @@ window.submitForm = function () {
         syncSyllabiContextHidden();
     }
     window.__regFormSubmitting = true;
+    if (typeof clearEditSyllabiContextSelection === 'function') {
+        clearEditSyllabiContextSelection();
+    }
     showSavingDocumentOverlay();
     const form = document.getElementById("masterForm");
     if (form && typeof sanitizeFormFields === 'function') sanitizeFormFields(form);
@@ -11774,6 +12015,9 @@ function unlockSyllabiContextForSubmit() {
  */
 function prepareDraftSubmitDefaults() {
     unlockSyllabiContextForSubmit();
+    if (typeof clearEditSyllabiContextSelection === 'function') {
+        clearEditSyllabiContextSelection();
+    }
     const approvalChecked = document.querySelector('input[name="approval_status"]:checked');
     if (!approvalChecked) {
         const na = document.querySelector('input[name="approval_status"][value="not_applicable"]');

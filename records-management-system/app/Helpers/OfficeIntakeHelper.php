@@ -5227,6 +5227,7 @@ class OfficeIntakeHelper
     public static function officeDrfSyllabiCatalog(?int $exceptDrfId = null): array
     {
         $full = RegisterQueryHelper::jsCatalog();
+        $hasCourseSchoolYear = Schema::hasColumn('dcs_program_courses', 'school_year_id');
         $courses = [];
         foreach (($full['coursesByProgramSemester'] ?? []) as $key => $rows) {
             $filtered = [];
@@ -5234,6 +5235,9 @@ class OfficeIntakeHelper
                 $year = trim((string) ($row['year_level'] ?? ''));
                 $type = trim((string) ($row['course_type'] ?? ''));
                 if ($year === '' || $type === '') {
+                    continue;
+                }
+                if ($hasCourseSchoolYear && (int) ($row['school_year_id'] ?? 0) < 1) {
                     continue;
                 }
                 $filtered[] = $row;

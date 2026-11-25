@@ -1137,6 +1137,9 @@
       window.isTouchDown = true;
       isUserScrollingOrTouching = true;
       window.isUserScrollingOrTouching = true;
+      if (typeof clearFirstLoadScrollTimers === 'function') {
+        clearFirstLoadScrollTimers();
+      }
       if (userScrollTouchTimeout) {
         clearTimeout(userScrollTouchTimeout);
         userScrollTouchTimeout = null;
@@ -1305,18 +1308,28 @@
       // Immediately jump to the latest chat at the bottom
       scrollToBottom(true, true, true);
       
-      // Double-rAF ensures browser paint and subpixel reflows are completely settled without delayed timeouts
+      // Double-rAF ensures browser paint and subpixel reflows are completely settled
       requestAnimationFrame(function() {
-        if (!isTouchDown && !window.isTouchDown) {
+        if (!isTouchDown && !window.isTouchDown && !userScrolledUp && !window.replyJumpActive) {
           chatBox.scrollTop = chatBox.scrollHeight;
           hideScrollIndicator();
         }
         requestAnimationFrame(function() {
-          if (!isTouchDown && !window.isTouchDown) {
+          if (!isTouchDown && !window.isTouchDown && !userScrolledUp && !window.replyJumpActive) {
             chatBox.scrollTop = chatBox.scrollHeight;
             hideScrollIndicator();
           }
         });
+      });
+
+      // Short safety passes for mobile sidebar transitions, font/emoji reflows, and initial image decode
+      [100, 250].forEach(function(delayMs) {
+        firstLoadScrollTimers.push(setTimeout(function() {
+          if (!userScrolledUp && shouldAutoScroll && !isTouchDown && !window.isTouchDown && !isUserScrollingOrTouching && !window.isUserScrollingOrTouching && !window.replyJumpActive) {
+            chatBox.scrollTop = chatBox.scrollHeight;
+            hideScrollIndicator();
+          }
+        }, delayMs));
       });
 
       hideScrollIndicator();
@@ -1417,6 +1430,9 @@
       // true here when the synthetic click bubbles up through chatBox.
       if (longPressJustFired) return;
 
+      if (e.target.closest('.read-more-link')) {
+        return;
+      }
       if (e.target.closest('a') && !e.target.closest('a').querySelector('img') && !e.target.closest('.message-media')) {
         return;
       }
@@ -1529,9 +1545,10 @@
 
     // Event delegation for double click to edit chat message
     chatBox.addEventListener('dblclick', function (e) {
+      if (longPressJustFired) return;
       const container = e.target.closest('.message-container.sent');
       if (!container) return;
-      if (e.target.closest('.reply-quote')) return;
+      if (e.target.closest('.reply-quote, .read-more-link')) return;
       triggerEditForContainer(container);
     });
 
@@ -1540,9 +1557,46 @@
     let lastMsgTapContainer = null;
     let lastMsgTapX = 0;
     let lastMsgTapY = 0;
+    let msgTouchStartTime = 0;
+    let msgTouchStartX = 0;
+    let msgTouchStartY = 0;
+    let msgTouchMoved = false;
+
+    chatBox.addEventListener('touchstart', function (e) {
+      if (e.touches.length !== 1) {
+        msgTouchMoved = true;
+        return;
+      }
+      msgTouchStartTime = Date.now();
+      msgTouchStartX = e.touches[0].clientX;
+      msgTouchStartY = e.touches[0].clientY;
+      msgTouchMoved = false;
+    }, { passive: true });
+
+    chatBox.addEventListener('touchmove', function (e) {
+      if (msgTouchMoved || e.touches.length !== 1) return;
+      if (Math.hypot(e.touches[0].clientX - msgTouchStartX, e.touches[0].clientY - msgTouchStartY) > 12) {
+        msgTouchMoved = true;
+        lastMsgTapTime = 0;
+        lastMsgTapContainer = null;
+      }
+    }, { passive: true });
+
+    chatBox.addEventListener('touchcancel', function () {
+      lastMsgTapTime = 0;
+      lastMsgTapContainer = null;
+      msgTouchMoved = false;
+    }, { passive: true });
 
     chatBox.addEventListener('touchend', function (e) {
       if (e.changedTouches.length !== 1) return;
+      // Never treat a long-press, swipe, drag, or slow press as a tap for double-tap edit
+      if (longPressJustFired || swipeLocked || msgTouchMoved || (Date.now() - msgTouchStartTime) > 250) {
+        lastMsgTapTime = 0;
+        lastMsgTapContainer = null;
+        return;
+      }
+
       const touch = e.changedTouches[0];
       const container = e.target.closest('.message-container.sent');
       if (!container) {
@@ -1552,7 +1606,9 @@
       }
 
       // Do not trigger edit if tapped directly on a link, reply quote, reaction badge, or media
-      if (e.target.closest('a, .reply-quote, .reaction-badge, .reaction-picker-btn, .chat-viewable-image')) {
+      if (e.target.closest('a, .reply-quote, .reaction-badge, .reaction-picker-btn, .msg-reactions-pill, .msg-reactions, .read-more-link, .chat-viewable-image')) {
+        lastMsgTapTime = 0;
+        lastMsgTapContainer = null;
         return;
       }
 
@@ -1876,7 +1932,7 @@
     function isWarningContainer(container) {
       if (!container) return false;
       if (container.classList.contains('user-moved')) return true;
-      if (container.querySelector('.message-bubble > .no-image-note, .message-bubble .message-content.no-image-note, .no-image-note')) return true;
+      if (container.querySelector('.message-bubble > .no-image-note, .message-bubble .message-content.no-image-note, .message-bubble .no-image-note')) return true;
       if (container.querySelector('.chat-image-lazy-load, .chat-image-broken')) return true;
       return false;
     }
@@ -1886,7 +1942,7 @@
       if (isAdminAllChatsView || activeAdminConv) return false;
       if (container.hasAttribute('data-sending-uid') || container.hasAttribute('data-upload-uid')) return false;
       if (container.classList.contains('user-moved')) return false;
-      if (container.querySelector('.message-bubble > .no-image-note, .message-bubble .message-content.no-image-note, .no-image-note')) return false;
+      if (container.querySelector('.message-bubble > .no-image-note, .message-bubble .message-content.no-image-note, .message-bubble .no-image-note')) return false;
 
       // Disallow replying to unloaded images ("Load image") and unavailable images (broken image placeholder)
       if (container.querySelector('.chat-image-lazy-load, .chat-image-broken')) return false;
@@ -2072,6 +2128,8 @@
       swipeContainer = container;
       swipeAvatarEl = container.querySelector('.message-avatar');
       swipeBubbleWrapEl = container.querySelector('.bubble-wrapper');
+      if (swipeAvatarEl) swipeAvatarEl.style.transition = 'none';
+      if (swipeBubbleWrapEl) swipeBubbleWrapEl.style.transition = 'none';
       swipeStartX = e.touches[0].clientX;
       swipeStartY = e.touches[0].clientY;
       swipeDx = 0;
@@ -2098,6 +2156,12 @@
           return;
         }
         swipeLocked = true;
+        if (typeof longPressTimer !== 'undefined' && longPressTimer) {
+          clearTimeout(longPressTimer);
+          longPressTimer = null;
+        }
+        if (swipeAvatarEl) swipeAvatarEl.style.transition = 'none';
+        if (swipeBubbleWrapEl) swipeBubbleWrapEl.style.transition = 'none';
 
         swipeIconEl = document.createElement('div');
         swipeIconEl.className = 'reply-swipe-icon';
@@ -2133,15 +2197,16 @@
 
       e.preventDefault(); // we own the gesture — stop the page from scrolling
 
-      // Magnitude of drag, capped at max travel
-      const absDx = Math.min(Math.abs(dx), SWIPE_REPLY_MAX_PX);
-      swipeDx = absDx; // stored as positive magnitude for trigger comparison
+      // Directional travel: sent swipes left (dx < 0), received swipes right (dx > 0).
+      // Clamp to [0, SWIPE_REPLY_MAX_PX] so sliding back past start stops at 0 instead of flipping direction.
+      const rawDirectionalDx = isSent ? -dx : dx;
+      const clampedDx = Math.max(0, Math.min(rawDirectionalDx, SWIPE_REPLY_MAX_PX));
+      swipeDx = clampedDx;
 
-      const progress = absDx / SWIPE_REPLY_MAX_PX;
-      // Apply translation in the correct direction
-      const translate = isSent ? -absDx : absDx;
-      if (swipeAvatarEl) swipeAvatarEl.style.transform = 'translateX(' + translate + 'px)';
-      if (swipeBubbleWrapEl) swipeBubbleWrapEl.style.transform = 'translateX(' + translate + 'px)';
+      const progress = clampedDx / SWIPE_REPLY_MAX_PX;
+      const translate = isSent ? -clampedDx : clampedDx;
+      if (swipeAvatarEl) swipeAvatarEl.style.transform = `translate3d(${translate}px, 0, 0)`;
+      if (swipeBubbleWrapEl) swipeBubbleWrapEl.style.transform = `translate3d(${translate}px, 0, 0)`;
       if (swipeIconEl) {
         swipeIconEl.style.opacity = String(progress);
         swipeIconEl.style.transform = 'translateY(-50%) scale(' + (0.6 + 0.4 * progress) + ')';
@@ -2780,6 +2845,8 @@
         longPressTimer = null;
         longPressJustFired = true;       // suppress upcoming synthetic click
         longPressPickerOpenTime = Date.now(); // time-guard for picker tap
+        lastMsgTapTime = 0;
+        lastMsgTapContainer = null;
         longPressAnchorEl = getReactionAnchorEl(container);
         if (longPressAnchorEl) longPressAnchorEl.classList.add('longpress-active');
         if (navigator.vibrate) { try { navigator.vibrate(15); } catch (err) {} }
@@ -3306,6 +3373,27 @@
       return stripped.replace(stripRe, '') === '';
     }
 
+    function countEmojisInMessage(str) {
+      if (!str) return 0;
+      const graphemes = (typeof splitGraphemes === 'function')
+        ? splitGraphemes(str)
+        : Array.from(str);
+      const emojiUnitRe = /^(?:[\p{Emoji_Presentation}\p{Extended_Pictographic}\u{1F3FB}-\u{1F3FF}\u200D\uFE0F]|\uD83C[\uDDE0-\uDDFF]\uD83C[\uDDE0-\uDDFF]|[\u0023\u002A\u0030-\u0039]\uFE0F?\u20E3|\p{Emoji}\uFE0F)+$/u;
+      let count = 0;
+      for (let i = 0; i < graphemes.length; i++) {
+        const g = graphemes[i];
+        if (!g || /^\s+$/.test(g)) continue;
+        if (emojiUnitRe.test(g)) {
+          count++;
+        }
+      }
+      return count;
+    }
+
+    function getMaxEmojisPerMessage() {
+      return 5;
+    }
+
     // ── Auto-linkify URLs inside message text ──
     // Turns any plain-text http(s):// or www. URL found in a message bubble
     // into a real, clickable <a> that opens in a new tab. Only touches raw
@@ -3329,6 +3417,12 @@
       scope.querySelectorAll('.message-bubble').forEach(function(bubble) {
         const contentEl = bubble.querySelector('.message-content');
         if (!contentEl) return;
+        if (bubble.closest('.message-container.user-moved') || contentEl.classList.contains('no-image-note')) {
+          bubble.classList.remove('emoji-only');
+          contentEl.dataset.emojiChecked = '1';
+          contentEl.dataset.readmoreChecked = '1';
+          return;
+        }
         if (contentEl.dataset.emojiChecked === '1' && contentEl.dataset.readmoreChecked === '1') {
           if (typeof window.renderEmojiMartInElement === 'function' && contentEl.dataset.emRendered !== '1') {
             window.renderEmojiMartInElement(contentEl);
@@ -3549,6 +3643,7 @@
           }
           chatBox.appendChild(el);
         });
+        applyAdminBadges(); applyEmojiOnly(); attachImageLoadListeners();
         if (!gcViewingOlder) {
           if (isFirstLoad) {
             isFirstLoad = false;
@@ -3563,7 +3658,6 @@
             }
           }
         }
-        applyAdminBadges(); applyEmojiOnly(); attachImageLoadListeners();
         if (gcHasMore && !document.getElementById('loadOlderBtn') && !document.getElementById('noMoreOlderNotice')) insertLoadOlderBtn();
         return;
       }
@@ -3598,7 +3692,8 @@
       // Pre-process emoji truncation & classes off-DOM before layout
       applyEmojiOnly(frag);
       chatBox.appendChild(frag);
-      
+      applyAdminBadges(); attachImageLoadListeners();
+
       if (isFirstLoad) {
         isFirstLoad = false;
         handleFirstLoadScroll();
@@ -3614,7 +3709,6 @@
           }
         }
       }
-      applyAdminBadges(); attachImageLoadListeners();
       // Chat was rebuilt from scratch (e.g. cleared), so pagination state no longer applies
       gcCursor = data.nextCursor || '';
       if (wasAtBottom && !userScrolledUp && !isTouchDown && !isUserScrollingOrTouching) {
@@ -4840,6 +4934,12 @@
 
       if (!name || !message) {
         if (!message) messageInput.focus({ preventScroll: true });
+        return;
+      }
+
+      const maxEmojis = getMaxEmojisPerMessage();
+      if (countEmojisInMessage(message) > maxEmojis) {
+        showEmojiLimitModal(maxEmojis);
         return;
       }
 
@@ -6863,6 +6963,14 @@
       showEditExpiredModal(msg || 'Messages can only be edited up to 3 times.', 'Edit Limit Reached');
     }
 
+    function showEmojiLimitModal(limit) {
+      const max = limit || getMaxEmojisPerMessage();
+      showEditExpiredModal(
+        `You can only send up to ${max} emojis per message.`,
+        'Too Many Emojis'
+      );
+    }
+
     function closeEditExpiredModal() {
       const modal = document.getElementById('editExpiredModal');
       if (modal) {
@@ -6896,6 +7004,8 @@
       if (!chatBox) return;
       const chatRect = chatBox.getBoundingClientRect();
       const viewingOlder = (isGlobalChat ? gcViewingOlder : (activeAdminConv ? adminConvViewingOlder : dmViewingOlder)) || userScrolledUp;
+      const shouldPinBottom = !viewingOlder && shouldAutoScroll && !(isTouchDown || window.isTouchDown || isUserScrollingOrTouching || window.isUserScrollingOrTouching) && !window.replyJumpActive;
+      let resizedWhilePinned = false;
       entries.forEach(function(entry) {
         const el = entry.target;
         const newHeight = entry.contentRect.height;
@@ -6909,6 +7019,10 @@
         // getBoundingClientRect().bottom is 0, which is always <= chatRect.top + 2
         // (since chatBox sits below the page top), causing phantom scrollTop bumps.
         if (!el.isConnected) return;
+        if (shouldPinBottom) {
+          resizedWhilePinned = true;
+          return;
+        }
         const elRect = el.getBoundingClientRect();
         const prevBottom = elRect.bottom - delta;
         const threshold = viewingOlder ? (chatRect.height * 0.65) : 4;
@@ -6916,12 +7030,15 @@
           chatBox.scrollTop = Math.max(0, chatBox.scrollTop + delta);
         }
       });
+      if (resizedWhilePinned) {
+        chatBox.scrollTop = chatBox.scrollHeight;
+        hideScrollIndicator();
+      }
     }) : null;
     window.scrollAnchorObserver = scrollAnchorObserver;
 
     function attachImageLoadListeners() {
       if (!chatBox) return;
-      const viewingOlder = isGlobalChat ? gcViewingOlder : (activeAdminConv ? adminConvViewingOlder : dmViewingOlder);
       chatBox.querySelectorAll('img:not(.avatar-img)').forEach(img => {
         if (img.dataset.scrollListener) return;
         img.dataset.scrollListener = '1';
@@ -6930,8 +7047,9 @@
           scrollAnchorObserver.observe(img);
         }
         img.addEventListener('load', () => {
-          if (!viewingOlder && !userScrolledUp && !(isTouchDown || window.isTouchDown || isUserScrollingOrTouching || window.isUserScrollingOrTouching) && isAtBottom() && shouldAutoScroll) {
-            scrollToBottom(false, true, false);
+          const viewingOlderNow = isGlobalChat ? gcViewingOlder : (activeAdminConv ? adminConvViewingOlder : dmViewingOlder);
+          if (!viewingOlderNow && !userScrolledUp && shouldAutoScroll && !(isTouchDown || window.isTouchDown || isUserScrollingOrTouching || window.isUserScrollingOrTouching) && !window.replyJumpActive) {
+            scrollToBottom(true, true, false);
           }
         });
       });
@@ -6996,6 +7114,14 @@
     function uploadAndSend(fileList, captionMessage) {
       if (isAdminAllChatsView || activeAdminConv) {
         return;
+      }
+
+      if (typeof captionMessage === 'string' && captionMessage.trim() !== '') {
+        const maxEmojis = getMaxEmojisPerMessage();
+        if (countEmojisInMessage(captionMessage) > maxEmojis) {
+          showEmojiLimitModal(maxEmojis);
+          return;
+        }
       }
 
       shouldAutoScroll = true;

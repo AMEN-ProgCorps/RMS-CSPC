@@ -1850,49 +1850,66 @@
       justify-content: flex-start;
     }
 
-    /* Moved user / warning bubble in all views (sent, received, admin) */
+    /* Moved user / warning bubble: normal bubble colors with subtle dashed trace */
     .message-container.user-moved .message-bubble,
     .message-container.sent.user-moved .message-bubble,
     .message-container.received.user-moved .message-bubble,
     .message-bubble:has(.no-image-note) {
-      background: #ffffff !important;
-      border: 1px solid #fee2e2 !important;
-      box-shadow: 0 1px 3px rgba(0, 0, 0, 0.06) !important;
-      color: #e53e3e !important;
-      font-style: italic !important;
       cursor: default !important;
       user-select: none;
+    }
+    .message-container.received.user-moved .message-bubble,
+    .received .message-bubble:has(.no-image-note) {
+      border: 1.5px dashed rgba(100, 116, 139, 0.45) !important;
+    }
+    .message-container.sent.user-moved .message-bubble,
+    .sent .message-bubble:has(.no-image-note) {
+      border: 1.5px dashed rgba(255, 255, 255, 0.55) !important;
+    }
+    [data-theme="dark"] .message-container.received.user-moved .message-bubble,
+    [data-theme="dark"] .received .message-bubble:has(.no-image-note) {
+      border: 1.5px dashed rgba(148, 163, 184, 0.42) !important;
     }
     .message-container.user-moved .message-content,
     .message-container.user-moved .message-content.no-image-note,
     .message-content.no-image-note,
     .reply-quote-text.no-image-note {
       font-style: italic !important;
-      color: #e53e3e !important;
-      font-weight: 500 !important;
-      opacity: 1 !important;
-      font-size: 13px;
     }
-    .message-container.user-moved .message-sender {
-      color: #94a3b8 !important;
+    .message-container.user-moved .message-bubble.emoji-only {
+      font-size: inherit !important;
+      line-height: inherit !important;
+      padding: 10px 14px !important;
+      border-radius: 18px !important;
+      box-shadow: 0 1px 2px var(--shadow-color) !important;
+    }
+    .message-container.sent.user-moved .message-bubble.emoji-only {
+      background: var(--bg-bubble-sent) !important;
+      color: var(--text-bubble-sent) !important;
+    }
+    .message-container.received.user-moved .message-bubble.emoji-only {
+      background: var(--bg-bubble-received) !important;
+      color: var(--text-bubble-received) !important;
     }
 
-    /* Warning / deleted image reply-quote bubble */
+    /* Warning / moved-user reply-quote bubble: normal reply-quote with subtle dashed trace */
     .reply-quote.reply-quote-warning,
-    .reply-quote:has(.no-image-note),
-    .sent .reply-quote.reply-quote-warning,
-    .sent .reply-quote:has(.no-image-note),
-    .received .reply-quote.reply-quote-warning,
-    .received .reply-quote:has(.no-image-note) {
-      background: #ffffff !important;
-      border: 1px solid #fee2e2 !important;
-      box-shadow: 0 1px 3px rgba(0, 0, 0, 0.06) !important;
-      opacity: 1 !important;
+    .reply-quote:has(.no-image-note) {
       max-width: 92%;
       width: auto !important;
       min-width: 0 !important;
-      margin-bottom: -12px !important;
       padding: 7px 12px 18px 12px !important;
+      margin-bottom: -12px !important;
+      border-radius: 16px !important;
+      border: 1.5px dashed rgba(100, 116, 139, 0.45) !important;
+    }
+    .sent .reply-quote.reply-quote-warning,
+    .sent .reply-quote:has(.no-image-note) {
+      border: 1.5px dashed rgba(255, 255, 255, 0.55) !important;
+    }
+    [data-theme="dark"] .received .reply-quote.reply-quote-warning,
+    [data-theme="dark"] .received .reply-quote:has(.no-image-note) {
+      border: 1.5px dashed rgba(148, 163, 184, 0.42) !important;
     }
 
     /* Avatar Styles */
@@ -4451,6 +4468,19 @@
       align-items: center;
       flex-shrink: 0;
       margin-bottom: 2px;
+    }
+
+    /* Hide the emoji button on mobile viewports & touch-only devices,
+       while keeping it visible on desktop PC and in the RMS desktop widget iframe. */
+    @media (max-width: 991px) {
+      html:not(.rms-desktop-widget) .emoji-picker-anchor {
+        display: none !important;
+      }
+    }
+    @media (hover: none) and (pointer: coarse) {
+      .emoji-picker-anchor {
+        display: none !important;
+      }
     }
 
     .emoji-picker-btn {

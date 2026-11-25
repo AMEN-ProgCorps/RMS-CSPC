@@ -295,12 +295,7 @@ new #[Layout('layouts.dts')] #[Title('DTS - Issuances')] class extends Component
      */
     public function getActionOptionsProperty(): array
     {
-        $canForwardOtherOffice = \App\Services\DtsRoutingService::canForwardToOtherOffice();
-        $query = DB::table('dts_action_options')->orderBy('option_name', 'asc');
-        if (!$canForwardOtherOffice) {
-            $query->where('option_name', '!=', 'To be Forwarded to');
-        }
-        return $query->pluck('option_name')->toArray();
+        return \App\Services\DtsRoutingService::getActionOptions();
     }
 
     // Forward HUB Selection Modal State
@@ -4052,6 +4047,10 @@ new #[Layout('layouts.dts')] #[Title('DTS - Issuances')] class extends Component
                                         $listBtnLabel = 'Return for Revision';
                                         $listBtnBg = '#dc2626';
                                         $listBtnIcon = 'fa-arrow-rotate-left';
+                                    } elseif ($this->isLastStep()) {
+                                        $listBtnLabel = 'Complete Transaction';
+                                        $listBtnBg = '#059669';
+                                        $listBtnIcon = 'fa-check';
                                     } elseif ($listIsToBeForwarded) {
                                         $listBtnLabel = 'Proceed Action';
                                         $listBtnBg = '#2563eb';

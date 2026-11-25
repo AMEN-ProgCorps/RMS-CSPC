@@ -295,12 +295,7 @@ new #[Layout('layouts.dts')] #[Title('DTS - Internal Transactions')] class exten
      */
     public function getActionOptionsProperty(): array
     {
-        $canForwardOtherOffice = \App\Services\DtsRoutingService::canForwardToOtherOffice();
-        $query = DB::table('dts_action_options')->orderBy('option_name', 'asc');
-        if (!$canForwardOtherOffice) {
-            $query->where('option_name', '!=', 'To be Forwarded to');
-        }
-        return $query->pluck('option_name')->toArray();
+        return \App\Services\DtsRoutingService::getActionOptions();
     }
 
     // Forward HUB Selection Modal State
@@ -1175,14 +1170,9 @@ new #[Layout('layouts.dts')] #[Title('DTS - Internal Transactions')] class exten
     {
         $perms = auth()->user()?->permissions;
         $canListModify = $perms && ($perms->is_sadm || ($perms->can_dts_list_modify_transaction ?? false) || ($perms->can_dts_modify_transaction ?? false) || ($perms->can_dts_modify_control_no ?? false));
-        $isCreator = isset($this->selectedTransaction) && ($this->selectedTransaction->created_by === auth()->id());
-        $isAtOrigin = isset($this->selectedTransaction) && ($this->selectedTransaction->current_office === $this->selectedTransaction->originated_from);
-        $isInitialOrRevisionState = isset($this->selectedTransaction) && ($this->selectedTransaction->sequence == 1 || $this->selectedTransaction->status === 'revision');
+        $canEditMetadata = ($this->selectedTransaction?->status !== 'completed') || $canListModify;
 
-        $canModify = isset($this->selectedTransaction) 
-            && ($canListModify || ($this->selectedTransaction->status !== 'completed' && $isCreator && $isAtOrigin && $isInitialOrRevisionState));
-
-        if (!$canModify) {
+        if (!$canEditMetadata) {
             return;
         }
         $this->editingAll = !$this->editingAll;
@@ -1285,14 +1275,9 @@ new #[Layout('layouts.dts')] #[Title('DTS - Internal Transactions')] class exten
     {
         $perms = auth()->user()?->permissions;
         $canListModify = $perms && ($perms->is_sadm || ($perms->can_dts_list_modify_transaction ?? false) || ($perms->can_dts_modify_transaction ?? false) || ($perms->can_dts_modify_control_no ?? false));
-        $isCreator = isset($this->selectedTransaction) && ($this->selectedTransaction->created_by === auth()->id());
-        $isAtOrigin = isset($this->selectedTransaction) && ($this->selectedTransaction->current_office === $this->selectedTransaction->originated_from);
-        $isInitialOrRevisionState = isset($this->selectedTransaction) && ($this->selectedTransaction->sequence == 1 || $this->selectedTransaction->status === 'revision');
+        $canEditMetadata = ($this->selectedTransaction?->status !== 'completed') || $canListModify;
 
-        $canModify = isset($this->selectedTransaction) 
-            && ($canListModify || ($this->selectedTransaction->status !== 'completed' && $isCreator && $isAtOrigin && $isInitialOrRevisionState));
-
-        if ($canModify) {
+        if ($canEditMetadata) {
             try {
                 DB::transaction(function () use ($canListModify) {
                     $emailAccessId = null;
@@ -3303,9 +3288,7 @@ new #[Layout('layouts.dts')] #[Title('DTS - Internal Transactions')] class exten
                                 <span class="dts-im-tile-k"><i class="fa-solid fa-clipboard-check" style="color: #10b981;"></i> Action Needed</span>
                                 @if ($editingAll)
                                     @php
-                                        $availableActionNeeded = DB::table('dts_action_options')
-                                            ->orderBy('option_name', 'asc')
-                                            ->get();
+                                        $availableActionNeeded = \App\Services\DtsRoutingService::getActionOptionsQuery(true)->get();
                                     @endphp
                                     <select class="receive-field-input" wire:model="actionNeeded" style="height: 36px; padding: 0 8px; border-radius: 6px; font-size: 12px;">
                                         <option value="">Select Action Needed...</option>
@@ -3899,6 +3882,10 @@ new #[Layout('layouts.dts')] #[Title('DTS - Internal Transactions')] class exten
                                         $listBtnLabel = 'Return for Revision';
                                         $listBtnBg = '#dc2626';
                                         $listBtnIcon = 'fa-arrow-rotate-left';
+                                    } elseif ($this->isLastStep()) {
+                                        $listBtnLabel = 'Complete Transaction';
+                                        $listBtnBg = '#059669';
+                                        $listBtnIcon = 'fa-check';
                                     } elseif ($listIsToBeForwarded) {
                                         $listBtnLabel = 'Proceed Action';
                                         $listBtnBg = '#2563eb';

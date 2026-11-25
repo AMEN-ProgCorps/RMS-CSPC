@@ -469,7 +469,7 @@
         const senderOfficeId = senderUser && senderUser.office_id !== undefined && senderUser.office_id !== null ? Number(senderUser.office_id) : 0;
         if (senderOfficeId !== spiedOfficeId) {
           isSenderMoved = true;
-          movedNoticeText = (senderOfficeId <= 0) ? 'No office assigned for this user' : 'This user has been moved to other office';
+          movedNoticeText = (senderOfficeId <= 0) ? 'This user has no assigned office' : 'This user has been moved to another office';
           container.classList.add('user-moved');
         }
       }
@@ -510,7 +510,7 @@
       }
 
       const bubbleContentHtml = isSenderMoved
-        ? `<div class="message-content no-image-note" style="font-style:italic;color:#e53e3e !important;font-weight:500;">${escapeHtml(movedNoticeText)}</div>`
+        ? `<div class="message-content no-image-note">${escapeHtml(movedNoticeText)}</div>`
         : `<div class="message-content">${escapeHtml(msgText)}</div>`;
 
       container.innerHTML = `
@@ -1322,7 +1322,7 @@
             if (chatBox && changedUserId > 0) {
               const msgContainers = chatBox.querySelectorAll(`.message-container[data-sender-id="${changedUserId}"]`);
               if (newOfficeId !== spiedOfficeId) {
-                const noticeText = (newOfficeId <= 0) ? 'No office assigned for this user' : 'This user has been moved to other office';
+                const noticeText = (newOfficeId <= 0) ? 'This user has no assigned office' : 'This user has been moved to another office';
                 const changedMsgIds = new Set();
                 msgContainers.forEach(container => {
                   container.classList.add('user-moved');
@@ -1353,11 +1353,16 @@
                     }
                   }
                   if (contentEl) {
+                    const parentBubble = contentEl.closest('.message-bubble');
+                    if (parentBubble) parentBubble.classList.remove('emoji-only');
+                    delete contentEl.dataset.fullText;
+                    contentEl.dataset.emojiChecked = '1';
+                    contentEl.dataset.readmoreChecked = '1';
                     contentEl.textContent = noticeText;
                     contentEl.className = 'message-content no-image-note';
-                    contentEl.style.fontStyle = 'italic';
-                    contentEl.style.color = '#e53e3e';
-                    contentEl.style.fontWeight = '500';
+                    contentEl.style.fontStyle = '';
+                    contentEl.style.color = '';
+                    contentEl.style.fontWeight = '';
                   }
                   container.querySelectorAll('.chat-attachment-container, img.chat-image, video, audio, .message-media').forEach(el => el.remove());
                 });
@@ -1367,7 +1372,7 @@
                     const replyTo = rq.getAttribute('data-reply-to');
                     if (replyTo && changedMsgIds.has(replyTo)) {
                       rq.className = 'reply-quote reply-quote-warning';
-                      rq.innerHTML = `<div class="reply-quote-text no-image-note" style="font-style:italic;color:#e53e3e !important;font-weight:500;">${escapeHtml(noticeText)}</div>`;
+                      rq.innerHTML = `<div class="reply-quote-text no-image-note">${escapeHtml(noticeText)}</div>`;
                     }
                   });
                 }
@@ -1382,61 +1387,105 @@
           // ── Case 2: User is currently viewing Office GC in normal mode ──
           if (window.activeChannel === 'office') {
             const currentOfficeId = window.currentOfficeInfo ? Number(window.currentOfficeInfo.office_id) : 0;
-            if (chatBox && changedUserId > 0 && currentOfficeId > 0 && newOfficeId !== currentOfficeId) {
-              const noticeText = (newOfficeId <= 0) ? 'No office assigned for this user' : 'This user has been moved to other office';
-              const changedMsgIds = new Set();
-              const msgContainers = chatBox.querySelectorAll(`.message-container[data-sender-id="${changedUserId}"]`);
-              msgContainers.forEach(container => {
-                container.classList.add('user-moved');
-                const mid = container.getAttribute('data-msg-id');
-                if (mid) changedMsgIds.add(mid);
-                let contentEl = container.querySelector('.message-content');
-                if (!contentEl) {
-                  let bubble = container.querySelector('.message-bubble');
-                  if (!bubble) {
-                    bubble = document.createElement('div');
-                    bubble.className = 'message-bubble';
-                    const bubbleWrapper = container.querySelector('.bubble-wrapper');
-                    if (bubbleWrapper) bubbleWrapper.appendChild(bubble);
-                    else container.appendChild(bubble);
-                  }
-                  contentEl = document.createElement('div');
-                  contentEl.className = 'message-content';
-                  bubble.insertBefore(contentEl, bubble.firstChild);
-                  if (!bubble.querySelector('.message-info')) {
-                    const info = document.createElement('div');
-                    info.className = 'message-info';
-                    const sender = document.createElement('span');
-                    sender.className = 'message-sender';
-                    const userObj = allUsersData.find(u => Number(u.account_id) === changedUserId);
-                    sender.textContent = userObj ? (userObj.full_name || userObj.username || '').toLowerCase() : 'user';
-                    info.appendChild(sender);
-                    bubble.appendChild(info);
-                  }
-                }
-                if (contentEl) {
-                  contentEl.textContent = noticeText;
-                  contentEl.className = 'message-content no-image-note';
-                  contentEl.style.fontStyle = 'italic';
-                  contentEl.style.color = '#e53e3e';
-                  contentEl.style.fontWeight = '500';
-                }
-                container.querySelectorAll('.chat-attachment-container, img.chat-image, video, audio, .message-media').forEach(el => el.remove());
-              });
+            const _myIdOffice = (typeof wsConfig !== 'undefined' && wsConfig.accountId) ? Number(wsConfig.accountId) : 0;
 
-              if (changedMsgIds.size > 0) {
-                chatBox.querySelectorAll('.reply-quote[data-reply-to]').forEach(rq => {
-                  const replyTo = rq.getAttribute('data-reply-to');
-                  if (replyTo && changedMsgIds.has(replyTo)) {
-                    rq.className = 'reply-quote reply-quote-warning';
-                    rq.innerHTML = `<div class="reply-quote-text no-image-note" style="font-style:italic;color:#e53e3e !important;font-weight:500;">${escapeHtml(noticeText)}</div>`;
-                  }
-                });
+            if (_myIdOffice > 0 && changedUserId === _myIdOffice && currentOfficeId > 0 && newOfficeId !== currentOfficeId) {
+              const _officeGcName = escapeHtml(
+                (window.currentOfficeInfo && (window.currentOfficeInfo.display_title || window.currentOfficeInfo.office_name))
+                  ? (window.currentOfficeInfo.display_title || window.currentOfficeInfo.office_name)
+                  : 'this office group chat'
+              );
+              if (chatBox) {
+                chatBox.innerHTML = '<div class="empty-chat" style="display:flex;flex-direction:column;align-items:center;justify-content:center;height:100%;gap:12px;padding:32px;">' +
+                  '<p style="margin:0;font-size:14px;font-weight:600;color:var(--text-primary);">You have been moved to another office.</p>' +
+                  '<p style="margin:0;font-size:13px;color:var(--text-secondary);">You no longer have access to <strong>' + _officeGcName + '</strong>.</p>' +
+                '</div>';
               }
-            }
+              if (chatHeaderTitle) {
+                chatHeaderTitle.innerHTML = _officeGcName;
+              }
+              if (typeof applyHeaderAdminBadge === 'function') {
+                applyHeaderAdminBadge();
+              }
+              if (chatHeaderAvatar) {
+                chatHeaderAvatar.innerHTML = '<img src="cspc.webp" width="32" height="32" class="avatar-img" alt="" style="width:100%;height:100%;border-radius:50%;object-fit:cover;background:transparent;" draggable="false">';
+                chatHeaderAvatar.style.display = 'flex';
+                chatHeaderAvatar.style.background = 'transparent';
+                chatHeaderAvatar.style.backgroundColor = 'transparent';
+                chatHeaderAvatar.dataset.avatarUrl = 'cspc.webp';
+              }
+              window.activeChannel = null;
+              activeChannel = null;
+              isGlobalChat = false;
+              window.activeOfficeId = null;
+              window.activeOfficeConvId = null;
+              if (typeof updateOfficeInfoButtonVisibility === 'function') {
+                updateOfficeInfoButtonVisibility();
+              }
+              if (typeof hideEditBanner === 'function') hideEditBanner();
+              if (typeof hideReplyBanner === 'function') hideReplyBanner();
+            } else {
+              if (chatBox && changedUserId > 0 && currentOfficeId > 0 && newOfficeId !== currentOfficeId) {
+                const noticeText = (newOfficeId <= 0) ? 'This user has no assigned office' : 'This user has been moved to another office';
+                const changedMsgIds = new Set();
+                const msgContainers = chatBox.querySelectorAll(`.message-container[data-sender-id="${changedUserId}"]`);
+                msgContainers.forEach(container => {
+                  container.classList.add('user-moved');
+                  const mid = container.getAttribute('data-msg-id');
+                  if (mid) changedMsgIds.add(mid);
+                  let contentEl = container.querySelector('.message-content');
+                  if (!contentEl) {
+                    let bubble = container.querySelector('.message-bubble');
+                    if (!bubble) {
+                      bubble = document.createElement('div');
+                      bubble.className = 'message-bubble';
+                      const bubbleWrapper = container.querySelector('.bubble-wrapper');
+                      if (bubbleWrapper) bubbleWrapper.appendChild(bubble);
+                      else container.appendChild(bubble);
+                    }
+                    contentEl = document.createElement('div');
+                    contentEl.className = 'message-content';
+                    bubble.insertBefore(contentEl, bubble.firstChild);
+                    if (!bubble.querySelector('.message-info')) {
+                      const info = document.createElement('div');
+                      info.className = 'message-info';
+                      const sender = document.createElement('span');
+                      sender.className = 'message-sender';
+                      const userObj = allUsersData.find(u => Number(u.account_id) === changedUserId);
+                      sender.textContent = userObj ? (userObj.full_name || userObj.username || '').toLowerCase() : 'user';
+                      info.appendChild(sender);
+                      bubble.appendChild(info);
+                    }
+                  }
+                  if (contentEl) {
+                    const parentBubble = contentEl.closest('.message-bubble');
+                    if (parentBubble) parentBubble.classList.remove('emoji-only');
+                    delete contentEl.dataset.fullText;
+                    contentEl.dataset.emojiChecked = '1';
+                    contentEl.dataset.readmoreChecked = '1';
+                    contentEl.textContent = noticeText;
+                    contentEl.className = 'message-content no-image-note';
+                    contentEl.style.fontStyle = '';
+                    contentEl.style.color = '';
+                    contentEl.style.fontWeight = '';
+                  }
+                  container.querySelectorAll('.chat-attachment-container, img.chat-image, video, audio, .message-media').forEach(el => el.remove());
+                });
 
-            if (typeof loadGlobalChat === 'function') {
-              loadGlobalChat(false, false, true);
+                if (changedMsgIds.size > 0) {
+                  chatBox.querySelectorAll('.reply-quote[data-reply-to]').forEach(rq => {
+                    const replyTo = rq.getAttribute('data-reply-to');
+                    if (replyTo && changedMsgIds.has(replyTo)) {
+                      rq.className = 'reply-quote reply-quote-warning';
+                      rq.innerHTML = `<div class="reply-quote-text no-image-note">${escapeHtml(noticeText)}</div>`;
+                    }
+                  });
+                }
+              }
+
+              if (typeof loadGlobalChat === 'function') {
+                loadGlobalChat(false, false, true);
+              }
             }
           }
         } else if (data.type === 'custom_gc_added' || data.type === 'custom_gc_member_added') {
@@ -4806,6 +4855,8 @@
         cached._raw.readUpTo = dmReadUpTo;
       }
       isFirstLoad = true; // snap straight to bottom once the new conversation's messages arrive
+      userScrolledUp = false;
+      shouldAutoScroll = true;
       chatFullyLoaded = false; // suppress scroll buttons until new chat finishes loading
       dmViewingOlder = false;
       if (hadUnread) {
@@ -4899,6 +4950,8 @@
       if (typeof hideReplyBanner === 'function') hideReplyBanner();
       updateHeaderActiveStatus();
       isFirstLoad = true;
+      userScrolledUp = false;
+      shouldAutoScroll = true;
       chatFullyLoaded = false;
       window.replyJumpActive = false;
       hideScrollIndicator(true);
@@ -5022,6 +5075,8 @@
       if (typeof hideReplyBanner === 'function') hideReplyBanner();
       updateHeaderActiveStatus();
       isFirstLoad = true;
+      userScrolledUp = false;
+      shouldAutoScroll = true;
       chatFullyLoaded = false;
       window.replyJumpActive = false;
       hideScrollIndicator(true);
@@ -5168,6 +5223,8 @@
       if (typeof hideReplyBanner === 'function') hideReplyBanner();
       updateHeaderActiveStatus();
       isFirstLoad = true;
+      userScrolledUp = false;
+      shouldAutoScroll = true;
       chatFullyLoaded = false;
       window.replyJumpActive = false;
       hideScrollIndicator(true);
@@ -7391,6 +7448,9 @@
             }
             chatBox.appendChild(el);
           });
+          applyAdminBadges();
+          applyEmojiOnly();
+          attachImageLoadListeners();
           if (!adminConvViewingOlder) {
             if (isFirstLoad) {
               isFirstLoad = false;
@@ -7405,9 +7465,6 @@
               }
             }
           }
-          applyAdminBadges();
-          applyEmojiOnly();
-          attachImageLoadListeners();
           if (adminConvHasMore && !document.getElementById('loadOlderBtn') && !document.getElementById('noMoreOlderNotice')) insertLoadOlderBtn();
           return;
         }
@@ -7438,6 +7495,9 @@
           }
           chatBox.appendChild(el);
         });
+        applyAdminBadges();
+        applyEmojiOnly();
+        attachImageLoadListeners();
 
         if (isFirstLoad) {
           isFirstLoad = false;
@@ -7454,9 +7514,6 @@
             }
           }
         }
-        applyAdminBadges();
-        applyEmojiOnly();
-        attachImageLoadListeners();
         adminConvCursor = data.nextCursor || '';
         if (wasAtBottom && !userScrolledUp && !window.isTouchDown) {
           adminConvViewingOlder = false;

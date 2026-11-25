@@ -49,6 +49,7 @@
             const dropdown = document.getElementById('dropdown');
             if (!dropdown?.classList.contains('show')) {
                 window.dispatchEvent(new CustomEvent('close-notifications'));
+                window.dispatchEvent(new CustomEvent('close-urgent-notices'));
             }
             if (dropdownIcon?.classList.contains('rotate')) {
                 dropdownIcon.classList.remove('rotate');

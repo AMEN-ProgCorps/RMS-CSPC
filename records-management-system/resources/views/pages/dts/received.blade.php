@@ -160,12 +160,7 @@ new #[Layout('layouts.dts')] #[Title('Received Transactions - Document Tracking 
      */
     public function getActionOptionsProperty(): array
     {
-        $canForwardOtherOffice = \App\Services\DtsRoutingService::canForwardToOtherOffice();
-        $query = DB::table('dts_action_options')->orderBy('option_name', 'asc');
-        if (!$canForwardOtherOffice) {
-            $query->where('option_name', '!=', 'To be Forwarded to');
-        }
-        return $query->pluck('option_name')->toArray();
+        return \App\Services\DtsRoutingService::getActionOptions();
     }
 
     /**
@@ -964,14 +959,14 @@ new #[Layout('layouts.dts')] #[Title('Received Transactions - Document Tracking 
                         if ($rcvIsRevision) {
                             $rcvBtnLabel = 'Return for Revision';
                             $rcvBtnBg = '#dc2626';
+                        } elseif (($forwardTransData['is_last_step'] ?? false)) {
+                            $rcvBtnLabel = '✓ Complete Transaction';
+                            $rcvBtnBg = '#059669';
                         } elseif ($rcvIsToBeForwarded) {
                             $rcvBtnLabel = 'Proceed Action';
                             $rcvBtnBg = '#2563eb';
                         } elseif ($rcvIsApprovalFlow) {
                             $rcvBtnLabel = 'Proceed Forward';
-                            $rcvBtnBg = '#16a34a';
-                        } elseif (($forwardTransData['is_last_step'] ?? false)) {
-                            $rcvBtnLabel = '✓ Complete Transaction';
                             $rcvBtnBg = '#16a34a';
                         } else {
                             $rcvBtnLabel = 'Forward to Office';

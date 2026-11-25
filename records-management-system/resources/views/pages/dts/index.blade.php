@@ -164,12 +164,7 @@ new #[Layout('layouts.dts')] #[Title('Document Tracking System')] class extends 
      */
     public function getActionOptionsProperty(): array
     {
-        $canForwardOtherOffice = \App\Services\DtsRoutingService::canForwardToOtherOffice();
-        $query = DB::table('dts_action_options')->orderBy('option_name', 'asc');
-        if (!$canForwardOtherOffice) {
-            $query->where('option_name', '!=', 'To be Forwarded to');
-        }
-        return $query->pluck('option_name')->toArray();
+        return \App\Services\DtsRoutingService::getActionOptions();
     }
 
     /**
@@ -239,8 +234,15 @@ new #[Layout('layouts.dts')] #[Title('Document Tracking System')] class extends 
 
         $openId = request()->query('open');
         if (!empty($openId)) {
-            $exists = DB::table('dts_transactions')->where('transaction_id', $openId)->exists();
-            if ($exists) {
+            $trans = DB::table('dts_transactions as dt')
+                ->join('dts_transaction_details as dtd', 'dtd.id', '=', 'dt.transaction_id')
+                ->where('dt.transaction_id', $openId)
+                ->orWhere('dtd.control_number', $openId)
+                ->select('dt.transaction_id')
+                ->first();
+            if ($trans) {
+                $this->openTransaction($trans->transaction_id);
+            } elseif (DB::table('dts_transactions')->where('transaction_id', $openId)->exists()) {
                 $this->openTransaction($openId);
             }
         }
@@ -1214,6 +1216,7 @@ new #[Layout('layouts.dts')] #[Title('Document Tracking System')] class extends 
      *
      * @return void
      */
+    #[On('open-transaction')]
     public function openTransaction(string $id): void
     {
         $this->selectedTransactionId = $id;
@@ -1379,7 +1382,10 @@ new #[Layout('layouts.dts')] #[Title('Document Tracking System')] class extends 
             ->leftJoin('dts_email_access as dea', 'dea.id', '=', 'dtd.email_access')
             ->leftJoin((\Illuminate\Support\Facades\Schema::hasTable('sys_account_details') ? 'sys_account_details' : 'account_details') . ' as creator_ad', 'creator_ad.account_id', '=', 'dtd.created_by')
             ->leftJoin((\Illuminate\Support\Facades\Schema::hasTable('sys_account') ? 'sys_account' : 'account') . ' as creator_acc', 'creator_acc.id', '=', 'dtd.created_by')
-            ->where('dt.transaction_id', $this->selectedTransactionId)
+            ->where(function ($q) {
+                $q->where('dt.transaction_id', $this->selectedTransactionId)
+                  ->orWhere('dtd.control_number', $this->selectedTransactionId);
+            })
             ->select(
                 'dt.*',
                 'dtd.*',
@@ -2295,14 +2301,9 @@ new #[Layout('layouts.dts')] #[Title('Document Tracking System')] class extends 
         $isIssuance = ($this->selectedTransaction?->trans_type ?? '') === 'issuances';
         $canCtrlMod = $isIssuance ? ($perms?->can_dts_modify_issuance_control_no ?? false) : ($perms?->can_dts_modify_control_no ?? false);
         $hasWideEditClearance = $isSadm || ($perms?->can_dts_list_modify_transaction ?? false) || ($perms?->can_dts_modify_transaction ?? false) || $canCtrlMod;
-        $isCreator = isset($this->selectedTransaction) && ($this->selectedTransaction->created_by === auth()->id());
-        $isAtOrigin = isset($this->selectedTransaction) && ($this->selectedTransaction->current_office === $this->selectedTransaction->originated_from);
-        $isInitialOrRevisionState = isset($this->selectedTransaction) && ($this->selectedTransaction->sequence == 1 || $this->selectedTransaction->status === 'revision');
+        $canEditMetadata = ($this->selectedTransaction?->status !== 'completed') || $hasWideEditClearance;
 
-        $canModify = isset($this->selectedTransaction) 
-            && ($hasWideEditClearance || ($this->selectedTransaction->status !== 'completed' && $isCreator && $isAtOrigin && $isInitialOrRevisionState));
-
-        if (!$canModify) {
+        if (!$canEditMetadata) {
             return;
         }
         $this->editingAll = !$this->editingAll;
@@ -2346,14 +2347,9 @@ new #[Layout('layouts.dts')] #[Title('Document Tracking System')] class extends 
         $isIssuance = ($this->selectedTransaction?->trans_type ?? '') === 'issuances';
         $canCtrlMod = $isIssuance ? ($perms?->can_dts_modify_issuance_control_no ?? false) : ($perms?->can_dts_modify_control_no ?? false);
         $hasWideEditClearance = $isSadm || ($perms?->can_dts_list_modify_transaction ?? false) || ($perms?->can_dts_modify_transaction ?? false) || $canCtrlMod;
-        $isCreator = isset($this->selectedTransaction) && ($this->selectedTransaction->created_by === auth()->id());
-        $isAtOrigin = isset($this->selectedTransaction) && ($this->selectedTransaction->current_office === $this->selectedTransaction->originated_from);
-        $isInitialOrRevisionState = isset($this->selectedTransaction) && ($this->selectedTransaction->sequence == 1 || $this->selectedTransaction->status === 'revision');
+        $canEditMetadata = ($this->selectedTransaction?->status !== 'completed') || $hasWideEditClearance;
 
-        $canModify = isset($this->selectedTransaction) 
-            && ($hasWideEditClearance || ($this->selectedTransaction->status !== 'completed' && $isCreator && $isAtOrigin && $isInitialOrRevisionState));
-
-        if ($canModify) {
+        if ($canEditMetadata) {
             try {
                 DB::transaction(function () use ($hasWideEditClearance) {
                     // Find/create email access ID if provided
@@ -3276,13 +3272,7 @@ new #[Layout('layouts.dts')] #[Title('Document Tracking System')] class extends 
         $isIssuance = ($this->selectedTransaction?->trans_type ?? '') === 'issuances';
         $canCtrlMod = $isIssuance ? ($perms?->can_dts_modify_issuance_control_no ?? false) : ($perms?->can_dts_modify_control_no ?? false);
         $hasWideEditClearance = $isSadm || ($perms?->can_dts_list_modify_transaction ?? false) || ($perms?->can_dts_modify_transaction ?? false) || $canCtrlMod;
-        $isCreator = isset($selectedTransaction) && ($selectedTransaction->created_by === auth()->id());
-        $isAtOrigin = isset($selectedTransaction) && ($selectedTransaction->current_office === $selectedTransaction->originated_from);
-        $isInitialOrRevisionState = isset($selectedTransaction) && ($selectedTransaction->sequence == 1 || $selectedTransaction->status === 'revision');
-
-        $canModifyTrans = isset($selectedTransaction) 
-            && ($hasWideEditClearance || ($selectedTransaction->status !== 'completed' && $isCreator && $isAtOrigin && $isInitialOrRevisionState));
-
+        $canEditMetadata = isset($selectedTransaction) && (($selectedTransaction->status !== 'completed') || $hasWideEditClearance);
         $canProcess = $isSadm || ($perms?->can_dts_user_received ?? false);
     @endphp
 
@@ -4950,9 +4940,7 @@ new #[Layout('layouts.dts')] #[Title('Document Tracking System')] class extends 
                                 <span class="dts-im-tile-k"><i class="fa-solid fa-clipboard-check" style="color: #10b981;"></i> Action Needed</span>
                                 @if ($editingAll)
                                     @php
-                                        $availableActionNeeded = DB::table('dts_action_options')
-                                            ->orderBy('option_name', 'asc')
-                                            ->get();
+                                        $availableActionNeeded = \App\Services\DtsRoutingService::getActionOptionsQuery(true)->get();
                                     @endphp
                                     <select class="receive-field-input" wire:model="actionNeeded" style="height: 36px; padding: 0 8px; border-radius: 6px; font-size: 12px;">
                                         <option value="">Select Action Needed...</option>
@@ -5594,6 +5582,10 @@ new #[Layout('layouts.dts')] #[Title('Document Tracking System')] class extends 
                                         $listBtnLabel = 'Return for Revision';
                                         $listBtnBg = '#dc2626';
                                         $listBtnIcon = 'fa-arrow-rotate-left';
+                                    } elseif ($this->isLastStep()) {
+                                        $listBtnLabel = 'Complete Transaction';
+                                        $listBtnBg = '#059669';
+                                        $listBtnIcon = 'fa-check';
                                     } elseif ($listIsToBeForwarded) {
                                         $listBtnLabel = 'Proceed Action';
                                         $listBtnBg = '#2563eb';
@@ -5626,7 +5618,9 @@ new #[Layout('layouts.dts')] #[Title('Document Tracking System')] class extends 
                         <!-- Edit / Save Toggle -->
                         @php
                             $perms = auth()->user()?->permissions;
-                            $canListModify = $perms && ($perms->is_sadm || ($perms->can_dts_list_modify_transaction ?? false) || ($perms->can_dts_modify_transaction ?? false) || ($perms->can_dts_modify_control_no ?? false));
+                            $isIssuanceModal = ($selectedTransaction->trans_type ?? '') === 'issuances';
+                            $canCtrlModModal = $isIssuanceModal ? ($perms?->can_dts_modify_issuance_control_no ?? false) : ($perms?->can_dts_modify_control_no ?? false);
+                            $canListModify = $perms && ($perms->is_sadm || ($perms->can_dts_list_modify_transaction ?? false) || ($perms->can_dts_modify_transaction ?? false) || $canCtrlModModal);
                             $canEditMetadata = ($selectedTransaction->status !== 'completed') || $canListModify;
                         @endphp
                         @if ($canEditMetadata)

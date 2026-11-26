@@ -56,9 +56,9 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
     public string $courseSchoolYearId = '';
     /** @var list<int|string> Multi-select on the Course Names table */
     public array $selectedCourseIds = [];
-    /** @var list<array{type: string, year_level: string, code: string, name: string}> */
+    /** @var list<array{semester_id: string, type: string, year_level: string, code: string, name: string}> */
     public array $courseRows = [
-        ['type' => '', 'year_level' => '', 'code' => '', 'name' => ''],
+        ['semester_id' => '', 'type' => '', 'year_level' => '', 'code' => '', 'name' => ''],
     ];
     public string $bulkCollegeId = '';
     public string $bulkProgramId = '';
@@ -93,6 +93,9 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
     public string $sigApprovedByDesignation = '';
     /** Recent list filter: all | parent:{id} | kind */
     public string $sigHistoryTab = 'all';
+    /** When editing a saved signatory timeline in place (e.g. fixing typos or dates). */
+    public ?int $sigEditingId = null;
+    public string $sigEditingDateRange = '';
     /** @var list<array{name: string}> */
     public array $sigReviewers = [['name' => '']];
     /** @var list<array{position: string, name: string}> */
@@ -126,6 +129,8 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
      */
     public function updatedSigFormKind(): void
     {
+        $this->sigEditingId = null;
+        $this->sigEditingDateRange = '';
         $this->sigHistoryTab = 'all';
         $this->loadSignatoryTemplateFields();
     }
@@ -339,6 +344,8 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
      */
     public function beginNewSignatoryAssignment(): void
     {
+        $this->sigEditingId = null;
+        $this->sigEditingDateRange = '';
         $this->sigEffectiveFrom = now()->toDateString();
         $this->sigEffectiveUntil = '';
         $this->sigPreparedByName = '';
@@ -349,7 +356,94 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
         $this->sigApprovedByDesignation = '';
         $this->sigReviewers = [['name' => '']];
         $this->sigApprovals = [['position' => '', 'name' => '']];
-        $this->flashToast('Fields cleared for a new assignment. Save when ready — the current active set ends automatically.', 'info');
+        $this->flashToast('Fields cleared for a new timeline. Set From & Until dates and save when ready.', 'info');
+    }
+
+    /**
+     * Loads a saved signatory timeline into the editor so typos or dates can be updated in place.
+     *
+     * @param int $id
+     *
+     * @return void
+     */
+    public function editSignatoryTemplate(int $id): void
+    {
+        \App\Helpers\RegisterQueryHelper::assertFullDcsUser('settings');
+
+        $row = OfficeIntakeHelper::findSignatoryTemplateById($id);
+        if (! $row) {
+            $this->fail('Signatory timeline not found.');
+
+            return;
+        }
+
+        $formKind = strtolower((string) ($row->form_kind ?? 'drf'));
+        $this->sigFormKind = $formKind === 'dcn' ? 'dcn' : 'drf';
+
+        $docTypeId = (int) ($row->doc_type_id ?? 0);
+        if ($docTypeId > 0 && Schema::hasTable('dcs_document_types')) {
+            $dt = DB::table('dcs_document_types')->where('id', $docTypeId)->first(['id', 'parent_id']);
+            if ($dt && ! empty($dt->parent_id)) {
+                $this->sigParentTypeId = (string) $dt->parent_id;
+                $this->sigSubTypeId = (string) $dt->id;
+            } elseif ($dt) {
+                $this->sigParentTypeId = (string) $dt->id;
+                $this->sigSubTypeId = '';
+            }
+        }
+
+        $this->sigCollegeId = ! empty($row->college_id) ? (string) $row->college_id : '';
+        $this->syncSigDocTypeKindFromCatalog();
+
+        $fromRaw = data_get($row, 'effective_from');
+        $untilRaw = data_get($row, 'effective_until');
+        $this->sigEffectiveFrom = $fromRaw ? \Carbon\Carbon::parse((string) $fromRaw)->toDateString() : now()->toDateString();
+        $this->sigEffectiveUntil = $untilRaw ? \Carbon\Carbon::parse((string) $untilRaw)->toDateString() : '';
+
+        $payload = is_array($row->payload ?? null) ? $row->payload : [];
+        $this->sigPreparedByName = (string) ($payload['prepared_by_name'] ?? '');
+        $this->sigPreparedByDesignation = (string) ($payload['prepared_by_designation'] ?? '');
+        $this->sigReviewedByName = (string) ($payload['reviewed_by_name'] ?? '');
+        $this->sigReviewedByDesignation = (string) ($payload['reviewed_by_designation'] ?? '');
+        $this->sigApprovedByName = (string) ($payload['approved_by_name'] ?? '');
+        $this->sigApprovedByDesignation = (string) ($payload['approved_by_designation'] ?? '');
+
+        $reviewers = [];
+        foreach ((array) ($payload['reviewers'] ?? []) as $rev) {
+            $name = trim((string) (is_array($rev) ? ($rev['name'] ?? '') : $rev));
+            if ($name !== '') {
+                $reviewers[] = ['name' => $name];
+            }
+        }
+        $this->sigReviewers = $reviewers !== [] ? $reviewers : [['name' => '']];
+
+        $approvals = [];
+        foreach ((array) ($payload['approvals'] ?? []) as $apr) {
+            if (! is_array($apr)) {
+                continue;
+            }
+            $approvals[] = [
+                'position' => trim((string) ($apr['position'] ?? '')),
+                'name' => trim((string) ($apr['name'] ?? '')),
+            ];
+        }
+        $this->sigApprovals = $approvals !== [] ? $approvals : [['position' => '', 'name' => '']];
+
+        $this->sigEditingId = $id;
+        $this->sigEditingDateRange = OfficeIntakeHelper::formatSignatoryDateRange($fromRaw, $untilRaw);
+        $this->flashToast("Editing timeline ({$this->sigEditingDateRange}). Update any names, designations, or dates and click Update timeline.", 'info');
+    }
+
+    /**
+     * Exits in-place signatory timeline edit mode and reloads the active scope fields.
+     *
+     * @return void
+     */
+    public function cancelSignatoryEdit(): void
+    {
+        $this->sigEditingId = null;
+        $this->sigEditingDateRange = '';
+        $this->loadSignatoryTemplateFields();
     }
 
     /**
@@ -418,6 +512,25 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
             $this->syncSigDocTypeKindFromCatalog();
             $from = trim($this->sigEffectiveFrom) !== '' ? trim($this->sigEffectiveFrom) : now()->toDateString();
             $until = trim($this->sigEffectiveUntil) !== '' ? trim($this->sigEffectiveUntil) : null;
+            if ($this->sigEditingId !== null) {
+                OfficeIntakeHelper::updateSignatoryTemplate(
+                    $this->sigEditingId,
+                    $this->sigFormKind,
+                    $this->sigDocTypeKind,
+                    $payload,
+                    auth()->id(),
+                    $docTypeId,
+                    $from,
+                    $until,
+                    $this->resolvedSigCollegeId()
+                );
+                $this->sigEditingId = null;
+                $this->sigEditingDateRange = '';
+                $this->flashToast('Signatory timeline updated.', 'success');
+                $this->loadSignatoryTemplateFields();
+
+                return;
+            }
             OfficeIntakeHelper::saveSignatoryTemplate(
                 $this->sigFormKind,
                 $this->sigDocTypeKind,
@@ -473,7 +586,7 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
         $this->schoolYearIsActive = false;
         $this->collegeProgramRows = [['code' => '', 'name' => '']];
         $this->docTypeSubRows = [['name' => '']];
-        $this->courseRows = [['type' => '', 'year_level' => '', 'code' => '', 'name' => '']];
+        $this->courseRows = [['semester_id' => '', 'type' => '', 'year_level' => '', 'code' => '', 'name' => '']];
         $this->bulkRows = [];
         $this->csvFile = null;
         $this->resetValidation();
@@ -762,7 +875,7 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
     public function openProgramCourse(?int $id = null): void
     {
         $this->resetFormFor('programCourse', $id);
-        $this->courseRows = [['type' => '', 'year_level' => '', 'code' => '', 'name' => '']];
+        $this->courseRows = [['semester_id' => '', 'type' => '', 'year_level' => '', 'code' => '', 'name' => '']];
         $this->courseName = '';
         $this->courseCode = '';
         $this->programId = '';
@@ -977,7 +1090,9 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
      */
     public function addCourseRow(): void
     {
-        $this->courseRows[] = ['type' => '', 'year_level' => '', 'code' => '', 'name' => ''];
+        $last = end($this->courseRows);
+        $carrySem = is_array($last) ? (string) ($last['semester_id'] ?? '') : '';
+        $this->courseRows[] = ['semester_id' => $carrySem, 'type' => '', 'year_level' => '', 'code' => '', 'name' => ''];
         $this->dispatch('settings-focus-last-course-row');
     }
 
@@ -991,7 +1106,7 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
     public function removeCourseRow(int $index): void
     {
         if (count($this->courseRows) <= 1) {
-            $this->courseRows = [['type' => '', 'year_level' => '', 'code' => '', 'name' => '']];
+            $this->courseRows = [['semester_id' => '', 'type' => '', 'year_level' => '', 'code' => '', 'name' => '']];
             return;
         }
         unset($this->courseRows[$index]);
@@ -1805,8 +1920,8 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
 
         $rules = [
             'programId' => 'required|integer|exists:dcs_programs,id',
-            'semesterId' => 'required|integer|exists:dcs_semesters,id',
             'courseRows' => 'required|array|min:1',
+            'courseRows.*.semester_id' => 'nullable|integer|exists:dcs_semesters,id',
             'courseRows.*.name' => 'nullable|string|max:255',
             'courseRows.*.code' => 'nullable|string|max:50',
             'courseRows.*.type' => 'nullable|string|max:50',
@@ -1818,17 +1933,24 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
         $this->validate($rules);
 
         $programId = (int) $this->programId;
-        $semesterId = (int) $this->semesterId;
         $schoolYearId = $hasSchoolYear ? (int) $this->courseSchoolYearId : null;
+        $semesterNamesById = DB::table('dcs_semesters')
+            ->pluck('semester_name', 'id')
+            ->map(fn ($v) => (string) $v)
+            ->all();
 
         $entries = [];
         foreach ($this->courseRows as $i => $row) {
+            $rowSemId = (int) ($row['semester_id'] ?? 0);
             $name = trim((string) ($row['name'] ?? ''));
             $code = trim((string) ($row['code'] ?? ''));
             $type = trim((string) ($row['type'] ?? ''));
             $year = trim((string) ($row['year_level'] ?? ''));
-            if ($name === '' && $code === '' && $type === '' && $year === '') {
+            if ($rowSemId < 1 && $name === '' && $code === '' && $type === '' && $year === '') {
                 continue;
+            }
+            if ($rowSemId < 1 || ! isset($semesterNamesById[$rowSemId])) {
+                $this->addError("courseRows.{$i}.semester_id", 'Semester is required.');
             }
             if ($hasCourseType && $type === '') {
                 $this->addError("courseRows.{$i}.type", 'Course type is required.');
@@ -1844,7 +1966,8 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
             if ($hasCourseCode && $code === '') {
                 $this->addError("courseRows.{$i}.code", 'Course code is required.');
             }
-            if ($this->getErrorBag()->has("courseRows.{$i}.type")
+            if ($this->getErrorBag()->has("courseRows.{$i}.semester_id")
+                || $this->getErrorBag()->has("courseRows.{$i}.type")
                 || $this->getErrorBag()->has("courseRows.{$i}.year_level")
                 || $this->getErrorBag()->has("courseRows.{$i}.name")
                 || $this->getErrorBag()->has("courseRows.{$i}.code")) {
@@ -1855,7 +1978,7 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
                     $this->addError("courseRows.{$i}.year_level", 'Year level is not allowed for '.$type.'.');
                     continue;
                 }
-                $semName = (string) (DB::table('dcs_semesters')->where('id', $semesterId)->value('semester_name') ?? '');
+                $semName = (string) ($semesterNamesById[$rowSemId] ?? '');
                 if ($semName !== '' && ! \App\Helpers\CourseTypeRules::isYearSemesterAllowed($type, $year, $semName)) {
                     $this->addError("courseRows.{$i}.year_level", $type.' cannot use '.$year.' / '.$semName.'.');
                     continue;
@@ -1863,6 +1986,7 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
             }
             $entries[] = [
                 'index' => $i,
+                'semester_id' => $rowSemId,
                 'name' => $name,
                 'code' => $code,
                 'type' => $hasCourseType ? $type : null,
@@ -1882,10 +2006,10 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
         $seenNames = [];
         $seenCodes = [];
         foreach ($entries as $entry) {
-            $scope = mb_strtolower(($entry['type'] ?? '').'|'.($entry['year_level'] ?? ''));
+            $scope = mb_strtolower($entry['semester_id'].'|'.($entry['type'] ?? '').'|'.($entry['year_level'] ?? ''));
             $nameKey = $scope.'|'.mb_strtolower($entry['name']);
             if (isset($seenNames[$nameKey])) {
-                $this->addError("courseRows.{$entry['index']}.name", 'Duplicate course name for this type and year level in this list.');
+                $this->addError("courseRows.{$entry['index']}.name", 'Duplicate course name for this semester, type, and year level in this list.');
                 continue;
             }
             $seenNames[$nameKey] = true;
@@ -1893,7 +2017,7 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
             if ($hasCourseCode) {
                 $codeKey = $scope.'|'.mb_strtolower($entry['code']);
                 if (isset($seenCodes[$codeKey])) {
-                    $this->addError("courseRows.{$entry['index']}.code", 'Duplicate course code for this type and year level in this list.');
+                    $this->addError("courseRows.{$entry['index']}.code", 'Duplicate course code for this semester, type, and year level in this list.');
                     continue;
                 }
                 $seenCodes[$codeKey] = true;
@@ -1905,15 +2029,16 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
         }
 
         foreach ($entries as $entry) {
+            $rowSemesterId = (int) $entry['semester_id'];
             $rowType = $entry['type'];
             $rowYear = $entry['year_level'];
-            if ($this->programCourseNameTaken($programId, $semesterId, $entry['name'], $rowYear, $hasYearLevel, $rowType, $hasCourseType, null, false, $schoolYearId, $hasSchoolYear)) {
+            if ($this->programCourseNameTaken($programId, $rowSemesterId, $entry['name'], $rowYear, $hasYearLevel, $rowType, $hasCourseType, null, false, $schoolYearId, $hasSchoolYear)) {
                 $this->addError(
                     "courseRows.{$entry['index']}.name",
                     'Already listed for this program, school year, semester, year level, and course type.'
                 );
             }
-            if ($hasCourseCode && $this->programCourseCodeTaken($programId, $semesterId, $entry['code'], $rowYear, $hasYearLevel, $rowType, $hasCourseType, null, false, $schoolYearId, $hasSchoolYear)) {
+            if ($hasCourseCode && $this->programCourseCodeTaken($programId, $rowSemesterId, $entry['code'], $rowYear, $hasYearLevel, $rowType, $hasCourseType, null, false, $schoolYearId, $hasSchoolYear)) {
                 $this->addError(
                     "courseRows.{$entry['index']}.code",
                     'Code already used for this program, school year, semester, year level, and course type.'
@@ -1929,7 +2054,7 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
         foreach ($entries as $entry) {
             $payload = [
                 'program_id' => $programId,
-                'semester_id' => $semesterId,
+                'semester_id' => (int) $entry['semester_id'],
                 'course_name' => $entry['name'],
                 'created_at' => $now,
                 'updated_at' => $now,
@@ -1950,7 +2075,7 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
         }
 
         $count = count($entries);
-        $this->courseRows = [['type' => '', 'year_level' => '', 'code' => '', 'name' => '']];
+        $this->courseRows = [['semester_id' => '', 'type' => '', 'year_level' => '', 'code' => '', 'name' => '']];
         $this->resetValidation();
         \App\Helpers\RegisterPersistHelper::logAdminChange(
             'DCS settings: ' . ($count === 1 ? 'Course added.' : "{$count} courses added.")
@@ -3251,6 +3376,7 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
 }; ?>
 
 <div
+    id="dcsSettingsRoot"
     x-data="{
         tab: new URLSearchParams(window.location.search).get('tab') || sessionStorage.getItem('settingsActiveTab') || 'doctypes',
         syllabiSection: new URLSearchParams(window.location.search).get('section') || sessionStorage.getItem('settingsSyllabiSection') || 'colleges',
@@ -3275,6 +3401,8 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
             if (!allowedSections.includes(this.syllabiSection)) this.syllabiSection = 'colleges';
             sessionStorage.setItem('settingsActiveTab', this.tab);
             sessionStorage.setItem('settingsSyllabiSection', this.syllabiSection);
+            document.documentElement.removeAttribute('data-dcs-settings-boot-tab');
+            document.documentElement.removeAttribute('data-dcs-settings-boot-section');
             if (this.tab === 'signatories') $wire.loadSignatoryTemplateFields();
         },
         setTab(name) {
@@ -3328,6 +3456,21 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
     })"
     x-on:keydown.escape.window="isModalOpen && dismiss()"
 >
+<script>
+(function () {
+    const legacy = { faculties: 'faculties', colleges: 'colleges', programs: 'colleges', semesters: 'semesters', schoolyears: 'schoolyears', coursenames: 'coursenames' };
+    const allowed = ['doctypes', 'signatories', 'originators', 'syllabi'];
+    const allowedSec = ['faculties', 'colleges', 'semesters', 'schoolyears', 'coursenames'];
+    const qs = new URLSearchParams(window.location.search);
+    let t = qs.get('tab') || sessionStorage.getItem('settingsActiveTab') || 'doctypes';
+    let s = qs.get('section') || sessionStorage.getItem('settingsSyllabiSection') || 'colleges';
+    if (legacy[t]) { s = legacy[t]; t = 'syllabi'; }
+    if (!allowed.includes(t)) t = 'doctypes';
+    if (!allowedSec.includes(s)) s = 'colleges';
+    document.documentElement.setAttribute('data-dcs-settings-boot-tab', t);
+    document.documentElement.setAttribute('data-dcs-settings-boot-section', s);
+})();
+</script>
 <main class="settings-main">
     <div class="settings-header">
         <div class="settings-header-left">
@@ -3349,7 +3492,7 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
         @endforeach
     </div>
 
-    <section class="tab-panel" wire:key="settings-tab-doctypes" x-show="tab === 'doctypes'" x-cloak>
+    <section class="tab-panel" data-tab-panel="doctypes" wire:key="settings-tab-doctypes" x-show="tab === 'doctypes'">
         <div class="panel-toolbar">
             <span class="panel-subtitle">Top-level types and their sub-types</span>
             <button type="button" class="btn-primary" wire:click="openDocType()"><i class="fa-solid fa-plus"></i> Add Document Type</button>
@@ -3389,7 +3532,7 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
         </div>
     </section>
 
-    <section class="tab-panel sig-panel" wire:key="settings-tab-signatories" x-show="tab === 'signatories'" x-cloak>
+    <section class="tab-panel sig-panel" data-tab-panel="signatories" wire:key="settings-tab-signatories" x-show="tab === 'signatories'">
         <div class="panel-toolbar">
             <div>
                 <h2 class="sig-panel-title">Signatory assignments</h2>
@@ -3457,12 +3600,12 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
                             @endif
                             <div class="st-field sig-field">
                                 <label class="st-label">From</label>
-                                <input class="st-input" type="date" wire:model="sigEffectiveFrom">
+                                <input class="st-input" type="date" wire:model.live="sigEffectiveFrom">
                             </div>
                             <div class="st-field sig-field">
                                 <label class="st-label">Until <span class="st-optional">blank = open</span></label>
-                                <input class="st-input" type="date" wire:model="sigEffectiveUntil">
-                                <span class="sig-field-note">Leave blank; save again anytime to replace the active set for this type.</span>
+                                <input class="st-input" type="date" wire:model.live="sigEffectiveUntil">
+                                <span class="sig-field-note">Set From &amp; Until to add a historical or scheduled timeline (e.g. Nov 2025) without replacing the current active set.</span>
                             </div>
                         </div>
                     </div>
@@ -3552,19 +3695,47 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
                             <p class="sig-actions-hint">Select a Document type from the catalog to assign signatories.</p>
                         @elseif(($sigNeedsCollege ?? false) && $sigCollegeId === '')
                             <p class="sig-actions-hint">Select a college to assign Syllabi / TOS signatories for that campus.</p>
+                        @elseif($sigEditingId !== null)
+                            <div class="sig-replace-banner sig-edit-banner" role="status">
+                                <strong>Editing signatory timeline ({{ $sigEditingDateRange }})</strong>
+                                <span>Fix any typos in names, designations, or effective dates above, then click <em>Update timeline</em>.</span>
+                            </div>
+                            <div class="sig-actions-row">
+                                <button type="button" class="btn-secondary" wire:click="cancelSignatoryEdit">
+                                    Cancel edit
+                                </button>
+                                <button type="button" class="btn-primary" wire:click="saveSignatoryTemplate" wire:loading.attr="disabled" wire:target="saveSignatoryTemplate">
+                                    <span wire:loading.remove wire:target="saveSignatoryTemplate"><i class="fa-solid fa-check"></i> Update timeline</span>
+                                    <span wire:loading wire:target="saveSignatoryTemplate">Updating…</span>
+                                </button>
+                            </div>
                         @elseif($sigHasActiveAssignment ?? false)
+                            @php
+                                $isBoundedTimeline = trim((string) $sigEffectiveUntil) !== '';
+                            @endphp
                             <div class="sig-replace-banner" role="status">
                                 <strong>Active assignment exists for this exact scope</strong>
-                                <span>Office intake still uses that active set (even if the fields below look empty after <em>Start new assignment</em>). Save a replacement to end it, or check Recent for this document type.</span>
+                                @if($isBoundedTimeline)
+                                    <span>You set an <strong>Until</strong> date — clicking <em>Save timeline</em> will add this date-range signatory set alongside the current active set (for matching DRF dates).</span>
+                                @else
+                                    <span>Click <em>Add new timeline</em> to add a separate date range (From &amp; Until), or save with Until blank to replace the current active set.</span>
+                                @endif
                             </div>
                             <div class="sig-actions-row">
                                 <button type="button" class="btn-secondary" wire:click="beginNewSignatoryAssignment">
-                                    <i class="fa-solid fa-plus"></i> Start new assignment
+                                    <i class="fa-solid fa-plus"></i> Add new timeline
                                 </button>
-                                <button type="button" class="btn-primary" wire:click="confirmReplaceSignatoryAssignment" wire:loading.attr="disabled" wire:target="confirmReplaceSignatoryAssignment, saveSignatoryTemplate">
-                                    <span wire:loading.remove wire:target="confirmReplaceSignatoryAssignment, saveSignatoryTemplate"><i class="fa-solid fa-floppy-disk"></i> Replace active &amp; save</span>
-                                    <span wire:loading wire:target="confirmReplaceSignatoryAssignment, saveSignatoryTemplate">Saving…</span>
-                                </button>
+                                @if($isBoundedTimeline)
+                                    <button type="button" class="btn-primary" wire:click="saveSignatoryTemplate" wire:loading.attr="disabled" wire:target="saveSignatoryTemplate">
+                                        <span wire:loading.remove wire:target="saveSignatoryTemplate"><i class="fa-solid fa-floppy-disk"></i> Save timeline</span>
+                                        <span wire:loading wire:target="saveSignatoryTemplate">Saving…</span>
+                                    </button>
+                                @else
+                                    <button type="button" class="btn-primary" wire:click="confirmReplaceSignatoryAssignment" wire:loading.attr="disabled" wire:target="confirmReplaceSignatoryAssignment, saveSignatoryTemplate">
+                                        <span wire:loading.remove wire:target="confirmReplaceSignatoryAssignment, saveSignatoryTemplate"><i class="fa-solid fa-floppy-disk"></i> Replace active &amp; save</span>
+                                        <span wire:loading wire:target="confirmReplaceSignatoryAssignment, saveSignatoryTemplate">Saving…</span>
+                                    </button>
+                                @endif
                             </div>
                         @else
                             @if(! empty($sigInheritanceHint))
@@ -3605,7 +3776,7 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
                             </button>
                         @endforeach
                     </div>
-                    <p class="sig-history-sub">Showing {{ strtoupper($sigFormKind) }} · {{ $activeHistTab['label'] ?? 'All' }}. Active sets are expanded; ended sets stay compact — click to expand.</p>
+                    <p class="sig-history-sub">Showing {{ strtoupper($sigFormKind) }} · {{ $activeHistTab['label'] ?? 'All' }}. Click <strong>Edit</strong> on any signatory period to fix typos or update dates.</p>
                     <div class="sig-history-list">
                         @forelse($signatoryAssignmentGroups as $parentGroup)
                             <div class="sig-history-parent" wire:key="sig-p-{{ $parentGroup['key'] }}">
@@ -3637,6 +3808,7 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
                                                 $status = OfficeIntakeHelper::signatoryAssignmentStatus($row, $today);
                                                 $active = $status === 'active';
                                                 $scheduled = $status === 'scheduled';
+                                                $isBeingEdited = $sigEditingId !== null && (int) $sigEditingId === (int) $row->id;
                                                 $kindLabel = ucfirst((string) ($row->doc_type_kind ?? '—'));
                                                 $payloadRaw = data_get($row, 'payload');
                                                 $payload = is_array($payloadRaw)
@@ -3685,17 +3857,28 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
                                                 $formLabel = strtoupper((string) ($row->form_kind ?? $sigFormKind));
                                             @endphp
                                             @if($active || $scheduled)
-                                                <article class="sig-history-item {{ $active ? 'is-active' : 'is-scheduled' }}" wire:key="sig-hist-{{ $row->id }}">
+                                                <article class="sig-history-item {{ $active ? 'is-active' : 'is-scheduled' }} {{ $isBeingEdited ? 'is-editing' : '' }}" wire:key="sig-hist-{{ $row->id }}">
                                                     <div class="sig-history-top">
                                                         <div class="sig-history-title-wrap">
-                                                            <span class="sig-history-k">Effective</span>
+                                                            <span class="sig-history-k">{{ $active ? 'Current period' : 'Upcoming period' }}</span>
                                                             <strong class="sig-history-type">{{ $dateRange }}</strong>
                                                         </div>
-                                                        @if($active)
-                                                            <span class="sig-pill is-active">Active</span>
-                                                        @else
-                                                            <span class="sig-pill is-scheduled">Scheduled</span>
-                                                        @endif
+                                                        <div class="sig-history-top-actions">
+                                                            @if($active)
+                                                                <span class="sig-pill is-active">Active</span>
+                                                            @else
+                                                                <span class="sig-pill is-scheduled">Scheduled</span>
+                                                            @endif
+                                                            <button
+                                                                type="button"
+                                                                class="sig-history-edit-btn {{ $isBeingEdited ? 'is-active' : '' }}"
+                                                                wire:click="editSignatoryTemplate({{ $row->id }})"
+                                                                title="Edit signatories or dates for this period"
+                                                            >
+                                                                <i class="fa-solid fa-pen-to-square" aria-hidden="true"></i>
+                                                                <span>{{ $isBeingEdited ? 'Editing' : 'Edit' }}</span>
+                                                            </button>
+                                                        </div>
                                                     </div>
                                                     <div class="sig-history-meta">
                                                         <span>{{ $formLabel }}</span>
@@ -3717,12 +3900,27 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
                                                     </ul>
                                                 </article>
                                             @else
-                                                <details class="sig-history-item is-ended is-compact" wire:key="sig-hist-{{ $row->id }}">
+                                                <details class="sig-history-item is-timeline is-compact {{ $isBeingEdited ? 'is-editing' : '' }}" wire:key="sig-hist-{{ $row->id }}" @if($isBeingEdited) open @endif>
                                                     <summary class="sig-history-summary">
-                                                        <span class="sig-history-summary-main">
-                                                            <span class="sig-pill is-ended">Ended</span>
-                                                            <span class="sig-history-summary-dates">{{ $dateRange }}</span>
-                                                        </span>
+                                                        <div class="sig-history-summary-top">
+                                                            <span class="sig-history-summary-main">
+                                                                <span class="sig-pill is-timeline"><i class="fa-regular fa-clock" aria-hidden="true"></i> Signatories of period</span>
+                                                                <span class="sig-history-summary-dates">{{ $dateRange }}</span>
+                                                            </span>
+                                                            <span class="sig-history-summary-actions">
+                                                                <button
+                                                                    type="button"
+                                                                    class="sig-history-edit-btn {{ $isBeingEdited ? 'is-active' : '' }}"
+                                                                    onclick="event.preventDefault(); event.stopPropagation();"
+                                                                    wire:click="editSignatoryTemplate({{ $row->id }})"
+                                                                    title="Edit signatories or dates for this period"
+                                                                >
+                                                                    <i class="fa-solid fa-pen-to-square" aria-hidden="true"></i>
+                                                                    <span>{{ $isBeingEdited ? 'Editing' : 'Edit' }}</span>
+                                                                </button>
+                                                                <i class="fa-solid fa-chevron-down sig-history-chevron" aria-hidden="true"></i>
+                                                            </span>
+                                                        </div>
                                                         <span class="sig-history-summary-people">{{ $peoplePreview }}</span>
                                                     </summary>
                                                     <div class="sig-history-compact-body">
@@ -3730,6 +3928,8 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
                                                             <span>{{ $formLabel }}</span>
                                                             <span aria-hidden="true">·</span>
                                                             <span>{{ $kindLabel }} documents</span>
+                                                            <span aria-hidden="true">·</span>
+                                                            <span>Auto-applied for DRF dates in this range</span>
                                                         </div>
                                                         <ul class="sig-history-detail">
                                                             @forelse($detailRows as $d)
@@ -3763,7 +3963,7 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
         @endif
     </section>
 
-    <section class="tab-panel" wire:key="settings-tab-originators" x-show="tab === 'originators'" x-cloak>
+    <section class="tab-panel" data-tab-panel="originators" wire:key="settings-tab-originators" x-show="tab === 'originators'">
         <div class="panel-toolbar">
             <span class="panel-subtitle">Manage document originators (authors/creators)</span>
             <div class="panel-actions">
@@ -3795,7 +3995,7 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
         </div>
     </section>
 
-    <section class="tab-panel" wire:key="settings-tab-syllabi" x-show="tab === 'syllabi'" x-cloak>
+    <section class="tab-panel" data-tab-panel="syllabi" wire:key="settings-tab-syllabi" x-show="tab === 'syllabi'">
         <div class="panel-toolbar">
             <div>
                 <h2 class="sig-panel-title">Syllabi catalog</h2>
@@ -3823,7 +4023,7 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
             @endforeach
         </div>
 
-        <div class="syllabi-section" wire:key="settings-syllabi-faculties" x-show="syllabiSection === 'faculties'" x-cloak>
+        <div class="syllabi-section" data-syllabi-section="faculties" wire:key="settings-syllabi-faculties" x-show="syllabiSection === 'faculties'">
         <div x-data="{ collegeFilter: 'all' }">
         <div class="panel-toolbar">
             <span class="panel-subtitle">One faculty record can belong to several colleges (part-timers)</span>
@@ -3884,6 +4084,7 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
 
         <div
             class="syllabi-section"
+            data-syllabi-section="colleges"
             wire:key="settings-syllabi-colleges-{{ $collegeDetailId ?? 0 }}"
             x-show="syllabiSection === 'colleges'"
             x-data="{
@@ -4000,7 +4201,7 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
             </div>
         </div>
 
-        <div class="syllabi-section" wire:key="settings-syllabi-semesters" x-show="syllabiSection === 'semesters'" x-cloak>
+        <div class="syllabi-section" data-syllabi-section="semesters" wire:key="settings-syllabi-semesters" x-show="syllabiSection === 'semesters'">
         <div class="panel-toolbar">
             <span class="panel-subtitle">Academic semesters</span>
             <button type="button" class="btn-primary" wire:click="openSemester()"><i class="fa-solid fa-plus"></i> Add Semester</button>
@@ -4029,7 +4230,7 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
         </div>
         </div>
 
-        <div class="syllabi-section" wire:key="settings-syllabi-schoolyears" x-show="syllabiSection === 'schoolyears'" x-cloak>
+        <div class="syllabi-section" data-syllabi-section="schoolyears" wire:key="settings-syllabi-schoolyears" x-show="syllabiSection === 'schoolyears'">
         <div class="panel-toolbar">
             <span class="panel-subtitle">Academic school years — only the <strong>Active</strong> year is offered on office Syllabi/TOS DRF requests</span>
             <button type="button" class="btn-primary" wire:click="openSchoolYear()"><i class="fa-solid fa-plus"></i> Add School Year</button>
@@ -4076,7 +4277,7 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
         </div>
         </div>
 
-        <div class="syllabi-section" wire:key="settings-syllabi-coursenames" x-show="syllabiSection === 'coursenames'" x-cloak>
+        <div class="syllabi-section" data-syllabi-section="coursenames" wire:key="settings-syllabi-coursenames" x-show="syllabiSection === 'coursenames'">
         <div>
         <div class="panel-toolbar">
             <span class="panel-subtitle">GE, PE, NSTP, and Major are per program, school year, and semester. Add all types together for one program/semester, then use them to auto-fill Syllabi/TOS registration.</span>
@@ -4238,7 +4439,12 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
                                     </td>
                                 </tr>
                                 @foreach($typeCourses as $course)
-                                    <tr wire:key="pc-{{ $course->id }}" class="st-course-data" data-id="{{ $course->id }}">
+                                    <tr
+                                        wire:key="pc-{{ $course->id }}"
+                                        class="st-course-data {{ in_array((int) $course->id, $selectedInts, true) ? 'is-selected' : '' }}"
+                                        data-id="{{ $course->id }}"
+                                        @click="if (!$event.target.closest('button, a, input, select, textarea, label')) { const cb = $el.querySelector('input[type=checkbox]'); if (cb) cb.click(); }"
+                                    >
                                         <td data-label="Select">
                                             <input type="checkbox" value="{{ $course->id }}" wire:model.live="selectedCourseIds">
                                         </td>
@@ -4335,7 +4541,7 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
                 </div>
             </div>
         @else
-            <form class="st-modal{{ $modalKind === 'faculty' ? ' st-modal--faculty' : '' }}" wire:submit.prevent="{{ str_starts_with($modalKind, 'import') ? 'runCsvImport' : 'save' }}">
+            <form class="st-modal{{ $modalKind === 'faculty' ? ' st-modal--faculty' : ($modalKind === 'programCourse' && ! $editingId ? ' st-modal--courses' : '') }}" wire:submit.prevent="{{ str_starts_with($modalKind, 'import') ? 'runCsvImport' : 'save' }}">
                 <div class="st-modal-top">
                     <div class="st-modal-heading">
                         <div class="st-modal-icon"><i class="fa-solid {{ $modalKind === 'faculty' ? 'fa-chalkboard-user' : (str_starts_with($modalKind, 'import') ? 'fa-file-csv' : 'fa-pen-to-square') }}"></i></div>
@@ -4681,18 +4887,17 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
                         @error('courseSchoolYearId') <div class="field-error">{{ $message }}</div> @enderror
                     </div>
                     @endif
-                    <div class="st-field">
-                        <label class="st-label">Semester</label>
-                        <select class="st-input @error('semesterId') error @enderror" wire:model="semesterId">
-                            <option value="" disabled @selected($semesterId === '')>Select semester</option>
-                            @foreach($semesterOptions as $sem)
-                                <option value="{{ $sem->id }}">{{ $sem->semester_name }}</option>
-                            @endforeach
-                        </select>
-                        @error('semesterId') <div class="field-error">{{ $message }}</div> @enderror
-                    </div>
-
                     @if($editingId)
+                        <div class="st-field">
+                            <label class="st-label">Semester</label>
+                            <select class="st-input @error('semesterId') error @enderror" wire:model="semesterId">
+                                <option value="" disabled @selected($semesterId === '')>Select semester</option>
+                                @foreach($semesterOptions as $sem)
+                                    <option value="{{ $sem->id }}">{{ $sem->semester_name }}</option>
+                                @endforeach
+                            </select>
+                            @error('semesterId') <div class="field-error">{{ $message }}</div> @enderror
+                        </div>
                         <div class="st-field">
                             <label class="st-label">Course Type</label>
                             <select class="st-input @error('courseType') error @enderror" wire:model.live="courseType">
@@ -4727,9 +4932,10 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
                     @else
                         <div class="st-field">
                             <label class="st-label">Courses</label>
-                            <p class="st-faculty-hint" style="margin-top:0;">Pick college/program{{ $hasCourseSchoolYear ? ', school year' : '' }}, and semester once. Mix GE, PE, NSTP, and Major in the same list — set type and year level on each row.</p>
+                            <p class="st-faculty-hint" style="margin-top:0;">Pick college/program{{ $hasCourseSchoolYear ? ' and school year' : '' }} once. Add 1st Semester and 2nd Semester courses together in one submission — set semester, type, and year level on each row.</p>
                             <div class="st-course-rows st-course-rows--mixed">
                                 <div class="st-course-row st-course-row--mixed st-course-row-head">
+                                    <span>Semester</span>
                                     <span>Type</span>
                                     <span>Year</span>
                                     <span>Code</span>
@@ -4738,15 +4944,28 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
                                 </div>
                                 @foreach($courseRows as $i => $row)
                                     @php
+                                        $rowSemId = trim((string) ($row['semester_id'] ?? ''));
                                         $rowType = trim((string) ($row['type'] ?? ''));
                                         $rowYearOptions = \App\Helpers\CourseTypeRules::allowedYearLevels($rowType !== '' ? $rowType : null);
                                     @endphp
                                     <div class="st-course-row st-course-row--mixed" wire:key="course-row-{{ $i }}">
                                         <div>
                                             <select
+                                                class="st-input @error('courseRows.'.$i.'.semester_id') error @enderror"
+                                                wire:model="courseRows.{{ $i }}.semester_id"
+                                                @if($i === 0) data-course-first-input @endif
+                                            >
+                                                <option value="" disabled @selected($rowSemId === '')>Semester</option>
+                                                @foreach($semesterOptions as $sem)
+                                                    <option value="{{ $sem->id }}">{{ $sem->semester_name }}</option>
+                                                @endforeach
+                                            </select>
+                                            @error('courseRows.'.$i.'.semester_id') <div class="field-error">{{ $message }}</div> @enderror
+                                        </div>
+                                        <div>
+                                            <select
                                                 class="st-input @error('courseRows.'.$i.'.type') error @enderror"
                                                 wire:model.live="courseRows.{{ $i }}.type"
-                                                @if($i === 0) data-course-first-input @endif
                                             >
                                                 <option value="" disabled @selected($rowType === '')>Type</option>
                                                 <option value="GE Courses">GE</option>

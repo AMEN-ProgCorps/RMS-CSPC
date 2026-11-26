@@ -2223,6 +2223,13 @@ body:has(.dcs-top-tabs-host .top-nav-tabs-wrapper) .reg-container {
     font-size: 0.82rem;
     font-weight: 600;
     border: 1px solid var(--reg-border);
+    cursor: pointer;
+    transition: background-color 0.15s ease, border-color 0.15s ease, color 0.15s ease;
+}
+
+.reg-wizard-step:hover {
+    border-color: var(--reg-accent);
+    color: var(--reg-accent);
 }
 
 .reg-wizard-step span {
@@ -2238,12 +2245,13 @@ body:has(.dcs-top-tabs-host .top-nav-tabs-wrapper) .reg-container {
 }
 
 .reg-wizard-step.is-active {
-    background: var(--reg-accent-subtle);
-    color: var(--reg-accent);
+    background: color-mix(in srgb, var(--reg-success) 12%, #fff);
+    border-color: var(--reg-success);
+    color: var(--reg-success);
 }
 
 .reg-wizard-step.is-active span {
-    background: var(--reg-accent);
+    background: var(--reg-success);
 }
 
 .reg-wizard-step.is-done span {
@@ -2308,6 +2316,14 @@ body:has(.dcs-top-tabs-host .top-nav-tabs-wrapper) .reg-container {
     overflow: visible;
 }
 
+.reg-grid-syllabi-context {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
+.reg-grid-syllabi-context > .reg-field {
+    min-width: 0;
+}
+
 .reg-grid-syllabi-context .reg-field--year-level {
     display: flex;
     flex-direction: column;
@@ -2322,11 +2338,14 @@ body:has(.dcs-top-tabs-host .top-nav-tabs-wrapper) .reg-container {
 .reg-cp-picker {
     position: relative;
     width: 100%;
+    min-width: 0;
+    max-width: 100%;
 }
 
 .reg-cp-trigger {
     box-sizing: border-box;
     width: 100%;
+    height: 40px;
     min-height: 40px;
     padding: 8px 12px;
     border: 1px solid var(--reg-border, #cbd5e1);
@@ -2340,6 +2359,15 @@ body:has(.dcs-top-tabs-host .top-nav-tabs-wrapper) .reg-container {
     gap: 8px;
     cursor: pointer;
     text-align: left;
+    overflow: hidden;
+}
+
+.reg-cp-trigger > span:first-child {
+    flex: 1 1 auto;
+    min-width: 0;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
 }
 
 .reg-cp-trigger:disabled {
@@ -2358,6 +2386,7 @@ body:has(.dcs-top-tabs-host .top-nav-tabs-wrapper) .reg-container {
 .reg-cp-trigger i {
     color: var(--reg-text-muted, #64748b);
     font-size: 0.75rem;
+    flex-shrink: 0;
 }
 
 .reg-cp-panel {

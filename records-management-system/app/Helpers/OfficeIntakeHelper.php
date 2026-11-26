@@ -4398,29 +4398,198 @@ class OfficeIntakeHelper
         }
 
         if (Schema::hasColumn('dcs_signatory_templates', 'effective_until')) {
-            $close = DB::table('dcs_signatory_templates')
+            $scopeBase = DB::table('dcs_signatory_templates')
                 ->where('form_kind', $formKind)
-                ->where('doc_type_id', $docTypeId)
-                ->where(function ($q) use ($from) {
-                    $q->whereNull('effective_until')->orWhereDate('effective_until', '>=', $from);
-                });
+                ->where('doc_type_id', $docTypeId);
             if (Schema::hasColumn('dcs_signatory_templates', 'college_id')) {
                 if ($collegeId !== null) {
-                    $close->where('college_id', $collegeId);
-            } else {
-                    $close->whereNull('college_id');
+                    $scopeBase->where('college_id', $collegeId);
+                } else {
+                    $scopeBase->whereNull('college_id');
                 }
             }
-            $close->update([
-                'effective_until' => \Carbon\Carbon::parse($from)->subDay()->toDateString(),
-                'updated_at' => $now,
-                'updated_by' => $updatedBy,
-            ]);
+
+            if ($until !== null) {
+                // Bounded historical/scheduled timeline: reject overlaps instead of corrupting other windows.
+                $conflict = (clone $scopeBase)
+                    ->where(function ($q) use ($until) {
+                        $q->whereNull('effective_from')->orWhereDate('effective_from', '<=', $until);
+                    })
+                    ->where(function ($q) use ($from) {
+                        $q->whereNull('effective_until')->orWhereDate('effective_until', '>=', $from);
+                    })
+                    ->orderByDesc('effective_from')
+                    ->first();
+                if ($conflict) {
+                    $range = self::formatSignatoryDateRange(
+                        data_get($conflict, 'effective_from'),
+                        data_get($conflict, 'effective_until')
+                    );
+                    throw new \InvalidArgumentException(
+                        "That date window overlaps an existing signatory timeline ({$range}). Adjust From/Until so timelines do not overlap."
+                    );
+                }
+            } else {
+                // Open-ended active set: block if another timeline starts on or after $from.
+                $later = (clone $scopeBase)
+                    ->whereDate('effective_from', '>=', $from)
+                    ->orderBy('effective_from')
+                    ->first();
+                if ($later) {
+                    $range = self::formatSignatoryDateRange(
+                        data_get($later, 'effective_from'),
+                        data_get($later, 'effective_until')
+                    );
+                    throw new \InvalidArgumentException(
+                        "Another signatory timeline already starts on or after {$from} ({$range}). Set an Until date or choose a later From date."
+                    );
+                }
+
+                // Close any earlier open/overlapping assignment at the day before $from.
+                (clone $scopeBase)
+                    ->where(function ($q) use ($from) {
+                        $q->whereNull('effective_from')->orWhereDate('effective_from', '<', $from);
+                    })
+                    ->where(function ($q) use ($from) {
+                        $q->whereNull('effective_until')->orWhereDate('effective_until', '>=', $from);
+                    })
+                    ->update([
+                        'effective_until' => \Carbon\Carbon::parse($from)->subDay()->toDateString(),
+                        'updated_at' => $now,
+                        'updated_by' => $updatedBy,
+                    ]);
+            }
         }
 
         $data['created_at'] = $now;
         $templateId = (int) DB::table('dcs_signatory_templates')->insertGetId($data);
         self::syncSignatoryTemplateFields($templateId, $payload);
+        self::$signatoryAssignmentsMemo = [];
+    }
+
+    /**
+     * Loads a single signatory template row with its normalized payload.
+     */
+    public static function findSignatoryTemplateById(int $id): ?object
+    {
+        if ($id < 1 || ! Schema::hasTable('dcs_signatory_templates')) {
+            return null;
+        }
+        $row = DB::table('dcs_signatory_templates')->where('id', $id)->first();
+        if (! $row) {
+            return null;
+        }
+        $row->payload = self::signatoryPayloadForRow($row) ?? [];
+
+        return $row;
+    }
+
+    /**
+     * Updates an existing signatory template timeline in place (e.g. fixing typos or adjusting dates).
+     *
+     * @param  array<string, mixed>  $payload
+     */
+    public static function updateSignatoryTemplate(
+        int $id,
+        string $formKind,
+        string $docTypeKind,
+        array $payload,
+        ?int $updatedBy = null,
+        ?int $docTypeId = null,
+        ?string $effectiveFrom = null,
+        ?string $effectiveUntil = null,
+        ?int $collegeId = null
+    ): void {
+        if ($id < 1) {
+            throw new \InvalidArgumentException('Invalid signatory timeline.');
+        }
+        $formKind = strtolower(trim($formKind));
+        $docTypeKind = strtolower(trim($docTypeKind ?: 'internal'));
+        if (! in_array($formKind, ['drf', 'dcn'], true) || ! in_array($docTypeKind, ['internal', 'external'], true)) {
+            throw new \InvalidArgumentException('Invalid signatory template key.');
+        }
+        if (! $docTypeId || $docTypeId < 1) {
+            throw new \InvalidArgumentException('Select a Document type from the catalog.');
+        }
+        if (! Schema::hasTable('dcs_signatory_templates')) {
+            throw new \RuntimeException('Signatory templates table is not ready. Run migrations.');
+        }
+        $existing = DB::table('dcs_signatory_templates')->where('id', $id)->first();
+        if (! $existing) {
+            throw new \InvalidArgumentException('Signatory timeline not found.');
+        }
+
+        $collegeId = $collegeId && $collegeId > 0 ? $collegeId : null;
+        if ($collegeId !== null && Schema::hasTable('dcs_colleges')
+            && ! DB::table('dcs_colleges')->where('id', $collegeId)->exists()
+        ) {
+            throw new \InvalidArgumentException('Select a valid college.');
+        }
+
+        $now = now();
+        $from = $effectiveFrom ? \Carbon\Carbon::parse($effectiveFrom)->toDateString() : $now->toDateString();
+        $until = $effectiveUntil ? \Carbon\Carbon::parse($effectiveUntil)->toDateString() : null;
+        if ($until && $until < $from) {
+            throw new \InvalidArgumentException('Effective until must be on or after effective from.');
+        }
+
+        if (Schema::hasColumn('dcs_signatory_templates', 'effective_until')) {
+            $scopeBase = DB::table('dcs_signatory_templates')
+                ->where('id', '!=', $id)
+                ->where('form_kind', $formKind)
+                ->where('doc_type_id', $docTypeId);
+            if (Schema::hasColumn('dcs_signatory_templates', 'college_id')) {
+                if ($collegeId !== null) {
+                    $scopeBase->where('college_id', $collegeId);
+                } else {
+                    $scopeBase->whereNull('college_id');
+                }
+            }
+
+            $conflictQ = clone $scopeBase;
+            if ($until !== null) {
+                $conflictQ->where(function ($q) use ($until) {
+                    $q->whereNull('effective_from')->orWhereDate('effective_from', '<=', $until);
+                });
+            }
+            $conflictQ->where(function ($q) use ($from) {
+                $q->whereNull('effective_until')->orWhereDate('effective_until', '>=', $from);
+            });
+            $conflict = $conflictQ->orderByDesc('effective_from')->first();
+            if ($conflict) {
+                $range = self::formatSignatoryDateRange(
+                    data_get($conflict, 'effective_from'),
+                    data_get($conflict, 'effective_until')
+                );
+                throw new \InvalidArgumentException(
+                    "That date window overlaps another signatory timeline ({$range}). Adjust From/Until so timelines do not overlap."
+                );
+            }
+        }
+
+        $data = [
+            'form_kind' => $formKind,
+            'doc_type_kind' => $docTypeKind,
+            'doc_type_id' => $docTypeId,
+            'updated_by' => $updatedBy,
+            'updated_at' => $now,
+        ];
+        if (Schema::hasColumn('dcs_signatory_templates', 'payload')) {
+            $data['payload'] = json_encode($payload, JSON_UNESCAPED_UNICODE);
+        }
+        if (Schema::hasColumn('dcs_signatory_templates', 'college_id')) {
+            $data['college_id'] = $collegeId;
+        }
+        if (Schema::hasColumn('dcs_signatory_templates', 'effective_from')) {
+            $data['effective_from'] = $from;
+        }
+        if (Schema::hasColumn('dcs_signatory_templates', 'effective_until')) {
+            $data['effective_until'] = $until;
+        }
+
+        DB::table('dcs_signatory_templates')->where('id', $id)->update($data);
+        self::syncSignatoryTemplateFields($id, $payload);
+        self::$signatoryAssignmentsMemo = [];
     }
 
     /**
@@ -5373,14 +5542,14 @@ class OfficeIntakeHelper
     public static function officeDrfSyllabiConnector(?int $subTypeId): string
     {
         if (! $subTypeId || $subTypeId < 1 || ! Schema::hasTable('dcs_doc_types')) {
-            return 'Syllabus,';
+            return 'syllabus';
         }
         $name = mb_strtolower(trim((string) DB::table('dcs_doc_types')->where('id', $subTypeId)->value('doc_type_name')));
         if (str_contains($name, 'tos') || str_contains($name, 'rubric')) {
-            return 'TOS/Rubrics,';
+            return 'TOS/Rubrics';
         }
 
-        return 'Syllabus,';
+        return 'syllabus';
     }
 
     /**
@@ -5392,7 +5561,7 @@ class OfficeIntakeHelper
         string $course,
         string $semester,
         string $schoolYear,
-        string $connector = 'Syllabus,',
+        string $connector = 'syllabus',
         ?string $courseType = null
     ): string {
         $college = trim($college);
@@ -5400,7 +5569,7 @@ class OfficeIntakeHelper
         $course = trim($course);
         $semester = trim($semester);
         $schoolYear = trim($schoolYear);
-        $connector = trim($connector) !== '' ? trim($connector) : 'Syllabus,';
+        $connector = trim(rtrim(trim($connector), ',')) !== '' ? trim(rtrim(trim($connector), ',')) : 'syllabus';
         $shared = CourseTypeRules::isSharedType($courseType);
         if ($college === '' || $course === '' || $semester === '' || $schoolYear === '') {
             return '';
@@ -5411,7 +5580,7 @@ class OfficeIntakeHelper
         $sy = preg_replace('/^\s*s\/?y\s*/i', '', $schoolYear) ?: $schoolYear;
         $for = $shared ? $college : $program;
 
-        return $college.' '.$connector.' '.$semester.' S/Y '.$sy.' for '.$for.' in '.$course;
+        return $college.' '.$connector.' for '.$for.' in '.$course.', '.$semester.', '.$sy;
     }
 
     /**
@@ -5804,7 +5973,8 @@ class OfficeIntakeHelper
         string $docTypeKind = 'internal',
         ?int $docTypeId = null,
         ?int $subTypeId = null,
-        ?int $collegeId = null
+        ?int $collegeId = null,
+        ?string $onDate = null
     ): ?array {
         $kind = in_array($docTypeKind, ['internal', 'external'], true) ? $docTypeKind : 'internal';
 
@@ -5814,7 +5984,7 @@ class OfficeIntakeHelper
             if (! $externalId) {
                 return null;
             }
-            $template = self::signatoryTemplate('drf', 'external', $externalId, null, false, false);
+            $template = self::signatoryTemplate('drf', 'external', $externalId, $onDate, false, false);
 
             return is_array($template) ? self::normalizeDrfSignatoryPayload($template) : null;
         }
@@ -5835,7 +6005,7 @@ class OfficeIntakeHelper
         }
 
         // Sub-type (+ college for syllabi) → parent whole type.
-        $template = self::signatoryTemplate('drf', $kind, $lookupId, null, false, true, $collegeScope);
+        $template = self::signatoryTemplate('drf', $kind, $lookupId, $onDate, false, true, $collegeScope);
         if (! is_array($template)) {
             return null;
         }
@@ -5858,6 +6028,7 @@ class OfficeIntakeHelper
         $byDocTypeId = [];
         $byDocTypeCollege = [];
         $byKind = [];
+        $timelines = [];
         $syllabiLikeDocTypeIds = [];
         $parentKind = [];
         $externalParentId = self::catalogParentIdForKind('external');
@@ -5897,6 +6068,7 @@ class OfficeIntakeHelper
                 'byDocTypeId',
                 'byDocTypeCollege',
                 'byKind',
+                'timelines',
                 'syllabiLikeDocTypeIds',
                 'parentKind',
                 'externalParentId'
@@ -5904,22 +6076,15 @@ class OfficeIntakeHelper
         }
 
         $day = now()->toDateString();
-        $query = DB::table('dcs_signatory_templates')
+        $hasFromCol = Schema::hasColumn('dcs_signatory_templates', 'effective_from');
+        $hasUntilCol = Schema::hasColumn('dcs_signatory_templates', 'effective_until');
+        $hasCollegeCol = Schema::hasColumn('dcs_signatory_templates', 'college_id');
+
+        $allQuery = DB::table('dcs_signatory_templates')
             ->where('form_kind', 'drf')
             ->whereNotNull('doc_type_id')
             ->orderByDesc('id');
-        if (Schema::hasColumn('dcs_signatory_templates', 'effective_from')) {
-            $query->where(function ($q) use ($day) {
-                $q->whereNull('effective_from')->orWhereDate('effective_from', '<=', $day);
-            });
-        }
-        if (Schema::hasColumn('dcs_signatory_templates', 'effective_until')) {
-            $query->where(function ($q) use ($day) {
-                $q->whereNull('effective_until')->orWhereDate('effective_until', '>=', $day);
-            });
-        }
-        $hasCollegeCol = Schema::hasColumn('dcs_signatory_templates', 'college_id');
-        foreach ($query->get() as $row) {
+        foreach ($allQuery->get() as $row) {
             $payload = self::signatoryPayloadForRow($row);
             $normalized = is_array($payload) ? self::normalizeDrfSignatoryPayload($payload) : null;
             if ($normalized === null) {
@@ -5931,6 +6096,27 @@ class OfficeIntakeHelper
             }
             $key = (string) $docTypeId;
             $rowCollegeId = $hasCollegeCol ? (int) data_get($row, 'college_id', 0) : 0;
+            $fromStr = $hasFromCol && ! empty(data_get($row, 'effective_from'))
+                ? \Carbon\Carbon::parse(data_get($row, 'effective_from'))->toDateString()
+                : '';
+            $untilStr = $hasUntilCol && ! empty(data_get($row, 'effective_until'))
+                ? \Carbon\Carbon::parse(data_get($row, 'effective_until'))->toDateString()
+                : '';
+
+            $timelines[] = [
+                'id' => (int) data_get($row, 'id', 0),
+                'doc_type_id' => $key,
+                'college_id' => $rowCollegeId > 0 ? (string) $rowCollegeId : '',
+                'effective_from' => $fromStr,
+                'effective_until' => $untilStr,
+                'signatories' => $normalized,
+            ];
+
+            $activeToday = ($fromStr === '' || $fromStr <= $day)
+                && ($untilStr === '' || $untilStr >= $day);
+            if (! $activeToday) {
+                continue;
+            }
             if ($rowCollegeId > 0) {
                 if (! isset($byDocTypeCollege[$key])) {
                     $byDocTypeCollege[$key] = [];
@@ -5990,6 +6176,7 @@ class OfficeIntakeHelper
             'byDocTypeId',
             'byDocTypeCollege',
             'byKind',
+            'timelines',
             'syllabiLikeDocTypeIds',
             'parentKind',
             'externalParentId'

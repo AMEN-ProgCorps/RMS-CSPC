@@ -284,9 +284,9 @@ window.__timeSpentNonWorkingDateSet = Object.create(null);
                         <input type="text" id="syllabiDocTitle" name="syllabiDocTitle" placeholder="Enter Document Title" value="{{ $masterlist->doc_title ?? '' }}">
                     </div>
 
-                    <div class="reg-wizard-steps" id="syllabiStepIndicator">
-                        <div class="reg-wizard-step" :class="{ 'is-active': syllabiStep === 1, 'is-done': syllabiStep > 1 }" data-step="1"><span>1</span> Course Info</div>
-                        <div class="reg-wizard-step" :class="{ 'is-active': syllabiStep === 2 }" data-step="2"><span>2</span> DRF</div>
+                    <div class="reg-wizard-steps" id="syllabiStepIndicator" role="tablist" aria-label="Syllabi sections">
+                        <button type="button" role="tab" class="reg-wizard-step" :class="{ 'is-active': syllabiStep === 1 }" :aria-selected="syllabiStep === 1 ? 'true' : 'false'" data-step="1" @click="setSyllabiStep(1)"><span>1</span> Course Info</button>
+                        <button type="button" role="tab" class="reg-wizard-step" :class="{ 'is-active': syllabiStep === 2 }" :aria-selected="syllabiStep === 2 ? 'true' : 'false'" data-step="2" @click="setSyllabiStep(2)"><span>2</span> DRF</button>
                     </div>
 
                     <div class="reg-field">
@@ -325,14 +325,8 @@ window.__timeSpentNonWorkingDateSet = Object.create(null);
                         </div>
                     </div>
 
-                    <div class="reg-wizard-nav">
-                        <button type="button" class="reg-btn reg-btn-cancel" id="syllabiBackBtn" x-show="syllabiStep === 2" @click="setSyllabiStep(1)">
-                            <i class="fa-solid fa-arrow-left"></i> Back
-                        </button>
-                        <button type="button" class="reg-btn reg-btn-save" id="syllabiNextBtn" x-show="syllabiStep === 1" @click="setSyllabiStep(2)">
-                            Next <i class="fa-solid fa-arrow-right"></i>
-                        </button>
-                        <span id="syllabiStep2Hint" class="reg-wizard-hint" x-show="syllabiStep === 2">
+                    <div class="reg-wizard-nav" x-show="syllabiStep === 2">
+                        <span id="syllabiStep2Hint" class="reg-wizard-hint">
                             Scroll down and click <strong>Update Document</strong> to submit.
                         </span>
                     </div>
@@ -6982,11 +6976,14 @@ function updateSyllabiCpTriggerLabel() {
     }
     if (!selected.length) {
         labelEl.textContent = 'Select college / program';
+        labelEl.title = '';
         return;
     }
-    labelEl.textContent = selected.length === 1
+    const text = selected.length === 1
         ? `${selected[0].college_name || 'College'} — ${selected[0].program_name || 'Program'}`
         : `${selected.length} programs selected`;
+    labelEl.textContent = text;
+    labelEl.title = text;
 }
 
 function renderSyllabiCpPrograms(collegeId) {
@@ -7228,12 +7225,27 @@ function persistEditSyllabiContextSelection() {
 function readEditSyllabiContextSelection() {
     if (syllabiContextFieldsLocked()) return null;
     const key = editSyllabiCtxStorageKey();
-    if (!key) return null;
     try {
-        const raw = sessionStorage.getItem(key);
-        if (!raw) return null;
-        const parsed = JSON.parse(raw);
-        return parsed && typeof parsed === 'object' ? parsed : null;
+        if (key) {
+            const raw = sessionStorage.getItem(key);
+            if (raw) {
+                const parsed = JSON.parse(raw);
+                if (parsed && typeof parsed === 'object') return parsed;
+            }
+        }
+        // Fallback: draft just auto-saved from Create (/dcs/register) before redirecting to Edit.
+        if (window.__isDraftDoc) {
+            const createRaw = sessionStorage.getItem('dcs_reg_syllabi_ctx_v1');
+            if (createRaw) {
+                const parsed = JSON.parse(createRaw);
+                const curSub = String((window.APP_CONFIG && window.APP_CONFIG.CURRENT_SUB_TYPE_ID) || '');
+                if (parsed && typeof parsed === 'object' && (!parsed.sub_type_id || !curSub || String(parsed.sub_type_id) === curSub)) {
+                    if (key) sessionStorage.setItem(key, JSON.stringify(parsed));
+                    return parsed;
+                }
+            }
+        }
+        return null;
     } catch (_) {
         return null;
     }
@@ -12015,8 +12027,8 @@ function unlockSyllabiContextForSubmit() {
  */
 function prepareDraftSubmitDefaults() {
     unlockSyllabiContextForSubmit();
-    if (typeof clearEditSyllabiContextSelection === 'function') {
-        clearEditSyllabiContextSelection();
+    if (typeof persistEditSyllabiContextSelection === 'function') {
+        persistEditSyllabiContextSelection();
     }
     const approvalChecked = document.querySelector('input[name="approval_status"]:checked');
     if (!approvalChecked) {

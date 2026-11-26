@@ -339,9 +339,9 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
                 </div>
 
                 <!-- ═══ WIZARD STEP INDICATOR ═══ -->
-                <div class="reg-wizard-steps" id="syllabiStepIndicator">
-                    <div class="reg-wizard-step" :class="{ 'is-active': syllabiStep === 1, 'is-done': syllabiStep > 1 }" data-step="1"><span>1</span> Course Info</div>
-                    <div class="reg-wizard-step" :class="{ 'is-active': syllabiStep === 2 }" data-step="2"><span>2</span> DRF</div>
+                <div class="reg-wizard-steps" id="syllabiStepIndicator" role="tablist" aria-label="Syllabi sections">
+                    <button type="button" role="tab" class="reg-wizard-step" :class="{ 'is-active': syllabiStep === 1 }" :aria-selected="syllabiStep === 1 ? 'true' : 'false'" data-step="1" @click="setSyllabiStep(1)"><span>1</span> Course Info</button>
+                    <button type="button" role="tab" class="reg-wizard-step" :class="{ 'is-active': syllabiStep === 2 }" :aria-selected="syllabiStep === 2 ? 'true' : 'false'" data-step="2" @click="setSyllabiStep(2)"><span>2</span> DRF</button>
                 </div>
 
                 <div class="reg-field">
@@ -380,14 +380,8 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
                     </div>
                 </div>
 
-                <div class="reg-wizard-nav">
-                    <button type="button" class="reg-btn reg-btn-cancel" id="syllabiBackBtn" x-show="syllabiStep === 2" @click="setSyllabiStep(1)">
-                        <i class="fa-solid fa-arrow-left"></i> Back
-                    </button>
-                    <button type="button" class="reg-btn reg-btn-save" id="syllabiNextBtn" x-show="syllabiStep === 1" @click="setSyllabiStep(2)">
-                        Next <i class="fa-solid fa-arrow-right"></i>
-                    </button>
-                    <span id="syllabiStep2Hint" class="reg-wizard-hint" x-show="syllabiStep === 2">
+                <div class="reg-wizard-nav" x-show="syllabiStep === 2">
+                    <span id="syllabiStep2Hint" class="reg-wizard-hint">
                         Scroll down and click <strong>Save and Appraise</strong> to submit.
                     </span>
                 </div>
@@ -10257,8 +10251,8 @@ function unlockSyllabiContextForSubmit() {
  */
 function prepareDraftSubmitDefaults() {
     unlockSyllabiContextForSubmit();
-    if (typeof clearSyllabiContextSelectionStorage === 'function') {
-        clearSyllabiContextSelectionStorage();
+    if (typeof persistSyllabiContextSelection === 'function') {
+        persistSyllabiContextSelection();
     }
     const approvalChecked = document.querySelector('input[name="approval_status"]:checked');
     if (!approvalChecked) {
@@ -10855,11 +10849,14 @@ function updateSyllabiCpTriggerLabel() {
     }
     if (!selected.length) {
         labelEl.textContent = 'Select college / program';
+        labelEl.title = '';
         return;
     }
-    labelEl.textContent = selected.length === 1
+    const text = selected.length === 1
         ? `${selected[0].college_name || 'College'} — ${selected[0].program_name || 'Program'}`
         : `${selected.length} programs selected`;
+    labelEl.textContent = text;
+    labelEl.title = text;
 }
 
 function renderSyllabiCpPrograms(collegeId) {
@@ -12645,6 +12642,125 @@ function upsertLocalFaculty(faculty) {
         faculty_name: faculty.faculty_name,
         college_ids: Array.isArray(faculty.college_ids) ? faculty.college_ids : [],
     };
+    if (idx >= 0) {
+        allFaculties[idx] = { ...allFaculties[idx], ...row };
+    } else {
+        allFaculties.push(row);
+    }
+    if (window.__registerCatalog) {
+        window.__registerCatalog.faculties = allFaculties.slice();
+    }
+}
+
+/**
+ * Creates or links faculty in Settings for the selected college.
+ *
+ * @param {*} name
+ */
+async function ensureFacultyInSettings(name) {
+    const want = String(name || '').trim();
+    if (want.length < 2) {
+        if (typeof showToast === 'function') showToast('Enter at least 2 characters for the faculty name.', 'error');
+        return null;
+    }
+    const collegeId = getSyllabiCollegeId();
+    if (!collegeId) {
+        if (typeof showToast === 'function') showToast('Select a college first.', 'error');
+        return null;
+    }
+    const token = document.querySelector('meta[name="csrf-token"]')?.content
+        || document.querySelector('input[name="_token"]')?.value
+        || '';
+    const res = await fetch('/dcs/register/ensure-faculty', {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json',
+            Accept: 'application/json',
+            'X-Requested-With': 'XMLHttpRequest',
+            'X-CSRF-TOKEN': token,
+        },
+        credentials: 'same-origin',
+        body: JSON.stringify({
+            faculty_name: want,
+            college_id: Number(collegeId),
+            course_type: getSyllabiCourseType() || '',
+        }),
+    });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok || !data.ok || !data.faculty) {
+        if (typeof showToast === 'function') {
+            showToast(data.message || 'Could not save faculty to Settings.', 'error');
+        }
+        return null;
+    }
+    upsertLocalFaculty(data.faculty);
+    if (typeof showToast === 'function' && data.created) {
+        showToast('Faculty added to Settings.', 'success');
+    }
+    return data.faculty;
+}
+
+/**
+ * Ensures faculty exists in Settings, then selects it on the row.
+ *
+ * @param {*} uid
+ * @param {*} name
+ * @param {*} focusNext
+ */
+async function ensureAndAddSyllabiFaculty(uid, name, focusNext) {
+    const want = String(name || '').trim();
+    if (!want) return;
+    const known = getFacultyCandidates().find((f) => f.faculty_name.toLowerCase() === want.toLowerCase())
+        || (Array.isArray(allFaculties)
+            ? allFaculties.find((f) => String(f.faculty_name || '').toLowerCase() === want.toLowerCase())
+            : null);
+    if (!known) {
+        const saved = await ensureFacultyInSettings(want);
+        if (!saved) return;
+        addSyllabiFaculty(uid, saved.faculty_name || want, focusNext);
+        return;
+    }
+    // Existing name but maybe missing this college — still ensure link.
+    if (!getFacultyCandidates().some((f) => f.faculty_name.toLowerCase() === known.faculty_name.toLowerCase())) {
+        await ensureFacultyInSettings(known.faculty_name);
+    }
+    addSyllabiFaculty(uid, known.faculty_name, focusNext);
+}
+
+/**
+ * Picks syllabi faculty from query.
+ *
+ * @param {*} uid
+ * @param {*} query
+ */
+async function pickSyllabiFacultyFromQuery(uid, query) {
+    const candidates = getFacultyCandidates();
+    const q = String(query || '').trim().toLowerCase();
+    const state = window.__syllabiFaculty[uid];
+    if (!state || !q) return;
+
+    const exact = candidates.find(f => f.faculty_name.toLowerCase() === q);
+    if (exact) {
+        addSyllabiFaculty(uid, exact.faculty_name, true);
+        return;
+    }
+
+    const partial = candidates.filter(f =>
+        f.faculty_name.toLowerCase().includes(q) &&
+        !state.selected.some(s => s.label.toLowerCase() === f.faculty_name.toLowerCase())
+    );
+    if (partial.length === 1) {
+        addSyllabiFaculty(uid, partial[0].faculty_name, true);
+        return;
+    }
+
+    // No catalog match — create in Settings and use the typed name.
+    await ensureAndAddSyllabiFaculty(uid, query, true);
+}
+
+/**
+ * Binds and registers syllabi faculty input event listeners.
+ *
  * @param {*} uid
  * @param {*} rootEl
  */

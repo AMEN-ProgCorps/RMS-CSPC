@@ -110,11 +110,12 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
             }
             $oldSubTypeId = '';
         }
+        $oldDrfDate = (string) old('drfDate', $prefill['drfDate'] ?? now()->toDateString());
         $sigPrefill = null;
         if ($oldDocTypeKind === 'external') {
-            $sigPrefill = OfficeIntakeHelper::drfSignatoryPrefill('external', null, null);
+            $sigPrefill = OfficeIntakeHelper::drfSignatoryPrefill('external', null, null, null, $oldDrfDate);
         } elseif (in_array($oldDocTypeKind, ['forms', 'logbooks'], true) && $oldDocTypeId !== '') {
-            $sigPrefill = OfficeIntakeHelper::drfSignatoryPrefill('internal', (int) $oldDocTypeId, null);
+            $sigPrefill = OfficeIntakeHelper::drfSignatoryPrefill('internal', (int) $oldDocTypeId, null, null, $oldDrfDate);
         } elseif (($oldDocTypeId !== '' || $lockDocType) && $oldSubTypeId !== '') {
             // Internal catalog: only prefill once a sub-type is chosen.
             // Syllabi / TOS also need a college before signatories are filled.
@@ -125,7 +126,8 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
                     $oldDocTypeKind !== '' ? $oldDocTypeKind : 'internal',
                     $oldDocTypeId !== '' ? (int) $oldDocTypeId : null,
                     (int) $oldSubTypeId,
-                    $oldCollegeId
+                    $oldCollegeId,
+                    $oldDrfDate
                 );
             }
         }
@@ -654,15 +656,46 @@ window.__ofiSourceConfigs = [
         const byId = sigMap.byDocTypeId || {};
         const byCollege = sigMap.byDocTypeCollege || {};
         const byKind = sigMap.byKind || {};
+        const timelines = Array.isArray(sigMap.timelines) ? sigMap.timelines : [];
         const parentKind = sigMap.parentKind || {};
         const syllabiIds = sigMap.syllabiLikeDocTypeIds || [];
         const collegeSel = document.getElementById('ofiDrfCollegeId');
         const collegeId = collegeSel && !collegeSel.disabled ? String(collegeSel.value || '') : '';
+        const drfDateInput = document.getElementById('drfDate');
+        const drfDate = (drfDateInput && String(drfDateInput.value || '').trim()) || new Date().toISOString().slice(0, 10);
+
+        function matchTimeline(docTypeId, scopedCollegeId) {
+            if (!docTypeId || !timelines.length) return null;
+            const wantDoc = String(docTypeId);
+            const wantCollege = String(scopedCollegeId || '');
+            for (let i = 0; i < timelines.length; i++) {
+                const t = timelines[i];
+                if (String(t.doc_type_id || '') !== wantDoc) continue;
+                if (String(t.college_id || '') !== wantCollege) continue;
+                if (t.effective_from && drfDate < t.effective_from) continue;
+                if (t.effective_until && drfDate > t.effective_until) continue;
+                return t.signatories || null;
+            }
+            return null;
+        }
+
         if (kind === 'external') {
-            if (byKind.external) return byKind.external;
             const externalId = sigMap.externalParentId ? String(sigMap.externalParentId) : '';
+            if (timelines.length) {
+                if (externalId) {
+                    const hit = matchTimeline(externalId, '');
+                    if (hit) return hit;
+                }
+                for (const id of Object.keys(parentKind)) {
+                    if (parentKind[id] === 'external') {
+                        const hit = matchTimeline(id, '');
+                        if (hit) return hit;
+                    }
+                }
+                return null;
+            }
+            if (byKind.external) return byKind.external;
             if (externalId && byId[externalId]) return byId[externalId];
-            // Last resort: any catalog parent marked external that has an active assignment.
             for (const id of Object.keys(parentKind)) {
                 if (parentKind[id] === 'external' && byId[id]) return byId[id];
             }
@@ -671,6 +704,9 @@ window.__ofiSourceConfigs = [
         if (kind === 'forms' || kind === 'logbooks') {
             const checked = form.querySelector('input[name="docTypeKind"]:checked');
             const optInId = checked ? String(checked.getAttribute('data-optin-doc-type-id') || '') : '';
+            if (timelines.length) {
+                return optInId ? matchTimeline(optInId, '') : null;
+            }
             if (optInId && byId[optInId]) return byId[optInId];
             return null;
         }
@@ -692,6 +728,13 @@ window.__ofiSourceConfigs = [
         function pickForDocType(docTypeId, requireCollege) {
             if (!docTypeId) return null;
             const isSyllabi = syllabiIds.indexOf(docTypeId) !== -1;
+            if (timelines.length) {
+                if (isSyllabi || requireCollege) {
+                    if (!collegeId) return null;
+                    return matchTimeline(docTypeId, collegeId) || matchTimeline(docTypeId, '');
+                }
+                return matchTimeline(docTypeId, '');
+            }
             if (isSyllabi || requireCollege) {
                 // Syllabi / TOS: no signatories until a college is chosen.
                 if (!collegeId) return null;
@@ -864,6 +907,7 @@ window.__ofiSourceConfigs = [
 
     form.querySelectorAll('input[name="docTypeKind"]').forEach(function (radio) {
         radio.addEventListener('change', function () {
+            if (typeof window.__ofiResetDrfTitle === 'function') window.__ofiResetDrfTitle();
             syncCatalogVisibility();
             rebuildParentOptions(false);
             rebuildSubOptions(false);
@@ -874,6 +918,7 @@ window.__ofiSourceConfigs = [
     syncOptInDocTypeId();
     if (parentSelect && parentSelect.tagName === 'SELECT') {
         parentSelect.addEventListener('change', function () {
+            if (typeof window.__ofiResetDrfTitle === 'function') window.__ofiResetDrfTitle();
             rebuildSubOptions(false);
             // Document type change clears sub-type → clear signatories until a new sub-type is picked.
             refreshSignatoriesForSelection();
@@ -882,10 +927,16 @@ window.__ofiSourceConfigs = [
     }
     if (subSelect && subSelect.tagName === 'SELECT') {
         subSelect.addEventListener('change', function () {
+            if (typeof window.__ofiResetDrfTitle === 'function') window.__ofiResetDrfTitle();
             // Always reset then apply the template for the newly selected sub-type.
             refreshSignatoriesForSelection();
             if (typeof window.__ofiSyncSyllabiContext === 'function') window.__ofiSyncSyllabiContext();
         });
+    }
+    const drfDateEl = document.getElementById('drfDate');
+    if (drfDateEl) {
+        drfDateEl.addEventListener('change', refreshSignatoriesForSelection);
+        drfDateEl.addEventListener('input', refreshSignatoriesForSelection);
     }
 
     syncCatalogVisibility();

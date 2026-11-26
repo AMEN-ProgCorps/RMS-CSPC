@@ -24,6 +24,7 @@ All course types use college + program (per-program catalog).
     if (!form || !block || !collegeSel) return;
 
     let titleManual = false;
+    let lastAutoTitle = '';
     let seeding = false;
 
     /**
@@ -56,8 +57,8 @@ All course types use college + program (per-program catalog).
      */
     function connectorForSub() {
         const n = selectedSubName().toLowerCase();
-        if (n.indexOf('tos') !== -1 || n.indexOf('rubric') !== -1) return 'TOS/Rubrics,';
-        return 'Syllabus,';
+        if (n.indexOf('tos') !== -1 || n.indexOf('rubric') !== -1) return 'TOS/Rubrics';
+        return 'Syllabus';
     }
 
     function selectedCourseType() {
@@ -274,8 +275,8 @@ All course types use college + program (per-program catalog).
         if (!college || !course || !semester || !schoolYear) return '';
         if (!program) return '';
         schoolYear = schoolYear.replace(/^\s*s\/?y\s*/i, '');
-        return college + ' ' + connectorForSub() + ' ' + semester + ' S/Y ' + schoolYear
-            + ' for ' + program + ' in ' + course;
+        return college + ' ' + connectorForSub() + ' for ' + program + ' in ' + course
+            + ', ' + semester + ', ' + schoolYear;
     }
 
     /**
@@ -284,7 +285,13 @@ All course types use college + program (per-program catalog).
     function syncTitle() {
         if (!titleInput || titleManual || seeding) return;
         const next = buildTitle();
-        if (next) titleInput.value = next;
+        if (next) {
+            titleInput.value = next;
+            lastAutoTitle = next;
+        } else if (lastAutoTitle && String(titleInput.value || '').trim() === lastAutoTitle) {
+            titleInput.value = '';
+            lastAutoTitle = '';
+        }
     }
 
     /**
@@ -304,6 +311,11 @@ All course types use college + program (per-program catalog).
             setEnabled(schoolYearSel, false, false);
             if (courseTypeSel) courseTypeSel.value = '';
             collegeSel.value = '';
+            if (titleInput && lastAutoTitle && String(titleInput.value || '').trim() === lastAutoTitle) {
+                titleInput.value = '';
+                lastAutoTitle = '';
+                titleManual = false;
+            }
             return;
         }
         setEnabled(courseTypeSel, true, true);
@@ -316,6 +328,13 @@ All course types use college + program (per-program catalog).
     /**
      * Ofis sync syllabi context.
      */
+    window.__ofiResetDrfTitle = function () {
+        if (seeding) return;
+        titleManual = false;
+        lastAutoTitle = '';
+        if (titleInput) titleInput.value = '';
+    };
+
     window.__ofiSyncSyllabiContext = function () {
         const kindRadio = form.querySelector('input[name="docTypeKind"]:checked');
         const kindHidden = form.querySelector('input[type="hidden"][name="docTypeKind"]');
@@ -429,6 +448,7 @@ All course types use college + program (per-program catalog).
 
     form.querySelectorAll('input[name="docTypeKind"]').forEach(function (radio) {
         radio.addEventListener('change', function () {
+            window.__ofiResetDrfTitle();
             window.__ofiSyncSyllabiContext();
         });
     });

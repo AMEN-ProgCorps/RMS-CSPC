@@ -187,6 +187,27 @@ body {
     animation: none;
 }
 
+/* Pre-Alpine boot visibility: show the active tab/section on first paint without x-cloak flash. */
+html[data-dcs-settings-boot-tab="doctypes"] #dcsSettingsRoot [data-tab-panel]:not([data-tab-panel="doctypes"]),
+html[data-dcs-settings-boot-tab="signatories"] #dcsSettingsRoot [data-tab-panel]:not([data-tab-panel="signatories"]),
+html[data-dcs-settings-boot-tab="originators"] #dcsSettingsRoot [data-tab-panel]:not([data-tab-panel="originators"]),
+html[data-dcs-settings-boot-tab="syllabi"] #dcsSettingsRoot [data-tab-panel]:not([data-tab-panel="syllabi"]),
+html[data-dcs-settings-boot-section="faculties"] #dcsSettingsRoot [data-syllabi-section]:not([data-syllabi-section="faculties"]),
+html[data-dcs-settings-boot-section="colleges"] #dcsSettingsRoot [data-syllabi-section]:not([data-syllabi-section="colleges"]),
+html[data-dcs-settings-boot-section="semesters"] #dcsSettingsRoot [data-syllabi-section]:not([data-syllabi-section="semesters"]),
+html[data-dcs-settings-boot-section="schoolyears"] #dcsSettingsRoot [data-syllabi-section]:not([data-syllabi-section="schoolyears"]),
+html[data-dcs-settings-boot-section="coursenames"] #dcsSettingsRoot [data-syllabi-section]:not([data-syllabi-section="coursenames"]) {
+    display: none !important;
+}
+
+tr.st-course-data {
+    cursor: pointer;
+}
+
+tr.st-course-data.is-selected td {
+    background: color-mix(in srgb, var(--set-primary, #1d4ed8) 6%, transparent);
+}
+
 /* ─── Panel Toolbar ─── */
 .panel-toolbar {
     display: flex;
@@ -1195,6 +1216,11 @@ body {
     margin-bottom: 8px;
 }
 
+.st-modal.st-modal--courses {
+    width: min(860px, calc(100vw - 32px));
+    max-width: 860px;
+}
+
 /* ── Form Fields ── */
 .st-field {
     margin-bottom: 16px;
@@ -1309,7 +1335,7 @@ body {
 }
 
 .st-course-row--mixed {
-    grid-template-columns: minmax(88px, 0.85fr) minmax(96px, 0.95fr) minmax(88px, 0.75fr) minmax(160px, 2fr) 36px;
+    grid-template-columns: minmax(112px, 1.05fr) minmax(80px, 0.78fr) minmax(90px, 0.85fr) minmax(84px, 0.75fr) minmax(160px, 1.9fr) 36px;
 }
 
 .st-course-rows--mixed {
@@ -2370,8 +2396,15 @@ body {
     display: grid;
     grid-template-columns: 88px minmax(0, 1fr);
     gap: 2px 8px;
-    font-size: 0.74rem;
-    line-height: 1.3;
+    font-size: 0.75rem;
+    line-height: 1.35;
+    padding: 4px 0;
+    border-top: 1px dashed color-mix(in srgb, var(--set-border, #e2e8f0) 70%, transparent);
+}
+
+.sig-history-detail li:first-child {
+    border-top: none;
+    padding-top: 2px;
 }
 
 .sig-history-detail-role {
@@ -2381,51 +2414,82 @@ body {
 
 .sig-history-detail-name {
     color: var(--set-text, #0f172a);
-    font-weight: 600;
+    font-weight: 650;
 }
 
 .sig-history-detail-desig {
     grid-column: 2;
-    color: var(--set-text-subtle, #94a3b8);
+    color: var(--set-text-subtle, #64748b);
     font-size: 0.7rem;
 }
 
 .sig-history-item.is-compact {
     padding: 0;
-    background: color-mix(in srgb, var(--set-bg, #f8fafc) 80%, white);
+    background: var(--set-surface, #fff);
 }
 
 .sig-history-item.is-compact > summary {
     list-style: none;
     cursor: pointer;
-    padding: 7px 10px;
+    padding: 10px 12px;
     display: flex;
     flex-direction: column;
-    gap: 2px;
+    gap: 5px;
+    transition: background-color 0.15s ease;
+}
+
+.sig-history-item.is-compact > summary:hover {
+    background: color-mix(in srgb, #1d4ed8 4%, white);
 }
 
 .sig-history-item.is-compact > summary::-webkit-details-marker {
     display: none;
 }
 
-.sig-history-summary-main {
+.sig-history-summary-top {
     display: flex;
     align-items: center;
+    justify-content: space-between;
     gap: 8px;
     min-width: 0;
 }
 
+.sig-history-summary-main {
+    display: flex;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 6px 8px;
+    min-width: 0;
+}
+
+.sig-history-summary-actions {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    flex-shrink: 0;
+}
+
+.sig-history-chevron {
+    font-size: 0.65rem;
+    color: var(--set-text-muted, #64748b);
+    transition: transform 0.18s ease;
+}
+
+.sig-history-item.is-compact[open] .sig-history-chevron {
+    transform: rotate(180deg);
+}
+
 .sig-history-summary-dates {
-    font-size: 0.74rem;
-    font-weight: 650;
+    font-size: 0.77rem;
+    font-weight: 700;
     color: var(--set-text, #0f172a);
     line-height: 1.3;
 }
 
 .sig-history-summary-people {
-    font-size: 0.7rem;
-    color: var(--set-text-subtle, #94a3b8);
-    line-height: 1.35;
+    font-size: 0.72rem;
+    color: var(--set-text-muted, #64748b);
+    line-height: 1.4;
     display: -webkit-box;
     -webkit-line-clamp: 2;
     -webkit-box-orient: vertical;
@@ -2433,12 +2497,14 @@ body {
 }
 
 .sig-history-compact-body {
-    padding: 0 10px 8px;
+    padding: 8px 12px 10px;
     border-top: 1px solid var(--set-border, #e2e8f0);
+    background: color-mix(in srgb, var(--set-bg, #f8fafc) 60%, white);
 }
 
 .sig-history-item.is-compact[open] {
     background: var(--set-surface, #fff);
+    box-shadow: 0 4px 12px rgba(15, 23, 42, 0.05);
 }
 
 .sig-history-count {
@@ -2458,7 +2524,7 @@ body {
 .sig-history-list {
     display: flex;
     flex-direction: column;
-    gap: 8px;
+    gap: 10px;
     overflow-y: auto;
     min-height: 0;
     padding-right: 2px;
@@ -2466,14 +2532,39 @@ body {
 
 .sig-history-item {
     border: 1px solid var(--set-border, #e2e8f0);
+    border-left: 3px solid #cbd5e1;
     border-radius: 10px;
-    padding: 10px 11px;
+    padding: 11px 12px;
     background: var(--set-surface, #fff);
+    overflow: hidden;
+    transition: border-color 0.15s ease, box-shadow 0.15s ease;
+}
+
+.sig-history-item:hover {
+    border-color: color-mix(in srgb, #1d4ed8 30%, var(--set-border, #e2e8f0));
+    box-shadow: 0 3px 10px rgba(15, 23, 42, 0.04);
 }
 
 .sig-history-item.is-active {
-    border-color: color-mix(in srgb, #166534 35%, var(--set-border, #e2e8f0));
-    background: color-mix(in srgb, #166534 6%, white);
+    border-color: color-mix(in srgb, #166534 32%, var(--set-border, #e2e8f0));
+    border-left-color: #16a34a;
+    background: color-mix(in srgb, #16a34a 4%, white);
+}
+
+.sig-history-item.is-scheduled {
+    border-color: color-mix(in srgb, #ea580c 32%, var(--set-border, #e2e8f0));
+    border-left-color: #ea580c;
+    background: color-mix(in srgb, #ea580c 4%, white);
+}
+
+.sig-history-item.is-timeline {
+    border-left-color: #3b82f6;
+}
+
+.sig-history-item.is-editing {
+    border-color: #2563eb;
+    border-left-color: #2563eb;
+    box-shadow: 0 0 0 2px color-mix(in srgb, #2563eb 18%, transparent);
 }
 
 .sig-history-top {
@@ -2481,7 +2572,48 @@ body {
     align-items: flex-start;
     justify-content: space-between;
     gap: 8px;
-    margin-bottom: 4px;
+    margin-bottom: 5px;
+}
+
+.sig-history-top-actions {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    flex-shrink: 0;
+}
+
+.sig-history-edit-btn {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    padding: 3px 8px;
+    border-radius: 7px;
+    border: 1px solid var(--set-border, #e2e8f0);
+    background: var(--set-surface, #fff);
+    color: var(--set-text-muted, #475569);
+    font: inherit;
+    font-size: 0.68rem;
+    font-weight: 700;
+    cursor: pointer;
+    line-height: 1.2;
+    transition: background-color 0.15s ease, color 0.15s ease, border-color 0.15s ease;
+}
+
+.sig-history-edit-btn:hover {
+    background: #eff6ff;
+    border-color: #93c5fd;
+    color: #1d4ed8;
+}
+
+.sig-history-edit-btn.is-active {
+    background: #1d4ed8;
+    border-color: #1d4ed8;
+    color: #fff;
+}
+
+.sig-edit-banner {
+    border-color: color-mix(in srgb, #2563eb 35%, var(--set-border, #e2e8f0));
+    background: color-mix(in srgb, #2563eb 7%, white);
 }
 
 .sig-history-type {
@@ -2496,17 +2628,19 @@ body {
     display: flex;
     flex-wrap: wrap;
     gap: 6px;
-    font-size: 0.72rem;
+    font-size: 0.71rem;
     color: var(--set-text-muted, #64748b);
+    margin-bottom: 4px;
 }
 
 .sig-pill {
     flex-shrink: 0;
     display: inline-flex;
     align-items: center;
+    gap: 4px;
     padding: 2px 8px;
     border-radius: 999px;
-    font-size: 0.65rem;
+    font-size: 0.64rem;
     font-weight: 800;
     letter-spacing: 0.02em;
     text-transform: uppercase;
@@ -2514,12 +2648,12 @@ body {
 
 .sig-pill.is-active {
     color: #166534;
-    background: color-mix(in srgb, #166534 14%, white);
+    background: color-mix(in srgb, #16a34a 15%, white);
 }
 
-.sig-pill.is-ended {
-    color: #64748b;
-    background: #f1f5f9;
+.sig-pill.is-timeline {
+    color: #1e40af;
+    background: color-mix(in srgb, #3b82f6 13%, white);
 }
 
 .sig-pill.is-scheduled {

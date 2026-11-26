@@ -1235,37 +1235,113 @@ Route::middleware(['auth'])
                 $printLockMessage = 'Print unlocks after RFIU confirms this form and notifies you to print and sign.';
                 $blocks = \App\Helpers\DcsPrintTemplateHelper::layoutBlocks($tpl);
                 $distributeOffices = OfficeIntakeHelper::drfDistributeOffices($drf);
+                $batchItems = OfficeIntakeHelper::drfBatchItems($id);
 
-                if ($blocks === []) {
-                    $printFormCode = $identity['letterNumber'] !== '' ? $identity['letterNumber'] : 'CSPC-F-DCC-06';
-                    $printFormTitle = $identity['formTitle'] !== '' ? $identity['formTitle'] : 'Document Request Form';
-                    $printRepublic = $identity['republic'];
-                    $printInstitution = $identity['institutionName'];
-                    $printAddress = $identity['institutionAddress'];
-                    $printFooterLeft = $identity['footerLeft'] !== '' ? $identity['footerLeft'] : 'Effectivity Date:';
-                    $printFooterCenter = $identity['footerCenter'] !== '' ? $identity['footerCenter'] : 'Rev.';
-                    $printFooterEffectivity = $identity['footerEffectivity'] !== '' ? $identity['footerEffectivity'] : 'January 2018';
-                    $printFooterRev = $identity['footerRev'] !== '' ? $identity['footerRev'] : '0';
+                $renderSingle = function (object $targetDrf, bool $embedFlag, bool $previewFlag, bool $halfFlag) use (
+                    $blocks, $tpl, $identity, $logoSrc, $sourceOffices, $distributeOffices,
+                    $viewerMode, $allowPrint, $printLockMessage
+                ) {
+                    if ($blocks === []) {
+                        $printFormCode = $identity['letterNumber'] !== '' ? $identity['letterNumber'] : 'CSPC-F-DCC-06';
+                        $printFormTitle = $identity['formTitle'] !== '' ? $identity['formTitle'] : 'Document Request Form';
+                        $printRepublic = $identity['republic'];
+                        $printInstitution = $identity['institutionName'];
+                        $printAddress = $identity['institutionAddress'];
+                        $printFooterLeft = $identity['footerLeft'] !== '' ? $identity['footerLeft'] : 'Effectivity Date:';
+                        $printFooterCenter = $identity['footerCenter'] !== '' ? $identity['footerCenter'] : 'Rev.';
+                        $printFooterEffectivity = $identity['footerEffectivity'] !== '' ? $identity['footerEffectivity'] : 'January 2018';
+                        $printFooterRev = $identity['footerRev'] !== '' ? $identity['footerRev'] : '0';
 
-                    return response()->view('pages.dcs.office.drf-print', compact(
-                        'drf', 'logoSrc', 'sourceOffices', 'viewerMode', 'allowPrint', 'printLockMessage',
-                        'printFormCode', 'printFormTitle', 'printRepublic', 'printInstitution', 'printAddress',
-                        'printFooterLeft', 'printFooterCenter', 'printFooterEffectivity', 'printFooterRev'
-                    ));
+                        return view('pages.dcs.office.drf-print', [
+                            'drf' => $targetDrf,
+                            'logoSrc' => $logoSrc,
+                            'sourceOffices' => $sourceOffices,
+                            'viewerMode' => $viewerMode,
+                            'allowPrint' => $allowPrint,
+                            'printLockMessage' => $printLockMessage,
+                            'hideToolbar' => $viewerMode || $embedFlag,
+                            'embed' => $embedFlag,
+                            'halfSheet' => $halfFlag,
+                            'printFormCode' => $printFormCode,
+                            'printFormTitle' => $printFormTitle,
+                            'printRepublic' => $printRepublic,
+                            'printInstitution' => $printInstitution,
+                            'printAddress' => $printAddress,
+                            'printFooterLeft' => $printFooterLeft,
+                            'printFooterCenter' => $printFooterCenter,
+                            'printFooterEffectivity' => $printFooterEffectivity,
+                            'printFooterRev' => $printFooterRev,
+                        ])->render();
+                    }
+
+                    return view('pages.dcs.reports.print-layout-renderer', [
+                        'tpl' => $tpl,
+                        'values' => \App\Helpers\DcsPrintTemplateHelper::drfLayoutValues($targetDrf, $distributeOffices, $sourceOffices),
+                        'distributeOffices' => $distributeOffices,
+                        'logoSrcOverride' => $logoSrc,
+                        'preview' => $previewFlag,
+                        'halfSheet' => $halfFlag,
+                        'hideToolbar' => $viewerMode || $embedFlag,
+                        'embed' => $embedFlag,
+                        'viewerMode' => $viewerMode,
+                        'allowPrint' => $allowPrint,
+                        'printLockMessage' => $printLockMessage,
+                    ])->render();
+                };
+
+                if (count($batchItems) > 1) {
+                    if ($blocks !== []) {
+                        $batchItemsValues = [];
+                        foreach ($batchItems as $bItem) {
+                            $itemDrf = clone $drf;
+                            $itemDrf->doc_title = (string) ($bItem['drfTitle'] ?? $drf->doc_title ?? '');
+                            $itemDrf->originator_name = (string) ($bItem['originatorName'] ?? $drf->originator_name ?? '');
+                            $itemDrf->description_reason = (string) ($bItem['descriptionReason'] ?? $drf->description_reason ?? '');
+                            $batchItemsValues[] = \App\Helpers\DcsPrintTemplateHelper::drfLayoutValues($itemDrf, $distributeOffices, $sourceOffices);
+                        }
+                        $markPrintedUrl = ($id > 0 && $allowPrint && ! $viewerMode)
+                            ? route('dcs.api.office-intake.printed', ['type' => 'drf', 'id' => $id], false)
+                            : '';
+
+                        return response()->view('pages.dcs.reports.print-layout-renderer', [
+                            'tpl' => $tpl,
+                            'values' => $batchItemsValues[0],
+                            'batchItemsValues' => $batchItemsValues,
+                            'distributeOffices' => $distributeOffices,
+                            'logoSrcOverride' => $logoSrc,
+                            'preview' => true,
+                            'halfSheet' => true,
+                            'hideToolbar' => $viewerMode,
+                            'embed' => false,
+                            'viewerMode' => $viewerMode,
+                            'allowPrint' => $allowPrint && ! $viewerMode,
+                            'printLockMessage' => $printLockMessage,
+                            'markPrintedUrl' => $markPrintedUrl,
+                        ]);
+                    }
+
+                    $previews = [];
+                    foreach ($batchItems as $bItem) {
+                        $itemDrf = clone $drf;
+                        $itemDrf->doc_title = (string) ($bItem['drfTitle'] ?? $drf->doc_title ?? '');
+                        $itemDrf->originator_name = (string) ($bItem['originatorName'] ?? $drf->originator_name ?? '');
+                        $itemDrf->description_reason = (string) ($bItem['descriptionReason'] ?? $drf->description_reason ?? '');
+                        $previews[] = [
+                            'title' => $itemDrf->doc_title,
+                            'html' => $renderSingle($itemDrf, true, true, true),
+                        ];
+                    }
+
+                    return response()->view('pages.dcs.office.drf-batch-preview', [
+                        'previews' => $previews,
+                        'viewerMode' => $viewerMode,
+                        'allowPrint' => $allowPrint && ! $viewerMode,
+                        'drfId' => $id,
+                        'printLockMessage' => $printLockMessage,
+                    ]);
                 }
 
-                return response()->view('pages.dcs.reports.print-layout-renderer', [
-                    'tpl' => $tpl,
-                    'values' => \App\Helpers\DcsPrintTemplateHelper::drfLayoutValues($drf, $distributeOffices, $sourceOffices),
-                    'distributeOffices' => $distributeOffices,
-                    'logoSrcOverride' => $logoSrc,
-                    'preview' => false,
-                    'hideToolbar' => false,
-                    'embed' => false,
-                    'viewerMode' => $viewerMode,
-                    'allowPrint' => $allowPrint,
-                    'printLockMessage' => $printLockMessage,
-                ]);
+                return response($renderSingle($drf, false, $viewerMode, $viewerMode));
             })->name('office.drf.print');
             Route::match(['put', 'patch', 'post'], '/office/drf/{id}', function (Request $request, int $id) {
                 return OfficeIntakeHelper::updateDrf($request, $id);
@@ -1309,8 +1385,12 @@ Route::middleware(['auth'])
                 // Official CSPC-F-DCC-01 blade + live canvas overrides (labels, moves, freeform tables).
                 $layoutOverrides = \App\Helpers\DcsPrintTemplateHelper::dcnLiveLayoutOverrides();
 
+                $hideToolbar = $viewerMode;
+                $embed = false;
+
                 return response()->view('pages.dcs.office.dcn-print', compact(
                     'dcn', 'logoSrc', 'revisions', 'sourceOffices', 'viewerMode', 'allowPrint', 'printLockMessage',
+                    'hideToolbar', 'embed',
                     'printFormCode', 'printFormTitle', 'printRepublic', 'printInstitution', 'printAddress',
                     'printFooterLeft', 'printFooterCenter', 'printFooterEffectivity', 'printFooterRev',
                     'layoutOverrides'

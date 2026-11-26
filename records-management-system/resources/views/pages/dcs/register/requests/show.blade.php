@@ -252,6 +252,26 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
                         <p>Notify the office when this {{ strtoupper($panelType) }} is correct, confirm you have the signed hard copy, then proceed to registration.</p>
                     </div>
 
+                    @php $panelReviewLink = \App\Helpers\OfficeIntakeHelper::intakeReviewLink($panelType, (int) ($ap['id'] ?? 0)); @endphp
+                    @if($panelReviewLink !== '')
+                        <div style="border:1.5px solid #dbe6f7;border-radius:10px;background:#f8fbff;padding:12px 14px;display:flex;flex-direction:column;gap:8px;">
+                            <div style="display:flex;align-items:center;gap:6px;font-size:0.78rem;font-weight:700;color:#0d2a7a;text-transform:uppercase;letter-spacing:0.03em;">
+                                <i class="fa-solid fa-link"></i>
+                                <span>Document link for review</span>
+                            </div>
+                            <a href="{{ $panelReviewLink }}" target="_blank" rel="noopener noreferrer" style="font-size:0.82rem;color:#0d2a7a;font-weight:600;text-decoration:underline;word-break:break-all;">
+                                <i class="fa-solid fa-arrow-up-right-from-square" style="margin-right:4px;font-size:0.78em;"></i>{{ $panelReviewLink }}
+                            </a>
+                            <button
+                                type="button"
+                                style="align-self:flex-start;padding:5px 10px;border-radius:7px;border:1px solid #cbd5e1;background:#fff;color:#1e293b;font-size:0.75rem;font-weight:600;cursor:pointer;"
+                                onclick="(function(btn, url){ var aside = btn.closest('[data-ofi-actions]'); var ta = aside && aside.querySelector('[data-ofi-unlock-reason]'); if (!ta || ta.disabled) return; var cur = ta.value.trim(); ta.value = cur ? (cur + ' ' + url) : ('Please see attached comments: ' + url); ta.focus(); ta.dispatchEvent(new Event('input', { bubbles: true })); })(this, @js($panelReviewLink))"
+                            >
+                                <i class="fa-solid fa-reply" style="margin-right:4px;"></i>Insert link in Return for correction
+                            </button>
+                        </div>
+                    @endif
+
                     <div class="ofi-request-step" data-ofi-notify-block>
                         <div class="ofi-request-step-num" aria-hidden="true">1</div>
                         <div class="ofi-request-step-body">

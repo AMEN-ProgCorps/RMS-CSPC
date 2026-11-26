@@ -2,6 +2,9 @@
 
 namespace App\Helpers;
 
+use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Schema;
+
 /**
  * Course-type rules and year/semester caps.
  *
@@ -61,6 +64,21 @@ class CourseTypeRules
             return self::$yearLevelsMemo;
         }
 
+        if (Schema::hasTable('dcs_year_levels')) {
+            $rows = DB::table('dcs_year_levels')
+                ->orderBy('sort_order')
+                ->orderBy('id')
+                ->pluck('year_level_name')
+                ->map(fn ($v) => trim((string) $v))
+                ->filter()
+                ->unique(fn ($v) => mb_strtolower($v))
+                ->values()
+                ->all();
+            if ($rows !== []) {
+                return self::$yearLevelsMemo = $rows;
+            }
+        }
+
         $path = self::yearLevelsFilePath();
         if (is_file($path)) {
             $raw = @file_get_contents($path);
@@ -105,6 +123,22 @@ class CourseTypeRules
         }
         if ($clean === []) {
             throw new \InvalidArgumentException('At least one year level is required.');
+        }
+
+        if (Schema::hasTable('dcs_year_levels')) {
+            $now = now();
+            DB::transaction(function () use ($clean, $now) {
+                DB::table('dcs_year_levels')->whereNotIn('year_level_name', $clean)->delete();
+                foreach ($clean as $idx => $name) {
+                    DB::table('dcs_year_levels')->updateOrInsert(
+                        ['year_level_name' => $name],
+                        ['sort_order' => $idx + 1, 'updated_at' => $now, 'created_at' => $now]
+                    );
+                }
+            });
+            self::$yearLevelsMemo = $clean;
+
+            return $clean;
         }
 
         $json = json_encode($clean, JSON_PRETTY_PRINT | JSON_UNESCAPED_UNICODE);

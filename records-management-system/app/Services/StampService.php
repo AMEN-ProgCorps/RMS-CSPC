@@ -6,6 +6,7 @@ use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
+use Illuminate\Support\Facades\Schema;
 use Illuminate\Support\Facades\Storage;
 use setasign\Fpdi\Fpdi;
 
@@ -79,6 +80,32 @@ class StampService
      */
     private function readCustomStampManifest(): array
     {
+        $dir = $this->customStampsDir();
+        if (Schema::hasTable('dcs_custom_stamps')) {
+            $rows = DB::table('dcs_custom_stamps')->orderBy('id')->get();
+            $out = [];
+            foreach ($rows as $row) {
+                $id = trim((string) ($row->stamp_key ?? ''));
+                $filename = basename((string) ($row->filename ?? ''));
+                if ($id === '' || $filename === '' || ! is_file($dir . DIRECTORY_SEPARATOR . $filename)) {
+                    continue;
+                }
+                $out[] = [
+                    'id' => $id,
+                    'label' => (string) ($row->label ?? 'Custom Stamp'),
+                    'filename' => $filename,
+                    'width_mm' => (float) ($row->width_mm ?? 36.0),
+                    'height_mm' => (float) ($row->height_mm ?? 15.0),
+                    'px_width' => (int) ($row->px_width ?? 0),
+                    'px_height' => (int) ($row->px_height ?? 0),
+                    'created_by' => $row->created_by ? (int) $row->created_by : null,
+                    'updated_ts' => $row->updated_at ? strtotime((string) $row->updated_at) : time(),
+                ];
+            }
+
+            return $out;
+        }
+
         $path = $this->customStampsManifestPath();
         if (! is_file($path)) {
             return [];
@@ -92,7 +119,6 @@ class StampService
             return [];
         }
 
-        $dir = $this->customStampsDir();
         $out = [];
         foreach ($decoded as $item) {
             if (! is_array($item)) {
@@ -114,6 +140,42 @@ class StampService
      */
     private function writeCustomStampManifest(array $items): void
     {
+        if (Schema::hasTable('dcs_custom_stamps')) {
+            $now = now();
+            $keepKeys = [];
+            DB::transaction(function () use ($items, $now, &$keepKeys) {
+                foreach ($items as $item) {
+                    $key = trim((string) ($item['id'] ?? ''));
+                    $filename = basename((string) ($item['filename'] ?? ''));
+                    if ($key === '' || $filename === '') {
+                        continue;
+                    }
+                    $keepKeys[] = $key;
+                    DB::table('dcs_custom_stamps')->updateOrInsert(
+                        ['stamp_key' => mb_substr($key, 0, 64)],
+                        [
+                            'label' => mb_substr(trim((string) ($item['label'] ?? 'Custom Stamp')), 0, 120),
+                            'filename' => mb_substr($filename, 0, 255),
+                            'width_mm' => max(10.0, min(160.0, (float) ($item['width_mm'] ?? 36.0))),
+                            'height_mm' => max(6.0, min(160.0, (float) ($item['height_mm'] ?? 15.0))),
+                            'px_width' => max(0, (int) ($item['px_width'] ?? 0)),
+                            'px_height' => max(0, (int) ($item['px_height'] ?? 0)),
+                            'created_by' => ! empty($item['created_by']) ? (int) $item['created_by'] : Auth::id(),
+                            'updated_at' => $now,
+                            'created_at' => $now,
+                        ]
+                    );
+                }
+                if ($keepKeys === []) {
+                    DB::table('dcs_custom_stamps')->delete();
+                } else {
+                    DB::table('dcs_custom_stamps')->whereNotIn('stamp_key', $keepKeys)->delete();
+                }
+            });
+
+            return;
+        }
+
         $path = $this->customStampsManifestPath();
         $json = json_encode(array_values($items), JSON_PRETTY_PRINT | JSON_UNESCAPED_UNICODE);
         if ($json === false || @file_put_contents($path, $json, LOCK_EX) === false) {

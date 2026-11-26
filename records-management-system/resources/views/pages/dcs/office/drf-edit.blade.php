@@ -121,7 +121,7 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
                 <i class="fa-solid fa-triangle-exclamation" aria-hidden="true"></i>
                 <div class="ofi-alert-body">
                     <strong>RFIU asked for corrections</strong>
-                    <span>{{ $editReason }}</span>
+                    <span>{!! \App\Helpers\OfficeIntakeHelper::linkifyHtml($editReason) !!}</span>
                 </div>
             </div>
         @endif
@@ -140,27 +140,6 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
                     <span>Document Request Form</span>
                 </div>
                 <div class="reg-card-body ofi-drf-form">
-                    <div class="reg-field">
-                        <label>Originator <span class="ofi-req">*</span></label>
-                        <input type="text" name="originatorName" value="{{ old('originatorName', $drf->originator_name) }}" required placeholder="Separate multiple originators with a comma">
-                    </div>
-                    <div class="reg-grid-2-1">
-                        @include('pages.dcs.office.partials.dcn-department-field', [
-                            'userOfficeId' => $userOfficeId ?? 0,
-                            'userOfficeCode' => $userOfficeCode ?? '',
-                            'userOfficeName' => $userOfficeName ?? '',
-                            'userOfficeLabel' => $userOfficeLabel ?? '',
-                            'departmentFieldLabel' => 'Source unit',
-                        ])
-                        <div class="reg-field">
-                            <label>Date <span class="ofi-req">*</span></label>
-                            <input type="date" id="drfDate" name="drfDate" value="{{ old('drfDate', $drf->drf_date ? \Carbon\Carbon::parse($drf->drf_date)->format('Y-m-d') : '') }}" required>
-                        </div>
-                    </div>
-                    <div class="reg-field">
-                        <label>Document Title <span class="ofi-req">*</span></label>
-                        <input type="text" id="drfTitle" name="drfTitle" value="{{ old('drfTitle', $drf->doc_title) }}" required placeholder="Enter document title">
-                    </div>
                     <div class="reg-field">
                         <label>Type of document <span class="ofi-req">*</span></label>
                         @php
@@ -208,31 +187,35 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
                                 <label class="ofi-radio"><input type="checkbox" disabled @checked($docTypeKind === $opt['slug'])> {{ $opt['label'] }}</label>
                             @endforeach
                         </div>
-                        <div class="reg-grid-2 ofi-locked-type-grid" aria-label="Document type and sub-type">
-                            <div class="reg-field">
-                                <label for="ofiLockedDocType">Document type</label>
-                                <input
-                                    id="ofiLockedDocType"
-                                    type="text"
-                                    class="ofi-input-locked"
-                                    value="{{ $lockedDocTypeDisplay }}"
-                                    disabled
-                                    readonly
-                                >
+                        @if($docTypeKind === 'internal')
+                            <div class="{{ $lockedSubTypeDisplay !== '—' ? 'reg-grid-2' : '' }} ofi-locked-type-grid" aria-label="Document type and sub-type">
+                                <div class="reg-field">
+                                    <label for="ofiLockedDocType">Document type</label>
+                                    <input
+                                        id="ofiLockedDocType"
+                                        type="text"
+                                        class="ofi-input-locked"
+                                        value="{{ $lockedDocTypeDisplay }}"
+                                        disabled
+                                        readonly
+                                    >
+                                </div>
+                                @if($lockedSubTypeDisplay !== '—')
+                                    <div class="reg-field">
+                                        <label for="ofiLockedSubType">Sub-type</label>
+                                        <input
+                                            id="ofiLockedSubType"
+                                            type="text"
+                                            class="ofi-input-locked"
+                                            value="{{ $lockedSubTypeDisplay }}"
+                                            disabled
+                                            readonly
+                                        >
+                                    </div>
+                                @endif
                             </div>
-                            <div class="reg-field">
-                                <label for="ofiLockedSubType">Sub-type</label>
-                                <input
-                                    id="ofiLockedSubType"
-                                    type="text"
-                                    class="ofi-input-locked"
-                                    value="{{ $lockedSubTypeDisplay }}"
-                                    disabled
-                                    readonly
-                                >
-                            </div>
-                        </div>
-                        <p class="ofi-hint">Document type and sub-type cannot be changed while correcting this request.</p>
+                        @endif
+                        <p class="ofi-hint">Document type{{ $docTypeKind === 'internal' && $lockedSubTypeDisplay !== '—' ? ' and sub-type' : '' }} cannot be changed while correcting this request.</p>
                         @php
                             $editCourseType = old('courseType', '');
                             if ($editCourseType === '' && ! empty($drf->course_id)
@@ -241,10 +224,15 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
                                     ->where('id', $drf->course_id)
                                     ->value('course_type') ?? '');
                             }
+                            $savedBatchIds = \App\Helpers\OfficeIntakeHelper::drfBatchCourseIds((int) ($drf->id ?? 0));
+                            $editSyllabiMode = old('syllabiMode', count($savedBatchIds) > 1 ? 'batch' : 'single');
+                            $editCourseIds = old('courseIds', $savedBatchIds);
                         @endphp
                         @include('pages.dcs.office.partials.drf-syllabi-context', [
                             'syllabiContextVisible' => (bool) ($isSyllabiLikeEdit ?? false),
+                            'allowBatchMode' => false,
                             'subTypeName' => $subTypeName ?? '',
+                            'oldSyllabiMode' => 'single',
                             'oldCourseType' => $editCourseType,
                             'oldCollegeId' => old('collegeId', (string) ($drf->college_id ?? '')),
                             'oldProgramId' => old('programId', (string) ($drf->program_id ?? '')),
@@ -252,6 +240,27 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
                             'oldCourseId' => old('courseId', (string) ($drf->course_id ?? '')),
                             'oldSchoolYearId' => old('schoolYearId', (string) ($drf->school_year_id ?? '')),
                         ])
+                    </div>
+                    <div class="reg-field">
+                        <label>Document Title <span class="ofi-req">*</span></label>
+                        <input type="text" id="drfTitle" name="drfTitle" value="{{ old('drfTitle', $drf->doc_title) }}" required placeholder="Enter document title">
+                    </div>
+                    <div class="reg-field">
+                        <label>Originator <span class="ofi-req">*</span></label>
+                        <input type="text" name="originatorName" value="{{ old('originatorName', $drf->originator_name) }}" required placeholder="Separate multiple originators with a comma">
+                    </div>
+                    <div class="reg-grid-2-1">
+                        @include('pages.dcs.office.partials.dcn-department-field', [
+                            'userOfficeId' => $userOfficeId ?? 0,
+                            'userOfficeCode' => $userOfficeCode ?? '',
+                            'userOfficeName' => $userOfficeName ?? '',
+                            'userOfficeLabel' => $userOfficeLabel ?? '',
+                            'departmentFieldLabel' => 'Source unit',
+                        ])
+                        <div class="reg-field">
+                            <label>Date <span class="ofi-req">*</span></label>
+                            <input type="date" id="drfDate" name="drfDate" value="{{ old('drfDate', $drf->drf_date ? \Carbon\Carbon::parse($drf->drf_date)->format('Y-m-d') : '') }}" required>
+                        </div>
                     </div>
                     <div class="reg-field">
                         <label>Description/reason for request (define in detail) <span class="ofi-req">*</span></label>
@@ -288,6 +297,8 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
                             <div id="drfDistributeInlineChips" class="reg-reldocs-dropdown reg-reldocs-selected-panel" style="display:none;"></div>
                         </div>
                     </div>
+
+                    @include('pages.dcs.office.partials.review-link-field', ['value' => old('reviewDocumentLink', \App\Helpers\OfficeIntakeHelper::intakeReviewLink('drf', (int) $drf->id))])
 
                     <div class="ofi-sig-block">
                         <p class="ofi-sig-heading">Signatories</p>

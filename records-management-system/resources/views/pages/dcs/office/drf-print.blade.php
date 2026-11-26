@@ -48,7 +48,13 @@ DCS file: CSPC-F-DCC-06 print. Title prefers one line (shrinks down to 8pt); if 
         }
         @if(!empty($hideToolbar) || !empty($embed))
         .print-toolbar { display: none !important; }
+        @endif
+        @if(!empty($embed))
+        html, body { overflow: hidden !important; height: 6.5in !important; }
         .sheet { margin: 0 !important; box-shadow: none !important; }
+        @endif
+        @if(!empty($halfSheet) || !empty($embed))
+        .sheet-main { height: 6.5in !important; min-height: 6.5in !important; max-height: 6.5in !important; }
         @endif
         .print-toolbar {
             display: flex;
@@ -837,7 +843,8 @@ DCS file: CSPC-F-DCC-06 print. Title prefers one line (shrinks down to 8pt); if 
         return $name !== '' ? $name : $code;
     })->filter(fn ($label) => $label !== '')->values()->all();
 
-    $distributeOverflow = count($allDistribute) > 24;
+    $packedDist = OfficeIntakeHelper::packDistributeGridCells($allDistribute, 24);
+    $distributeOverflow = $packedDist['overflow'];
     /*
      * Attach pages: 11pt @ line-height 1.0. Pack first sheet full, then spill.
      * Long bond 13in — keep in sync with .attach-table / .sheet-attach .body CSS.
@@ -859,7 +866,7 @@ DCS file: CSPC-F-DCC-06 print. Title prefers one line (shrinks down to 8pt); if 
         $distribute[1] = 'Please see attached';
         $distribute[2] = 'distribution list';
     } else {
-        $distribute = array_pad(array_slice($allDistribute, 0, 24), 24, '');
+        $distribute = $packedDist['cells'];
     }
 
     $preparedName = trim((string) ($drf->prepared_by_name ?? ''));
@@ -1235,7 +1242,7 @@ function ofiFitDocTitles() {
     var canvas = document.createElement('canvas');
     var ctx = canvas.getContext('2d');
     if (!ctx) return;
-    var minPt = 8;
+    var minPt = 4.5;
     var maxPt = 11;
     document.querySelectorAll('.doc-title-block[data-doc-title]').forEach(function (block) {
         var title = (block.getAttribute('data-doc-title') || '').replace(/\s+/g, ' ').trim();
@@ -1243,72 +1250,78 @@ function ofiFitDocTitles() {
         if (!host) return;
         var width = host.clientWidth;
         if (width < 40) width = 560;
-        var limit = width - 8;
-        var words = title === '' ? [] : title.split(' ');
-        /**
-         * Measures one line.
-         *
-         * @param {*} pt
-         */
+        var limit = Math.max(40, width - 6);
+
         function measureOneLine(pt) {
-            ctx.font = (pt * 96 / 72) + 'px Arial';
+            ctx.font = (pt * 96 / 72) + 'px Arial, Helvetica, sans-serif';
             return title === '' ? 0 : ctx.measureText(title).width;
         }
-        /**
-         * Packed at.
-         *
-         * @param {*} pt
-         */
-        function packedAt(pt) {
-            ctx.font = (pt * 96 / 72) + 'px Arial';
-            var packed = ofiPackTwoLines(words, ctx, limit);
-            var line1 = packed[0] === '' ? 0 : ctx.measureText(packed[0]).width;
-            var line2 = packed[1] === '' ? 0 : ctx.measureText(packed[1]).width;
-            return { ok: line1 <= limit && line2 <= limit, lines: packed };
-        }
-        var size = maxPt;
-        var lines = [title, ''];
 
-        // Prefer a single line: shrink from 11pt down to 8pt minimum.
-        if (measureOneLine(maxPt) <= limit) {
-            size = maxPt;
-            lines = [title, ''];
-        } else {
+        // Always keep the Document Title on 1 single line: shrink font size from 11pt down to 4.5pt.
+        var size = maxPt;
+        if (title !== '' && measureOneLine(maxPt) > limit) {
             var lo = minPt;
             var hi = maxPt;
-            var oneLineSize = minPt;
-            var oneLineOk = measureOneLine(minPt) <= limit;
-            for (var step = 0; step < 24; step++) {
+            var best = minPt;
+            for (var step = 0; step < 26; step++) {
                 var mid = (lo + hi) / 2;
                 if (measureOneLine(mid) <= limit) {
-                    oneLineSize = mid;
-                    oneLineOk = true;
+                    best = mid;
                     lo = mid;
                 } else {
                     hi = mid;
                 }
             }
-            if (oneLineOk) {
-                size = Math.floor(oneLineSize * 100) / 100;
-                if (size < minPt) size = minPt;
-                lines = [title, ''];
-            } else {
-                // Still overflows at 8pt on one line — add a second line, keep min 8pt.
-                size = minPt;
-                var two = packedAt(minPt);
-                lines = two.lines;
-                if (!two.ok) {
-                    // Extremely long tokens: stay at 8pt; overflow is clipped by CSS.
-                    lines = ofiPackTwoLines(words, ctx, limit);
-                }
+            size = Math.max(minPt, Math.floor(best * 100) / 100);
+        }
+
+        host.innerHTML = ofiTitleLine(title);
+        var value = host.querySelector('.fline-val');
+        if (!value) return;
+        value.style.setProperty('font-size', size + 'pt', 'important');
+        value.style.setProperty('white-space', 'nowrap', 'important');
+        value.style.setProperty('overflow', 'hidden', 'important');
+        value.style.removeProperty('transform');
+        value.style.removeProperty('transform-origin');
+        value.style.removeProperty('display');
+
+        // Verify against actual rendered text width (Range measures glyphs, not stretched flex box).
+        var box = value.parentElement || host;
+        var rectW = box.getBoundingClientRect().width || width;
+        var avail = Math.max(40, rectW - 4);
+        function textWidth() {
+            try {
+                var r = document.createRange();
+                r.selectNodeContents(value);
+                return r.getBoundingClientRect().width;
+            } catch (e) {
+                return value.scrollWidth;
             }
         }
-        host.innerHTML = ofiTitleLine(lines[0]) + (lines[1] !== '' ? ofiTitleLine(lines[1]) : '');
-        host.querySelectorAll('.fline-val').forEach(function (value) {
-            value.style.setProperty('font-size', size + 'pt', 'important');
-            value.style.setProperty('white-space', 'nowrap', 'important');
-            value.style.setProperty('overflow', 'hidden', 'important');
-        });
+        if (title !== '' && textWidth() > avail) {
+            var dLo = minPt;
+            var dHi = size;
+            var dBest = minPt;
+            for (var j = 0; j < 20; j++) {
+                var dMid = (dLo + dHi) / 2;
+                value.style.setProperty('font-size', dMid + 'pt', 'important');
+                if (textWidth() <= avail) {
+                    dBest = dMid;
+                    dLo = dMid;
+                } else {
+                    dHi = dMid;
+                }
+            }
+            value.style.setProperty('font-size', (Math.floor(dBest * 100) / 100) + 'pt', 'important');
+            var finalW = textWidth();
+            if (finalW > avail) {
+                var scale = Math.max(0.5, avail / finalW);
+                value.style.setProperty('display', 'inline-block', 'important');
+                value.style.setProperty('overflow', 'visible', 'important');
+                value.style.setProperty('transform-origin', 'left bottom', 'important');
+                value.style.setProperty('transform', 'scaleX(' + scale.toFixed(4) + ')', 'important');
+            }
+        }
     });
 }
 

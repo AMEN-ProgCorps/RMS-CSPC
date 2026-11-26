@@ -72,7 +72,7 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
                 <i class="fa-solid fa-triangle-exclamation" aria-hidden="true"></i>
                 <div class="ofi-alert-body">
                     <strong>RFIU asked for corrections</strong>
-                    <span>{{ $editReason }}</span>
+                    <span>{!! \App\Helpers\OfficeIntakeHelper::linkifyHtml($editReason) !!}</span>
                 </div>
             </div>
         @endif
@@ -127,6 +127,10 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
                             <div class="reg-field">
                                 <textarea id="dcnJustification" name="dcnJustification" rows="3" required maxlength="5000" placeholder="Enter justification for this change…">{{ old('dcnJustification', $dcn->brief_purpose) }}</textarea>
                             </div>
+                        </div>
+
+                        <div class="ofi-dcn-box-section">
+                            @include('pages.dcs.office.partials.review-link-field', ['value' => old('reviewDocumentLink', \App\Helpers\OfficeIntakeHelper::intakeReviewLink('dcn', (int) $dcn->id))])
                         </div>
 
                         <div class="ofi-dcn-box-section">

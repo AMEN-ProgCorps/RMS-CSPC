@@ -222,6 +222,8 @@ class SyllabiMonitoringHelper
             'program_code' => 'ALL',
             'program_name' => 'Institutional (all programs)',
         ];
+        $sharedType = $courseType !== null && CourseTypeRules::isSharedType($courseType);
+        $majorOnly = $courseType !== null && CourseTypeRules::isMajor($courseType);
         if ($sharedType) {
             $programIter = collect([$institutionalProgram]);
         } elseif ($majorOnly) {

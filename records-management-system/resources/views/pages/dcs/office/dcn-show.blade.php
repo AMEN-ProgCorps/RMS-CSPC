@@ -127,7 +127,7 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
                 <i class="fa-solid fa-triangle-exclamation" aria-hidden="true"></i>
                 <div class="ofi-alert-body">
                     <strong>RFIU asked for corrections</strong>
-                    <span>{{ $editReason }}</span>
+                    <span>{!! \App\Helpers\OfficeIntakeHelper::linkifyHtml($editReason) !!}</span>
                 </div>
             </div>
         @endif
@@ -202,6 +202,20 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
                             <div class="ofi-show-value is-multiline">{{ $dcn->brief_purpose ?: '—' }}</div>
                         </div>
                     </div>
+
+                    @php $dcnReviewLink = \App\Helpers\OfficeIntakeHelper::intakeReviewLink('dcn', (int) $dcn->id); @endphp
+                    @if($dcnReviewLink !== '')
+                    <div class="ofi-dcn-box-section">
+                        <div class="reg-field">
+                            <label>Document link for review</label>
+                            <div class="ofi-show-value">
+                                <a href="{{ $dcnReviewLink }}" target="_blank" rel="noopener noreferrer" style="color:#0d2a7a;font-weight:600;text-decoration:underline;word-break:break-all;">
+                                    <i class="fa-solid fa-arrow-up-right-from-square" style="margin-right:5px;font-size:0.8em;"></i>{{ $dcnReviewLink }}
+                                </a>
+                            </div>
+                        </div>
+                    </div>
+                    @endif
 
                     <div class="ofi-dcn-box-section">
                         <div class="reg-field">

@@ -111,6 +111,40 @@
         body, button, input, select, textarea, a, span, div, h1, h2, h3, h4, h5, h6, label {
             font-family: 'Inter', system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif !important;
         }
+        /* Clean, visible scrollbars on DCS pages/containers that actually overflow */
+        * {
+            scrollbar-width: thin;
+            scrollbar-color: #94a3b8 rgba(0, 0, 0, 0.05);
+        }
+        ::-webkit-scrollbar {
+            width: 8px;
+            height: 8px;
+        }
+        ::-webkit-scrollbar-track {
+            background: rgba(0, 0, 0, 0.03);
+            border-radius: 6px;
+        }
+        ::-webkit-scrollbar-thumb {
+            background: #94a3b8;
+            border-radius: 6px;
+            border: 1px solid transparent;
+            background-clip: content-box;
+        }
+        ::-webkit-scrollbar-thumb:hover {
+            background: #64748b;
+        }
+        [data-theme="dark"] * {
+            scrollbar-color: #475569 rgba(255, 255, 255, 0.05);
+        }
+        [data-theme="dark"] ::-webkit-scrollbar-track {
+            background: rgba(255, 255, 255, 0.03);
+        }
+        [data-theme="dark"] ::-webkit-scrollbar-thumb {
+            background: #475569;
+        }
+        [data-theme="dark"] ::-webkit-scrollbar-thumb:hover {
+            background: #64748b;
+        }
     </style>
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
     @vite([

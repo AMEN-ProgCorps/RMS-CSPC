@@ -64,6 +64,8 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
     ];
     public string $bulkCollegeId = '';
     public string $bulkProgramId = '';
+    public bool $bulkSelectionMode = false;
+    public string $bulkFillSchoolYear = '';
     public string $bulkFillSemester = '';
     public string $bulkFillYear = '';
     public string $bulkFillType = '';
@@ -78,6 +80,8 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
 
     public string $deleteTitle = '';
     public string $deleteMessage = '';
+    /** @var list<string> Course/item labels displayed inside the delete confirmation modal */
+    public array $deletePreviewItems = [];
 
     public string $sigFormKind = 'drf';
     public string $sigDocTypeKind = 'internal';
@@ -474,8 +478,8 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
 
         if ($this->sigFormKind === 'drf') {
             $payload = [
-                'prepared_by_name' => trim($this->sigPreparedByName),
-                'prepared_by_designation' => trim($this->sigPreparedByDesignation),
+                'prepared_by_name' => '',
+                'prepared_by_designation' => '',
                 'reviewed_by_name' => trim($this->sigReviewedByName),
                 'reviewed_by_designation' => trim($this->sigReviewedByDesignation),
                 'approved_by_name' => trim($this->sigApprovedByName),
@@ -581,9 +585,11 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
             'docTypeName', 'originatorName',
             'facultyName', 'facultyCollegeIds', 'collegeId', 'collegeName', 'officeId', 'programName', 'programCode',
             'semesterName', 'yearLevelName', 'yearLevelOriginal', 'schoolYear', 'schoolYearIsActive', 'programId', 'semesterId', 'courseName', 'courseCode', 'courseYearLevel', 'courseType', 'courseSchoolYearId',
-            'bulkCollegeId', 'bulkProgramId', 'bulkFillSemester', 'bulkFillYear', 'bulkFillType',
+            'bulkCollegeId', 'bulkProgramId', 'bulkFillSchoolYear', 'bulkFillSemester', 'bulkFillYear', 'bulkFillType',
             'deleteTitle', 'deleteMessage',
         ]);
+        $this->deletePreviewItems = [];
+        $this->bulkSelectionMode = false;
         $this->facultyCollegeIds = [];
         $this->schoolYearIsActive = false;
         $this->collegeProgramRows = [['code' => '', 'name' => '']];
@@ -988,8 +994,10 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
     public function openProgramCoursesBulk(?string $collegeId = null, ?string $programId = null): void
     {
         $this->resetFormFor('programCoursesBulk', null);
+        $this->bulkSelectionMode = false;
         $this->bulkCollegeId = $collegeId && $collegeId !== 'all' ? (string) $collegeId : '';
         $this->bulkProgramId = $programId && $programId !== 'all' ? (string) $programId : '';
+        $this->bulkFillSchoolYear = '';
         $this->bulkFillSemester = '';
         $this->bulkFillYear = '';
         $this->bulkFillType = '';
@@ -1013,7 +1021,9 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
             return;
         }
         $this->bulkProgramId = '';
-        $this->bulkRows = [];
+        if (! $this->bulkSelectionMode) {
+            $this->bulkRows = [];
+        }
         $this->resetValidation();
     }
 
@@ -1029,7 +1039,9 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
         if ($this->modalKind !== 'programCoursesBulk') {
             return;
         }
-        $this->loadBulkProgramCourses();
+        if (! $this->bulkSelectionMode) {
+            $this->loadBulkProgramCourses();
+        }
     }
 
     /**
@@ -1062,14 +1074,19 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
         if ($this->modalKind !== 'programCoursesBulk' || $this->bulkRows === []) {
             return;
         }
+        $schoolYear = trim($this->bulkFillSchoolYear);
         $semester = trim($this->bulkFillSemester);
         $year = trim($this->bulkFillYear);
         $type = trim($this->bulkFillType);
-        if ($semester === '' && $year === '' && $type === '') {
-            $this->fail('Pick a semester, year level, and/or course type to apply.');
+        if ($schoolYear === '' && $semester === '' && $year === '' && $type === '') {
+            $this->fail('Pick a school year, semester, year level, and/or course type to apply.');
             return;
         }
         foreach ($this->bulkRows as $i => $row) {
+            if ($schoolYear !== '' && (! $blanksOnly || trim((string) ($row['school_year_id'] ?? '')) === '')) {
+                $this->bulkRows[$i]['school_year_id'] = $schoolYear;
+                $this->resetErrorBag("bulkRows.{$i}.school_year_id");
+            }
             if ($semester !== '' && (! $blanksOnly || trim((string) ($row['semester_id'] ?? '')) === '')) {
                 $this->bulkRows[$i]['semester_id'] = $semester;
                 $this->resetErrorBag("bulkRows.{$i}.semester_id");
@@ -1166,9 +1183,32 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
             return;
         }
 
+        if ($kind === 'programCourse') {
+            $selectedStr = array_values(array_unique(array_map('strval', $this->selectedCourseIds)));
+            if (count($selectedStr) > 1 && in_array((string) $id, $selectedStr, true)) {
+                $this->confirmDestroySelectedProgramCourses();
+
+                return;
+            }
+        }
+
         $this->resetFormFor('delete', $id);
         $this->deleteTitle = $title;
         $this->deleteMessage = $message;
+        $this->deletePreviewItems = [];
+        $this->bulkSelectionMode = false;
+        if ($kind === 'programCourse' && $id > 0 && Schema::hasTable('dcs_program_courses')) {
+            $cols = ['course_name'];
+            if (Schema::hasColumn('dcs_program_courses', 'course_code')) {
+                $cols[] = 'course_code';
+            }
+            $row = DB::table('dcs_program_courses')->where('id', $id)->first($cols);
+            if ($row) {
+                $code = trim((string) ($row->course_code ?? ''));
+                $name = trim((string) ($row->course_name ?? ''));
+                $this->deletePreviewItems = [$code !== '' ? "{$code} — {$name}" : $name];
+            }
+        }
         $this->modalKind = $kind . ':delete';
     }
 
@@ -1854,19 +1894,12 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
             ],
         ]);
 
-        $hasActive = Schema::hasColumn('dcs_school_years', 'is_active');
         $payload = ['school_year' => $this->schoolYear];
 
         if ($this->editingId) {
             DB::table('dcs_school_years')->where('id', $this->editingId)->update($payload);
-            $id = (int) $this->editingId;
         } else {
-            $id = (int) DB::table('dcs_school_years')->insertGetId($payload);
-        }
-
-        if ($hasActive && $this->schoolYearIsActive && $id > 0) {
-            DB::table('dcs_school_years')->update(['is_active' => false]);
-            DB::table('dcs_school_years')->where('id', $id)->update(['is_active' => true]);
+            DB::table('dcs_school_years')->insert($payload);
         }
 
         $this->done($this->editingId ? 'School year updated.' : 'School year added.');
@@ -2337,17 +2370,20 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
         }
 
         $ids = collect($this->bulkRows)->pluck('id')->map(fn ($id) => (int) $id)->all();
-        $ownedQuery = DB::table('dcs_program_courses')
-            ->where('program_id', $programId)
-            ->whereIn('id', $ids);
+        $ownedQuery = DB::table('dcs_program_courses')->whereIn('id', $ids);
+        if (! $this->bulkSelectionMode) {
+            $ownedQuery->where('program_id', $programId);
+        }
         \App\Helpers\SettingsRecycleHelper::applyNotDeleted($ownedQuery, 'dcs_program_courses');
         $owned = $ownedQuery
             ->pluck('id')
             ->map(fn ($id) => (int) $id)
             ->all();
         if (count($owned) !== count(array_unique($ids))) {
-            $this->fail('One or more courses are not part of this program. Reload and try again.');
-            $this->loadBulkProgramCourses();
+            $this->fail('One or more courses are no longer available. Reload and try again.');
+            if (! $this->bulkSelectionMode) {
+                $this->loadBulkProgramCourses();
+            }
 
             return;
         }
@@ -2418,9 +2454,10 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
         }
 
         $now = now();
-        DB::transaction(function () use ($hasCourseCode, $hasYearLevel, $hasCourseType, $hasSchoolYear, $now) {
+        DB::transaction(function () use ($programId, $hasCourseCode, $hasYearLevel, $hasCourseType, $hasSchoolYear, $now) {
             foreach ($this->bulkRows as $row) {
                 $payload = [
+                    'program_id' => $programId,
                     'semester_id' => (int) $row['semester_id'],
                     'course_name' => trim((string) $row['name']),
                     'updated_at' => $now,
@@ -2442,6 +2479,10 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
         });
 
         $count = count($this->bulkRows);
+        if ($this->bulkSelectionMode) {
+            $this->clearCourseSelection();
+        }
+        $this->bulkSelectionMode = false;
         $this->bumpCourseList();
         $this->done($count === 1 ? 'Course updated.' : "{$count} courses updated.");
     }
@@ -2900,19 +2941,25 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
         }
 
         $programIds = $rows->pluck('program_id')->map(fn ($id) => $id !== null ? (int) $id : null)->unique()->values();
-        if ($programIds->count() !== 1 || $programIds->first() === null || (int) $programIds->first() < 1) {
-            $this->fail('Select courses from one program only.');
+        $nonNullProgramIds = $programIds->filter(fn ($id) => $id !== null && $id > 0)->values();
+        if ($nonNullProgramIds->count() > 1) {
+            $this->fail('Select courses from one program only (or unassigned courses).');
 
             return;
         }
 
-        $programId = (int) $programIds->first();
+        $programId = $nonNullProgramIds->count() === 1 ? (int) $nonNullProgramIds->first() : null;
         $this->resetFormFor('programCoursesBulk', null);
-        $this->bulkProgramId = (string) $programId;
+        $this->bulkSelectionMode = true;
+        $this->bulkCollegeId = '';
+        $this->bulkProgramId = $programId ? (string) $programId : '';
+        $this->bulkFillSchoolYear = '';
         $this->bulkFillSemester = '';
         $this->bulkFillYear = '';
         $this->bulkFillType = '';
-        $this->ensureBulkCollegeFromProgram();
+        if ($programId) {
+            $this->ensureBulkCollegeFromProgram();
+        }
         $this->loadBulkProgramCoursesByIds($ids);
     }
 
@@ -2940,6 +2987,23 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
         $this->deleteMessage = $count === 1
             ? 'This course will be moved to the Admin Console Recycle Bin. Courses referenced by syllabi will be skipped.'
             : 'Selected courses will be moved to the Admin Console Recycle Bin. Courses referenced by syllabi will be skipped.';
+        $cols = ['id', 'course_name'];
+        if (Schema::hasColumn('dcs_program_courses', 'course_code')) {
+            $cols[] = 'course_code';
+        }
+        $this->deletePreviewItems = DB::table('dcs_program_courses')
+            ->whereIn('id', $ids)
+            ->orderBy('course_name')
+            ->get($cols)
+            ->map(function ($row) {
+                $code = trim((string) ($row->course_code ?? ''));
+                $name = trim((string) ($row->course_name ?? ''));
+
+                return $code !== '' ? "{$code} — {$name}" : $name;
+            })
+            ->filter()
+            ->values()
+            ->all();
         $this->modalKind = 'programCoursesSelected:delete';
     }
 
@@ -3536,6 +3600,24 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
         rows[rows.length - 2]?.focus();
     })"
     x-on:keydown.escape.window="isModalOpen && dismiss()"
+    x-on:keydown.backspace.window="
+        if (isModalOpen) return;
+        const el = document.activeElement;
+        if (el && (['INPUT', 'TEXTAREA', 'SELECT'].includes(el.tagName) || el.isContentEditable)) return;
+        if (tab === 'syllabi' && syllabiSection === 'coursenames' && ($wire.selectedCourseIds || []).length > 0) {
+            $event.preventDefault();
+            $wire.confirmDestroySelectedProgramCourses();
+        }
+    "
+    x-on:keydown.delete.window="
+        if (isModalOpen) return;
+        const el = document.activeElement;
+        if (el && (['INPUT', 'TEXTAREA', 'SELECT'].includes(el.tagName) || el.isContentEditable)) return;
+        if (tab === 'syllabi' && syllabiSection === 'coursenames' && ($wire.selectedCourseIds || []).length > 0) {
+            $event.preventDefault();
+            $wire.confirmDestroySelectedProgramCourses();
+        }
+    "
 >
 <script>
 (function () {
@@ -3696,7 +3778,7 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
                             <span class="sig-section-num">2</span>
                             <div>
                                 <h3 class="sig-section-title">Signatories</h3>
-                                <p class="sig-section-hint">{{ $sigFormKind === 'drf' ? 'Prepared, reviewed, and approved by' : 'Reviewers and approvals for DCN' }}</p>
+                                <p class="sig-section-hint">{{ $sigFormKind === 'drf' ? 'Reviewed and approved by (Prepared by is filled in by Office Intake)' : 'Reviewers and approvals for DCN' }}</p>
                             </div>
                         </div>
 
@@ -3706,11 +3788,6 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
                                     <span>Role</span>
                                     <span>Name</span>
                                     <span>Designation</span>
-                                </div>
-                                <div class="sig-people-row">
-                                    <span class="sig-role">Prepared by</span>
-                                    <input class="st-input" type="text" wire:model="sigPreparedByName" placeholder="Full name" maxlength="255" aria-label="Prepared by name">
-                                    <input class="st-input" type="text" wire:model="sigPreparedByDesignation" placeholder="Position / title" maxlength="255" aria-label="Prepared by designation">
                                 </div>
                                 <div class="sig-people-row">
                                     <span class="sig-role">Reviewed by</span>
@@ -3915,7 +3992,6 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
                                                     }
                                                 } else {
                                                     $detailRows = [
-                                                        ['role' => 'Prepared by', 'name' => trim((string) ($payload['prepared_by_name'] ?? '')), 'designation' => trim((string) ($payload['prepared_by_designation'] ?? ''))],
                                                         ['role' => 'Reviewed by', 'name' => trim((string) ($payload['reviewed_by_name'] ?? '')), 'designation' => trim((string) ($payload['reviewed_by_designation'] ?? ''))],
                                                         ['role' => 'Approved by', 'name' => trim((string) ($payload['approved_by_name'] ?? '')), 'designation' => trim((string) ($payload['approved_by_designation'] ?? ''))],
                                                     ];
@@ -4343,36 +4419,18 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
 
         <div class="syllabi-section" data-syllabi-section="schoolyears" wire:key="settings-syllabi-schoolyears" x-show="syllabiSection === 'schoolyears'">
         <div class="panel-toolbar">
-            <span class="panel-subtitle">Academic school years — only the <strong>Active</strong> year is offered on office Syllabi/TOS DRF requests</span>
+            <span class="panel-subtitle">Academic school years</span>
             <button type="button" class="btn-primary" wire:click="openSchoolYear()"><i class="fa-solid fa-plus"></i> Add School Year</button>
         </div>
         <div class="table-wrap">
             <table class="settings-table">
-                <thead><tr><th>School Year</th><th style="width:110px;">Status</th><th style="width:160px;">Actions</th></tr></thead>
+                <thead><tr><th>School Year</th><th style="width:120px;">Actions</th></tr></thead>
                 <tbody>
                     @forelse($schoolYears as $sy)
-                        @php $syActive = ! empty($sy->is_active); @endphp
                         <tr wire:key="sy-{{ $sy->id }}" data-id="{{ $sy->id }}">
                             <td data-label="School Year">{{ $sy->school_year }}</td>
-                            <td data-label="Status">
-                                @if($syActive)
-                                    <span class="st-status-pill is-on">Active</span>
-                                @else
-                                    <span class="st-status-pill">Inactive</span>
-                                @endif
-                            </td>
                             <td>
                                 <div class="row-actions">
-                                    <button
-                                        type="button"
-                                        class="st-sy-switch{{ $syActive ? ' is-on' : '' }}"
-                                        role="switch"
-                                        aria-checked="{{ $syActive ? 'true' : 'false' }}"
-                                        title="{{ $syActive ? 'Active school year' : 'Set as active school year' }}"
-                                        @if($syActive) disabled @else wire:click="activateSchoolYear({{ $sy->id }})" @endif
-                                    >
-                                        <span class="st-sy-switch-thumb" aria-hidden="true"></span>
-                                    </button>
                                     <button type="button" class="icon-btn" title="Edit" wire:click="openSchoolYear({{ $sy->id }})"><i class="fa-solid fa-pen"></i></button>
                                     @if(!empty($canSoftDelete))
                                     <button type="button" class="icon-btn icon-btn-danger" title="Delete" wire:click="confirmDelete('schoolYear', {{ $sy->id }}, 'Delete School Year', 'This school year will be moved to the Admin Console Recycle Bin.')"><i class="fa-solid fa-trash"></i></button>
@@ -4381,7 +4439,7 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
                             </td>
                         </tr>
                     @empty
-                        <tr><td colspan="3" class="empty-cell">No school years yet.</td></tr>
+                        <tr><td colspan="2" class="empty-cell">No school years yet.</td></tr>
                     @endforelse
                 </tbody>
             </table>
@@ -4628,6 +4686,18 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
                 </div>
                 <div class="delete-title">{{ $deleteTitle }}</div>
                 <div class="delete-message">{{ $deleteMessage }}</div>
+                @if(! empty($deletePreviewItems))
+                    <div class="delete-preview-wrap">
+                        <div class="delete-preview-label">
+                            {{ count($deletePreviewItems) === 1 ? 'Course to delete' : 'Courses to delete (' . count($deletePreviewItems) . ')' }}
+                        </div>
+                        <ul class="delete-preview-list">
+                            @foreach($deletePreviewItems as $previewItem)
+                                <li>{{ $previewItem }}</li>
+                            @endforeach
+                        </ul>
+                    </div>
+                @endif
                 <div class="st-actions-row">
                     <button type="button" class="st-btn st-btn-ghost" x-on:click="dismiss()">Cancel</button>
                     <button type="button" class="st-btn st-btn-danger" wire:click="destroy" wire:loading.attr="disabled">
@@ -4890,7 +4960,7 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
                             <div class="st-input st-input-readonly">{{ $programCollegeName }}</div>
                         @else
                             <select class="st-input @error('collegeId') error @enderror" wire:model="collegeId">
-                                <option value="">Select college</option>
+                                <option value="" disabled @selected($collegeId === '')>Select college</option>
                                 @foreach($colleges as $college)
                                     <option value="{{ $college->id }}">{{ $college->college_name }}</option>
                                 @endforeach
@@ -4926,14 +4996,6 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
                         <input type="text" class="st-input @error('schoolYear') error @enderror" wire:model="schoolYear" placeholder="e.g. 2025-2026">
                         @error('schoolYear') <div class="field-error">{{ $message }}</div> @enderror
                     </div>
-                    @if(\Illuminate\Support\Facades\Schema::hasColumn('dcs_school_years', 'is_active'))
-                    <div class="st-field" style="margin-top:12px;">
-                        <label class="st-check">
-                            <input type="checkbox" wire:model="schoolYearIsActive">
-                            <span>Set as the active school year (office intake will only offer this year)</span>
-                        </label>
-                    </div>
-                    @endif
                 @elseif($modalKind === 'programCourse')
                     @php
                         $programOptions = $programs;
@@ -4999,7 +5061,7 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
                         <select class="st-input @error('courseSchoolYearId') error @enderror" wire:model="courseSchoolYearId">
                             <option value="" disabled @selected($courseSchoolYearId === '')>Select school year</option>
                             @foreach($schoolYears as $sy)
-                                <option value="{{ $sy->id }}">{{ $sy->school_year }}@if(!empty($sy->is_active)) (active)@endif</option>
+                                <option value="{{ $sy->id }}">{{ $sy->school_year }}</option>
                             @endforeach
                         </select>
                         @error('courseSchoolYearId') <div class="field-error">{{ $message }}</div> @enderror
@@ -5132,12 +5194,15 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
                     @endif
                     <p class="st-faculty-hint">Add GE, PE, NSTP, and Major for this program and semester in one save. Faculty is chosen during Syllabi / TOS registration.</p>
                 @elseif($modalKind === 'programCoursesBulk')
-                    <p class="st-faculty-hint" style="margin-top:0;">Pick a college and program, then set year level and course type for every course in one save. Use fill blanks if most rows are still empty.</p>
+                    @php
+                        $bulkHasSchoolYear = \Illuminate\Support\Facades\Schema::hasColumn('dcs_program_courses', 'school_year_id');
+                    @endphp
+                    <p class="st-faculty-hint" style="margin-top:0;">Pick a college and program, then set school year, semester, year level, and course type for every course in one save. Use fill blanks if most rows are still empty.</p>
                     <div class="st-bulk-filters">
                         <div class="st-field">
                             <label class="st-label">College</label>
                             <select class="st-input @error('bulkCollegeId') error @enderror" wire:model.live="bulkCollegeId">
-                                <option value="">Select college</option>
+                                <option value="" disabled @selected($bulkCollegeId === '')>Select college</option>
                                 @foreach($colleges as $college)
                                     <option value="{{ $college->id }}">{{ $college->college_name }}</option>
                                 @endforeach
@@ -5147,7 +5212,7 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
                         <div class="st-field">
                             <label class="st-label">Program</label>
                             <select class="st-input @error('bulkProgramId') error @enderror" wire:model.live="bulkProgramId" @disabled($bulkCollegeId === '')>
-                                <option value="">Select program</option>
+                                <option value="" disabled @selected($bulkProgramId === '')>Select program</option>
                                 @foreach($programs as $prog)
                                     @if((string) $prog->college_id === (string) $bulkCollegeId)
                                         <option value="{{ $prog->id }}">{{ $prog->program_name }}{{ $prog->program_code ? ' (' . $prog->program_code . ')' : '' }}</option>
@@ -5159,22 +5224,28 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
                     </div>
                     @if($bulkRows !== [])
                         <div class="st-bulk-apply">
+                            @if($bulkHasSchoolYear)
+                                <select class="st-input" wire:model="bulkFillSchoolYear">
+                                    <option value="" disabled @selected($bulkFillSchoolYear === '')>School year…</option>
+                                    @foreach($schoolYears as $sy)
+                                        <option value="{{ $sy->id }}">{{ $sy->school_year }}</option>
+                                    @endforeach
+                                </select>
+                            @endif
                             <select class="st-input" wire:model="bulkFillSemester">
-                                <option value="">Semester…</option>
+                                <option value="" disabled @selected($bulkFillSemester === '')>Semester…</option>
                                 @foreach($semesters as $sem)
                                     <option value="{{ $sem->id }}">{{ $sem->semester_name }}</option>
                                 @endforeach
                             </select>
                             <select class="st-input" wire:model="bulkFillYear">
-                                <option value="">Year level…</option>
-                                <option value="1st Year">1st Year</option>
-                                <option value="2nd Year">2nd Year</option>
-                                <option value="3rd Year">3rd Year</option>
-                                <option value="4th Year">4th Year</option>
-                                <option value="5th Year">5th Year</option>
+                                <option value="" disabled @selected($bulkFillYear === '')>Year level…</option>
+                                @foreach($yearLevels as $yl)
+                                    <option value="{{ $yl }}">{{ $yl }}</option>
+                                @endforeach
                             </select>
                             <select class="st-input" wire:model="bulkFillType">
-                                <option value="">Course type…</option>
+                                <option value="" disabled @selected($bulkFillType === '')>Course type…</option>
                                 <option value="GE Courses">GE Courses</option>
                                 <option value="PE Courses">PE Courses</option>
                                 <option value="NSTP">NSTP</option>
@@ -5187,12 +5258,9 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
                             @if($errors->has('bulkRows') || $errors->has('bulkCollegeId') || $errors->has('bulkProgramId') || collect($errors->getMessages())->keys()->contains(fn ($k) => str_starts_with((string) $k, 'bulkRows.')))
                                 <div class="ofi-alert err" style="margin:0 0 12px;">
                                     Could not save. Fix the highlighted fields below
-                                    (year level, course type, code, and name are required on every row).
+                                    (school year, year level, course type, code, and name are required on every row).
                                 </div>
                             @endif
-                            @php
-                                $bulkHasSchoolYear = \Illuminate\Support\Facades\Schema::hasColumn('dcs_program_courses', 'school_year_id');
-                            @endphp
                             <table class="st-bulk-table">
                                 <thead>
                                     <tr>
@@ -5210,7 +5278,7 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
                                             @if($bulkHasSchoolYear)
                                             <td data-label="School Year">
                                                 <select class="st-input @error('bulkRows.'.$i.'.school_year_id') error @enderror" wire:model.live="bulkRows.{{ $i }}.school_year_id">
-                                                    <option value="">School year</option>
+                                                    <option value="" disabled @selected(trim((string) ($row['school_year_id'] ?? '')) === '')>School year</option>
                                                     @foreach($schoolYears as $sy)
                                                         <option value="{{ $sy->id }}">{{ $sy->school_year }}</option>
                                                     @endforeach
@@ -5221,7 +5289,7 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
                                             <td data-label="Semester">
                                                 <input type="hidden" wire:model="bulkRows.{{ $i }}.id">
                                                 <select class="st-input @error('bulkRows.'.$i.'.semester_id') error @enderror" wire:model.live="bulkRows.{{ $i }}.semester_id">
-                                                    <option value="">Semester</option>
+                                                    <option value="" disabled @selected(trim((string) ($row['semester_id'] ?? '')) === '')>Semester</option>
                                                     @foreach($semesters as $sem)
                                                         <option value="{{ $sem->id }}">{{ $sem->semester_name }}</option>
                                                     @endforeach
@@ -5230,18 +5298,16 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
                                             </td>
                                             <td data-label="Year Level">
                                                 <select class="st-input @error('bulkRows.'.$i.'.year_level') error @enderror" wire:model.live="bulkRows.{{ $i }}.year_level">
-                                                    <option value="">Year</option>
-                                                    <option value="1st Year">1st Year</option>
-                                                    <option value="2nd Year">2nd Year</option>
-                                                    <option value="3rd Year">3rd Year</option>
-                                                    <option value="4th Year">4th Year</option>
-                                                    <option value="5th Year">5th Year</option>
+                                                    <option value="" disabled @selected(trim((string) ($row['year_level'] ?? '')) === '')>Year</option>
+                                                    @foreach($yearLevels as $yl)
+                                                        <option value="{{ $yl }}">{{ $yl }}</option>
+                                                    @endforeach
                                                 </select>
                                                 @error('bulkRows.'.$i.'.year_level') <div class="field-error">{{ $message }}</div> @enderror
                                             </td>
                                             <td data-label="Course Type">
                                                 <select class="st-input @error('bulkRows.'.$i.'.course_type') error @enderror" wire:model.live="bulkRows.{{ $i }}.course_type">
-                                                    <option value="">Type</option>
+                                                    <option value="" disabled @selected(trim((string) ($row['course_type'] ?? '')) === '')>Type</option>
                                                     <option value="GE Courses">GE Courses</option>
                                                     <option value="PE Courses">PE Courses</option>
                                                     <option value="NSTP">NSTP</option>

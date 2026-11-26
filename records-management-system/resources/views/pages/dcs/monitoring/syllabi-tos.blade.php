@@ -130,7 +130,7 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
             <div class="rpt-filter-group">
                 <label>College</label>
                 <select wire:model.live="collegeId">
-                    <option value="">Select college</option>
+                    <option value="" disabled @selected(empty($collegeId))>Select college</option>
                     @foreach($colleges as $college)
                         <option value="{{ $college->id }}">{{ $college->college_code }} — {{ $college->college_name }}</option>
                     @endforeach
@@ -139,7 +139,7 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
             <div class="rpt-filter-group">
                 <label>Academic Year</label>
                 <select wire:model.live="schoolYearId">
-                    <option value="">Select academic year</option>
+                    <option value="" disabled @selected(empty($schoolYearId))>Select academic year</option>
                     @foreach($schoolYears as $year)
                         <option value="{{ $year->id }}">{{ $year->school_year }}</option>
                     @endforeach
@@ -148,7 +148,7 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
             <div class="rpt-filter-group">
                 <label>Semester</label>
                 <select wire:model.live="semesterId">
-                    <option value="">Select semester</option>
+                    <option value="" disabled @selected(empty($semesterId))>Select semester</option>
                     @foreach($semesters as $semester)
                         <option value="{{ $semester->id }}">{{ $semester->semester_name }}</option>
                     @endforeach
@@ -380,7 +380,7 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
                                         class="mon-remark mon-remark-{{ $row['syllabi_status'] ?: 'empty' }}"
                                         wire:change="saveRemark({{ $row['program_id'] }}, 'syllabi', $event.target.value)"
                                     >
-                                        <option value="">Select</option>
+                                        <option value="" disabled>Select</option>
                                         @foreach(\App\Helpers\SyllabiMonitoringHelper::REMARKS as $value => $label)
                                             <option value="{{ $value }}" @selected($row['syllabi_status'] === $value)>{{ $label }}</option>
                                         @endforeach
@@ -437,7 +437,7 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
                                         class="mon-remark mon-remark-{{ $row['tos_status'] ?: 'empty' }}"
                                         wire:change="saveRemark({{ $row['program_id'] }}, 'tos', $event.target.value)"
                                     >
-                                        <option value="">Select</option>
+                                        <option value="" disabled>Select</option>
                                         @foreach(\App\Helpers\SyllabiMonitoringHelper::REMARKS as $value => $label)
                                             <option value="{{ $value }}" @selected($row['tos_status'] === $value)>{{ $label }}</option>
                                         @endforeach

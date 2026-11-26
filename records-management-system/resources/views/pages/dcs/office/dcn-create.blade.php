@@ -106,6 +106,10 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
                         </div>
 
                         <div class="ofi-dcn-box-section">
+                            @include('pages.dcs.office.partials.review-link-field', ['value' => old('reviewDocumentLink', '')])
+                        </div>
+
+                        <div class="ofi-dcn-box-section">
                             <div class="reg-field">
                                 <label for="originatorName">Originator <span class="ofi-req">*</span></label>
                                 <input type="text" id="originatorName" name="originatorName" value="{{ old('originatorName') }}" required placeholder="Separate multiple originators with a comma">

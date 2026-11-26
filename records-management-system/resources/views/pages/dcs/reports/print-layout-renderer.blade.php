@@ -11,10 +11,19 @@
     if (! empty($logoSrcOverride)) {
         $identity['logoSrc'] = (string) $logoSrcOverride;
     }
-    $values = array_merge([
+    $baseIdentityDefaults = [
         'form_code' => $identity['letterNumber'],
         'form_title' => $identity['formTitle'],
-    ], $values);
+    ];
+    $values = array_merge($baseIdentityDefaults, $values);
+    $batchListRaw = (isset($batchItemsValues) && is_array($batchItemsValues) && count($batchItemsValues) > 1)
+        ? array_values($batchItemsValues)
+        : [];
+    $isBatchRender = count($batchListRaw) > 1;
+    $renderItems = $isBatchRender
+        ? array_map(fn ($v) => array_merge($baseIdentityDefaults, is_array($v) ? $v : []), $batchListRaw)
+        : [$values];
+    $renderPairs = $isBatchRender ? array_chunk($renderItems, 2) : [[$values]];
     $page = DcsPrintTemplateHelper::pageSpec($tpl);
     if (! empty($pageOverride) && is_array($pageOverride)) {
         $page = array_merge($page, $pageOverride);
@@ -77,7 +86,9 @@
     if ($attachOfficeRows === []) {
         $attachOfficeRows = $gridOfficeRows;
     }
-    $distributeOverflow = count($gridOfficeRows) > $distCapacity;
+    $packedDist = \App\Helpers\OfficeIntakeHelper::packDistributeGridCells($gridOfficeRows, $distCapacity);
+    $distributeOverflow = $packedDist['overflow'];
+    $packedDistCells = $packedDist['cells'];
     /*
      * Attach list: 11pt @ line-height 1.0. Pack the first sheet full, then spill.
      * Keep PHP row math in sync with .sheet-attach CSS below.
@@ -112,7 +123,7 @@
     @endif
     <style>
         @page {
-            size: {{ $widthIn }}in {{ $heightIn }}in;
+            size: {{ $isDrfTheme && $isBatchRender ? '8.5in 13in' : ($widthIn . 'in ' . $heightIn . 'in') }};
             margin: 0;
         }
         * { box-sizing: border-box; margin: 0; padding: 0; }
@@ -143,19 +154,126 @@
             cursor: pointer;
         }
         .print-toolbar .btn-print { background: #0d2a7a; color: #fff; border-color: #0d2a7a; }
-        @media print {
-            .print-toolbar { display: none !important; }
-            body { background: #fff; }
+        @if(!empty($embed))
+        html, body {
+            overflow: hidden !important;
+            @if($isDrfTheme)
+            height: 6.5in !important;
+            @endif
         }
+        @endif
         .sheet {
             position: relative;
             width: {{ $widthIn }}in;
-            height: {{ $heightIn }}in;
+            height: {{ ($isDrfTheme && ($isPreview || !empty($halfSheet))) ? '6.5in' : ($heightIn . 'in') }};
             margin: {{ $isPreview && empty($embed) ? '16px auto' : '0' }};
             background: #fff;
             overflow: hidden;
             box-shadow: {{ $isPreview && empty($embed) ? '0 4px 20px rgba(15,23,42,.12)' : 'none' }};
             {{ $isDrfTheme ? 'font-family: Arial, Helvetica, sans-serif; font-size: 11pt; line-height: 1;' : '' }}
+        }
+        .drf-longbond-pair {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            gap: 18px;
+            margin: 18px auto;
+        }
+        .drf-batch-item-wrap {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+        }
+        .drf-batch-badge {
+            width: {{ $widthIn }}in;
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            padding: 8px 14px;
+            background: #f8fafc;
+            border: 1px solid #cbd5e1;
+            border-bottom: none;
+            border-radius: 10px 10px 0 0;
+            font-size: 12px;
+            color: #0f172a;
+        }
+        .drf-batch-badge-num {
+            padding: 2px 9px;
+            border-radius: 999px;
+            background: #e8f0fe;
+            color: #0d2a7a;
+            font-size: 11px;
+            font-weight: 800;
+            text-transform: uppercase;
+            flex-shrink: 0;
+        }
+        .drf-batch-badge-title {
+            font-weight: 700;
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+        }
+        .drf-batch-item-wrap .sheet {
+            margin: 0 !important;
+            border: 1px solid #cbd5e1;
+            border-top: 1px solid #e2e8f0;
+            border-radius: 0 0 10px 10px;
+        }
+        @media print {
+            .print-toolbar,
+            .drf-batch-badge { display: none !important; }
+            html, body { background: #fff !important; overflow: visible !important; height: auto !important; margin: 0 !important; padding: 0 !important; }
+            .drf-longbond-pair {
+                display: flex !important;
+                flex-direction: column !important;
+                align-items: stretch !important;
+                justify-content: flex-start !important;
+                gap: 0 !important;
+                width: 8.5in !important;
+                height: 100vh !important;
+                min-height: 100vh !important;
+                max-height: 100vh !important;
+                margin: 0 !important;
+                padding: 0 !important;
+                overflow: hidden !important;
+                page-break-after: always !important;
+                break-after: page !important;
+            }
+            .drf-longbond-pair:last-of-type {
+                page-break-after: auto !important;
+                break-after: auto !important;
+            }
+            .drf-batch-item-wrap {
+                display: block !important;
+                flex: 0 0 50% !important;
+                width: 8.5in !important;
+                height: 50% !important;
+                min-height: 50% !important;
+                max-height: 50% !important;
+                margin: 0 !important;
+                padding: 0 !important;
+                overflow: hidden !important;
+                position: relative !important;
+                box-sizing: border-box !important;
+            }
+            .drf-batch-item-wrap:first-child {
+                border-bottom: 1px dashed #cbd5e1 !important;
+            }
+            .drf-batch-item-wrap .sheet,
+            .sheet.drf-batch-half {
+                position: relative !important;
+                width: 8.5in !important;
+                height: 100% !important;
+                min-height: 100% !important;
+                max-height: 100% !important;
+                margin: 0 !important;
+                padding: 0 !important;
+                border: none !important;
+                border-radius: 0 !important;
+                box-shadow: none !important;
+                overflow: hidden !important;
+            }
+            .sheet:not(.drf-batch-half) { height: {{ $heightIn }}in !important; margin: 0 !important; box-shadow: none !important; }
         }
         .block {
             position: absolute;
@@ -440,16 +558,34 @@ document.addEventListener('keydown', function (e) {
 @if(empty($embed) && empty($hideToolbar))
 <div class="print-toolbar">
     @if($canPrint)
-        <button type="button" class="btn-print" onclick="window.print()">Print</button>
+        @if($isBatchRender)
+            <span style="align-self:center;font-size:12px;color:#334155;font-weight:600;">Batch · {{ count($renderItems) }} DRFs (prints 2 per Long bond sheet — set Margins → None)</span>
+        @endif
+        <button type="button" class="btn-print" onclick="ofiPrintBatchClean()">{{ $isBatchRender ? ('Print All (' . count($renderItems) . ' DRFs)') : 'Print' }}</button>
         <button type="button" onclick="window.close()">Close</button>
     @else
-        <span style="align-self:center;font-size:12px;color:#64748b;font-weight:600">{{ $lockMsg }}</span>
+        <span style="align-self:center;font-size:12px;color:#64748b;font-weight:600">{{ $isBatchRender ? ('Batch Preview · ' . count($renderItems) . ' DRFs — ' . $lockMsg) : $lockMsg }}</span>
         <button type="button" onclick="window.close()">Close</button>
     @endif
 </div>
 @endif
 
-<div class="sheet {{ $isDrfTheme ? 'drf-theme' : '' }} {{ $isDcnTheme ? 'dcn-theme' : '' }}">
+@php $globalDrfIdx = 0; @endphp
+@foreach($renderPairs as $pair)
+@if($isBatchRender)<div class="drf-longbond-pair">@endif
+@foreach($pair as $itemValues)
+@php
+    $globalDrfIdx++;
+    $values = $itemValues;
+@endphp
+@if($isBatchRender)
+<div class="drf-batch-item-wrap">
+    <div class="drf-batch-badge">
+        <span class="drf-batch-badge-num">DRF #{{ $globalDrfIdx }} of {{ count($renderItems) }}</span>
+        <span class="drf-batch-badge-title">{{ trim((string) ($values['doc_title'] ?? '')) !== '' ? trim((string) ($values['doc_title'] ?? '')) : 'Untitled Document Request Form' }}</span>
+    </div>
+@endif
+<div class="sheet {{ $isDrfTheme ? 'drf-theme' : '' }} {{ $isDcnTheme ? 'dcn-theme' : '' }} {{ $isBatchRender ? 'drf-batch-half' : '' }}">
     @foreach(['header', 'body', 'footer'] as $sectionName)
         @foreach($sections[$sectionName] as $block)
             @php
@@ -580,6 +716,8 @@ document.addEventListener('keydown', function (e) {
             @endphp
             <div class="block block-{{ $type }} {{ $underline ? 'is-underline' : '' }} {{ $extraClass }} section-{{ $sectionName }}"
                  data-section="{{ $sectionName }}"
+                 data-y-in="{{ $y }}"
+                 @if($type === 'field' && $bind === 'doc_title') data-doc-title-block="1" @endif
                  style="{{ $css }}">
                 @if($type === 'logo')
                     @if($identity['logoSrc'] !== '')
@@ -598,11 +736,11 @@ document.addEventListener('keydown', function (e) {
                         @endif
                         @if($isOfficialFormTheme)
                             <span class="fline">
-                                <span class="fline-val">{{ $displayText !== '' ? $displayText : "\u{00A0}" }}</span>
+                                <span class="fline-val"@if($bind === 'doc_title') data-doc-title-fit="1" data-raw-title="{{ $displayText }}" data-base-pt="{{ $fontSize }}"@endif>{{ $displayText !== '' ? $displayText : "\u{00A0}" }}</span>
                                 <span class="fline-rule"></span>
                             </span>
                         @else
-                            <span class="val">{{ $displayText !== '' ? $displayText : "\u{00A0}" }}</span>
+                            <span class="val"@if($bind === 'doc_title') data-fit-one-line="1" data-base-pt="{{ $fontSize }}"@endif>{{ $displayText !== '' ? $displayText : "\u{00A0}" }}</span>
                         @endif
                     </div>
                 @elseif($type === 'checkboxes')
@@ -659,13 +797,13 @@ document.addEventListener('keydown', function (e) {
                     @php
                         $gCols = max(1, min(6, (int) ($block['grid_cols'] ?? 4)));
                         $gRows = max(1, min(10, (int) ($block['grid_rows'] ?? ($isDrfTheme ? 6 : 5))));
-                        $cells = array_values(array_filter(array_map('trim', preg_split('/\s*,\s*/', $displayText) ?: [])));
+                        $rawCells = $gridOfficeRows !== []
+                            ? $gridOfficeRows
+                            : array_values(array_filter(array_map('trim', preg_split('/\s*,\s*/', $displayText) ?: [])));
                         $total = $gCols * $gRows;
-                        // In-grid: office codes (fits the underlined rows). Attach sheet keeps full names.
-                        if ($gridOfficeRows !== []) {
-                            $cells = $gridOfficeRows;
-                        }
-                        if (count($cells) > $total) {
+                        $packedBlock = \App\Helpers\OfficeIntakeHelper::packDistributeGridCells($rawCells, $total);
+                        $cells = $packedBlock['cells'];
+                        if ($packedBlock['overflow']) {
                             // Column-major indexes: [1]=2nd row col1, [2]=3rd row col1 (official DRF).
                             $overflowCells = array_fill(0, $total, '');
                             if ($gRows >= 2) {
@@ -746,8 +884,9 @@ document.addEventListener('keydown', function (e) {
                                                     $text = DcsPrintTemplateHelper::resolveBind($values, $bindKey);
                                                 }
                                                 $cellBorder = $showBorders ? '1px solid #000' : 'none';
+                                                $fitFreeCell = $isDrfTheme && $text !== '' && (str_ends_with($bindKey, '_name') || str_ends_with($bindKey, '_designation'));
                                             @endphp
-                                            <td style="border: {{ $cellBorder }}; text-align: {{ $align }}; color: {{ $color }};">{{ $text !== '' ? $text : "\u{00A0}" }}</td>
+                                            <td style="border: {{ $cellBorder }}; text-align: {{ $align }}; color: {{ $color }};">@if($fitFreeCell)<span data-fit-one-line="1" data-fit-align="{{ $align }}" data-base-pt="{{ $fontSize }}">{{ $text }}</span>@else{{ $text !== '' ? $text : "\u{00A0}" }}@endif</td>
                                         @endfor
                                     </tr>
                                 @endfor
@@ -780,9 +919,12 @@ document.addEventListener('keydown', function (e) {
                                             @php
                                                 $bindKey = (string) ($cellBinds[(string) $r][(string) $c] ?? $cellBinds[$r][$c] ?? '');
                                                 $cellVal = $bindKey !== '' ? DcsPrintTemplateHelper::resolveBind($values, $bindKey) : '';
-                                                $isNameRow = mb_strtolower((string) ($rowLabels[$r] ?? '')) === 'name';
+                                                $rowLblLower = mb_strtolower(trim((string) ($rowLabels[$r] ?? '')));
+                                                $isNameRow = $rowLblLower === 'name';
+                                                $isDesigRow = $rowLblLower === 'designation';
+                                                $shouldFitSigCell = $isDrfTheme && $cellVal !== '' && ($isNameRow || $isDesigRow || str_ends_with($bindKey, '_name') || str_ends_with($bindKey, '_designation'));
                                             @endphp
-                                            <td class="{{ $isNameRow && $cellVal !== '' ? 'name-bold' : '' }}" style="text-align:center; {{ $showBorders ? '' : 'border:none;' }}">{{ $cellVal !== '' ? $cellVal : "\u{00A0}" }}</td>
+                                            <td class="{{ $isNameRow && $cellVal !== '' ? 'name-bold' : '' }}" style="text-align:center; {{ $showBorders ? '' : 'border:none;' }}">@if($shouldFitSigCell)<span data-fit-one-line="1" data-fit-align="center" data-base-pt="{{ $fontSize }}">{{ $cellVal }}</span>@else{{ $cellVal !== '' ? $cellVal : "\u{00A0}" }}@endif</td>
                                         @endif
                                     @endfor
                                 </tr>
@@ -801,19 +943,24 @@ document.addEventListener('keydown', function (e) {
         @endforeach
     @endforeach
 </div>
+@if($isBatchRender)</div>@endif
+@endforeach
+@if($isBatchRender)</div>@endif
+@endforeach
 
 @if($distributeOverflow)
+@foreach($renderItems as $attachItemValues)
 @foreach($attachPages as $pageIndex => $pageOffices)
 @php
     $rowOffset = $pageIndex * $attachPerPage;
-    $attachDocTitle = trim((string) ($values['doc_title'] ?? ''));
+    $attachDocTitle = trim((string) ($attachItemValues['doc_title'] ?? ''));
 @endphp
 {{-- Attach list only — no DRF footer / page count (form stays Page: 1 of 1). --}}
 <div class="sheet sheet-attach {{ $isDrfTheme ? 'drf-theme' : '' }}">
     <div class="body">
         <div class="attach-doc-title">
             <span class="lbl">Document Title :</span>
-            <div class="fline">{{ $attachDocTitle }}</div>
+            <div class="fline" data-fit-one-line="1" data-base-pt="11">{{ $attachDocTitle }}</div>
         </div>
         <div class="attach-dist-label">Distribute document to (department/position):</div>
         <table class="attach-table">
@@ -839,6 +986,246 @@ document.addEventListener('keydown', function (e) {
     </div>
 </div>
 @endforeach
+@endforeach
 @endif
+<script>
+(function () {
+    function measureTextWidth(el) {
+        try {
+            var range = document.createRange();
+            range.selectNodeContents(el);
+            return range.getBoundingClientRect().width;
+        } catch (e) {
+            return el.scrollWidth;
+        }
+    }
+    function ofiFitOneLineFields() {
+        var minPt = 4.5;
+        document.querySelectorAll('[data-fit-one-line="1"]').forEach(function (el) {
+            var text = (el.textContent || '').replace(/\s+/g, ' ').trim();
+            if (!text) return;
+            var basePt = parseFloat(el.getAttribute('data-base-pt') || '11') || 11;
+            var box = el.parentElement || el;
+            var rectW = box.getBoundingClientRect().width || el.getBoundingClientRect().width || 0;
+            if (rectW < 24) return;
+            var padX = 4;
+            try {
+                var cs = window.getComputedStyle(box);
+                padX = (parseFloat(cs.paddingLeft) || 0) + (parseFloat(cs.paddingRight) || 0) + 4;
+            } catch (e) {}
+            var avail = Math.max(24, rectW - padX);
+            var fitAlign = (el.getAttribute('data-fit-align') || '').toLowerCase();
+
+            el.style.removeProperty('transform');
+            el.style.removeProperty('transform-origin');
+            el.style.removeProperty('display');
+            el.style.setProperty('white-space', 'nowrap', 'important');
+            el.style.setProperty('overflow', 'hidden', 'important');
+            el.style.setProperty('font-size', basePt + 'pt', 'important');
+
+            if (measureTextWidth(el) <= avail) return;
+
+            var lo = minPt;
+            var hi = basePt;
+            var best = minPt;
+            for (var i = 0; i < 24; i++) {
+                var mid = (lo + hi) / 2;
+                el.style.setProperty('font-size', mid + 'pt', 'important');
+                if (measureTextWidth(el) <= avail) {
+                    best = mid;
+                    lo = mid;
+                } else {
+                    hi = mid;
+                }
+            }
+            el.style.setProperty('font-size', (Math.floor(best * 100) / 100) + 'pt', 'important');
+            var finalW = measureTextWidth(el);
+            if (finalW > avail) {
+                var scale = Math.max(0.5, avail / finalW);
+                el.style.setProperty('display', 'inline-block', 'important');
+                el.style.setProperty('overflow', 'visible', 'important');
+                el.style.setProperty('transform-origin', fitAlign === 'center' ? 'center center' : 'left bottom', 'important');
+                el.style.setProperty('transform', 'scaleX(' + scale.toFixed(4) + ')', 'important');
+            }
+        });
+    }
+    function ofiFitDocTitleTwoLine() {
+        var canvas = document.createElement('canvas');
+        var ctx = canvas.getContext('2d');
+        if (!ctx) return;
+        var minOneLinePt = 8.0;
+        var minTwoLinePt = 6.5;
+
+        function packTwo(words, pt, limit) {
+            ctx.font = (pt * 96 / 72) + 'px Arial, Helvetica, sans-serif';
+            var l1 = '';
+            var i = 0;
+            for (; i < words.length; i++) {
+                var next = l1 === '' ? words[i] : (l1 + ' ' + words[i]);
+                if (l1 !== '' && ctx.measureText(next).width > limit) break;
+                l1 = next;
+            }
+            if (l1 === '' && words.length) {
+                l1 = words[0];
+                i = 1;
+            }
+            var l2 = words.slice(i).join(' ');
+            var w1 = l1 ? ctx.measureText(l1).width : 0;
+            var w2 = l2 ? ctx.measureText(l2).width : 0;
+            return { ok: w1 <= limit && w2 <= limit, l1: l1, l2: l2 };
+        }
+
+        document.querySelectorAll('[data-doc-title-block="1"]').forEach(function (block) {
+            var sheet = block.closest('.sheet');
+            var valEl = block.querySelector('[data-doc-title-fit="1"]');
+            var field = block.querySelector('.drf-field, .dcn-field');
+            if (!valEl || !field) return;
+
+            var title = (valEl.getAttribute('data-raw-title') || valEl.textContent || '').replace(/\s+/g, ' ').trim();
+            var basePt = parseFloat(valEl.getAttribute('data-base-pt') || '11') || 11;
+            var fline = valEl.closest('.fline');
+            if (!fline) return;
+
+            // Reset any prior 2-line expansion first
+            var prevWrap = field.querySelector('.doc-title-stack');
+            if (prevWrap) {
+                prevWrap.replaceWith(fline);
+            }
+            if (!block.dataset.origHeight) block.dataset.origHeight = block.style.height;
+            block.style.height = block.dataset.origHeight;
+            field.style.alignItems = '';
+            if (sheet) {
+                sheet.querySelectorAll('.block[data-shifted-by]').forEach(function (b) {
+                    if (b.dataset.origTop) b.style.top = b.dataset.origTop;
+                    delete b.dataset.shiftedBy;
+                });
+            }
+
+            if (!title) return;
+            var avail = Math.max(40, fline.getBoundingClientRect().width - 6);
+
+            function measureOne(pt) {
+                ctx.font = (pt * 96 / 72) + 'px Arial, Helvetica, sans-serif';
+                return ctx.measureText(title).width;
+            }
+
+            // 1) Try single line from basePt (11pt) down to 8pt.
+            if (measureOne(basePt) <= avail) {
+                valEl.textContent = title;
+                valEl.style.setProperty('font-size', basePt + 'pt', 'important');
+                return;
+            }
+            if (measureOne(minOneLinePt) <= avail) {
+                var lo = minOneLinePt, hi = basePt, best = minOneLinePt;
+                for (var s = 0; s < 20; s++) {
+                    var mid = (lo + hi) / 2;
+                    if (measureOne(mid) <= avail) { best = mid; lo = mid; } else { hi = mid; }
+                }
+                valEl.textContent = title;
+                valEl.style.setProperty('font-size', (Math.floor(best * 100) / 100) + 'pt', 'important');
+                return;
+            }
+
+            // 2) Too long for 1 line at 8pt → wrap cleanly onto 2 underlined lines (9.5pt down to 6.5pt).
+            var words = title.split(' ');
+            var twoHi = Math.min(9.5, basePt);
+            var twoLo = minTwoLinePt;
+            var bestPt = minTwoLinePt;
+            var bestPack = packTwo(words, minTwoLinePt, avail);
+            for (var t = 0; t < 20; t++) {
+                var tMid = (twoLo + twoHi) / 2;
+                var p = packTwo(words, tMid, avail);
+                if (p.ok) {
+                    bestPt = tMid;
+                    bestPack = p;
+                    twoLo = tMid;
+                } else {
+                    twoHi = tMid;
+                }
+            }
+            var finalPt = Math.floor(bestPt * 100) / 100;
+
+            var stack = document.createElement('span');
+            stack.className = 'doc-title-stack';
+            stack.style.cssText = 'flex:1 1 auto;min-width:0;display:flex;flex-direction:column;gap:2pt;';
+
+            valEl.textContent = bestPack.l1;
+            valEl.style.setProperty('font-size', finalPt + 'pt', 'important');
+            fline.style.setProperty('height', '11pt', 'important');
+
+            var fline2 = document.createElement('span');
+            fline2.className = 'fline';
+            fline2.style.setProperty('height', '11pt', 'important');
+            var val2 = document.createElement('span');
+            val2.className = 'fline-val';
+            val2.textContent = bestPack.l2 || '\u00A0';
+            val2.style.setProperty('font-size', finalPt + 'pt', 'important');
+            var rule2 = document.createElement('span');
+            rule2.className = 'fline-rule';
+            fline2.appendChild(val2);
+            fline2.appendChild(rule2);
+
+            fline.parentNode.insertBefore(stack, fline);
+            stack.appendChild(fline);
+            stack.appendChild(fline2);
+
+            field.style.setProperty('align-items', 'flex-start', 'important');
+            var extraIn = 0.17;
+            var origH = parseFloat(block.dataset.origHeight) || 0.19;
+            block.style.height = (origH + extraIn).toFixed(3) + 'in';
+
+            // Shift blocks directly below Document Title (Type of document, Description, Distribute) down cleanly.
+            var titleY = parseFloat(block.getAttribute('data-y-in') || '0') || 0;
+            if (sheet && titleY > 0) {
+                sheet.querySelectorAll('.block.section-body').forEach(function (other) {
+                    if (other === block) return;
+                    if (other.classList.contains('block-table')) return; // keep signature table fixed
+                    var oy = parseFloat(other.getAttribute('data-y-in') || '0') || 0;
+                    if (oy > titleY) {
+                        if (!other.dataset.origTop) other.dataset.origTop = other.style.top;
+                        other.style.top = (oy + extraIn).toFixed(3) + 'in';
+                        other.dataset.shiftedBy = String(extraIn);
+                    }
+                });
+            }
+        });
+    }
+    function ofiFitAll() {
+        ofiFitOneLineFields();
+        ofiFitDocTitleTwoLine();
+    }
+    document.addEventListener('DOMContentLoaded', ofiFitAll);
+    window.addEventListener('load', ofiFitAll);
+    window.addEventListener('resize', ofiFitAll);
+    window.addEventListener('beforeprint', ofiFitAll);
+    ofiFitAll();
+
+    var markPrintedUrl = @json($markPrintedUrl ?? '');
+    var printedMarked = false;
+    function markPrinted() {
+        if (!markPrintedUrl || printedMarked) return;
+        printedMarked = true;
+        try {
+            fetch(markPrintedUrl, {
+                method: 'POST',
+                headers: {
+                    'X-CSRF-TOKEN': '{{ csrf_token() }}',
+                    'Accept': 'application/json',
+                    'X-Requested-With': 'XMLHttpRequest'
+                },
+                credentials: 'same-origin',
+                keepalive: true
+            }).catch(function () { printedMarked = false; });
+        } catch (e) {
+            printedMarked = false;
+        }
+    }
+    window.ofiPrintBatchClean = function () {
+        ofiFitAll();
+        markPrinted();
+        window.print();
+    };
+})();
+</script>
 </body>
 </html>

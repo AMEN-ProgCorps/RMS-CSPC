@@ -3022,19 +3022,30 @@ class OfficeIntakeHelper
 
         self::mergeDistributeOfficeBackup($request);
 
+        $isBatchRequest = strtolower(trim((string) $request->input('syllabiMode', 'single'))) === 'batch'
+            && (int) $request->input('from_dcn', 0) < 1;
+
         $data = $request->validate([
             'drfDate' => 'required|date',
-            'drfTitle' => 'required|string',
-            'originatorName' => 'required|string',
+            'drfTitle' => $isBatchRequest ? 'nullable|string' : 'required|string',
+            'originatorName' => $isBatchRequest ? 'nullable|string' : 'required|string',
             'docTypeKind' => 'required|in:internal,external,forms,logbooks',
             'docTypeId' => 'nullable|integer',
             'subTypeId' => 'nullable|integer',
             'collegeId' => 'nullable|integer',
             'programId' => 'nullable|integer',
             'courseId' => 'nullable|integer',
+            'courseIds' => 'nullable|array',
+            'courseIds.*' => 'integer',
+            'syllabiMode' => 'nullable|in:single,batch',
+            'batchItems' => $isBatchRequest ? 'required|array|min:1' : 'nullable|array',
+            'batchItems.*.course_id' => $isBatchRequest ? 'required|integer|min:1' : 'nullable|integer',
+            'batchItems.*.drfTitle' => $isBatchRequest ? 'required|string|max:500' : 'nullable|string',
+            'batchItems.*.originatorName' => $isBatchRequest ? 'required|string|max:500' : 'nullable|string',
+            'batchItems.*.descriptionReason' => $isBatchRequest ? 'required|string|max:5000' : 'nullable|string',
             'semesterId' => 'nullable|integer',
             'schoolYearId' => 'nullable|integer',
-            'descriptionReason' => 'required|string|max:5000',
+            'descriptionReason' => $isBatchRequest ? 'nullable|string|max:5000' : 'required|string|max:5000',
             // Empty = office-only controlled document (Source Unit). Other offices only when they need a copy.
             'distributeToOffice' => 'nullable|array',
             'distributeToOffice.*' => 'integer',
@@ -3048,6 +3059,13 @@ class OfficeIntakeHelper
             'drfMode' => 'nullable|in:recurring',
             'confirmDataCorrect' => 'accepted',
         ]);
+
+        if ($isBatchRequest && ! empty($data['batchItems']) && is_array($data['batchItems'])) {
+            $data['courseIds'] = array_values(array_unique(array_filter(
+                array_map(fn ($item) => (int) ($item['course_id'] ?? 0), $data['batchItems']),
+                fn ($cid) => $cid > 0
+            )));
+        }
 
         $postedKind = strtolower(trim((string) ($data['docTypeKind'] ?? '')));
         $data = self::resolveOfficeDrfTypeSelection($data);
@@ -3161,6 +3179,145 @@ class OfficeIntakeHelper
             }
         }
 
+        // Batch mode (Syllabi / TOS-Rubrics): create 1 single DRF request record carrying all selected
+        // courses (and each course's individual Document Title, Originator, and Description) so Admin
+        // sees 1 request and can register the whole batch at once, while printing/previewing renders
+        // each course as its own separate DRF form.
+        if ($isBatchRequest && ! empty($syllabiCtx['is_syllabi']) && ! empty($data['batchItems']) && is_array($data['batchItems'])) {
+            $batchItems = array_values($data['batchItems']);
+            foreach ($batchItems as $bItem) {
+                self::assertNoOpenDuplicateDrf(
+                    (string) ($bItem['drfTitle'] ?? ''),
+                    (string) ($bItem['originatorName'] ?? '')
+                );
+            }
+
+            $officeIds = [self::lockedDepartmentOfficeId()];
+            $userId = (int) auth()->id();
+            $now = now();
+            $batchCount = count($batchItems);
+            $firstItem = $batchItems[0];
+            $firstTitle = trim((string) ($firstItem['drfTitle'] ?? ''));
+            $summaryTitle = $batchCount > 1
+                ? ($firstTitle . ' (+' . ($batchCount - 1) . ' more)')
+                : $firstTitle;
+            $allOriginators = [];
+            foreach ($batchItems as $bItem) {
+                $joined = RegisterPersistHelper::joinedOriginatorNames($bItem['originatorName'] ?? '');
+                if ($joined !== '') {
+                    foreach (preg_split('/\s*,\s*/', $joined) ?: [] as $part) {
+                        $part = trim((string) $part);
+                        if ($part !== '' && ! in_array($part, $allOriginators, true)) {
+                            $allOriginators[] = $part;
+                        }
+                    }
+                }
+            }
+            $combinedOriginator = implode(', ', $allOriginators);
+            $summaryDesc = trim((string) ($firstItem['descriptionReason'] ?? ''));
+            $batchCourseIds = array_values(array_unique(array_filter(
+                array_map(fn ($i) => (int) ($i['course_id'] ?? 0), $batchItems),
+                fn ($v) => $v > 0
+            )));
+            $batchSyllabiCtx = array_merge($syllabiCtx, [
+                'course_id' => $batchCourseIds[0] ?? (int) ($syllabiCtx['course_id'] ?? 0),
+                'course_ids' => $batchCourseIds,
+            ]);
+
+            $drfId = DB::transaction(function () use (
+                $batchItems,
+                $batchCourseIds,
+                $batchSyllabiCtx,
+                $summaryTitle,
+                $combinedOriginator,
+                $summaryDesc,
+                $data,
+                $officeIds,
+                $userId,
+                $now
+            ) {
+                $row = [
+                    'drf_no' => null,
+                    'drf_date' => $data['drfDate'] ?? null,
+                    'doc_title' => $summaryTitle,
+                    'created_by' => $userId,
+                    'created_at' => $now,
+                    'updated_at' => $now,
+                    'prepared_by_name' => trim((string) ($data['preparedByName'] ?? '')) ?: null,
+                    'doc_type_kind' => $data['docTypeKind'] ?? null,
+                    'description_reason' => $summaryDesc !== '' ? $summaryDesc : null,
+                ];
+                if (Schema::hasColumn('dcs_office_intake_drf', 'doc_type_id')) {
+                    $row['doc_type_id'] = ! empty($data['resolvedDocTypeId']) ? (int) $data['resolvedDocTypeId'] : null;
+                }
+                if (Schema::hasColumn('dcs_office_intake_drf', 'sub_type_id')) {
+                    $row['sub_type_id'] = ! empty($data['resolvedSubTypeId']) ? (int) $data['resolvedSubTypeId'] : null;
+                }
+                self::applyOfficeDrfSyllabiColumns($row, $batchSyllabiCtx);
+                if (Schema::hasColumn('dcs_office_intake_drf', 'originator_name')) {
+                    $row['originator_name'] = $combinedOriginator !== '' ? $combinedOriginator : null;
+                }
+                foreach ([
+                    'prepared_by_designation' => 'preparedByDesignation',
+                    'reviewed_by_name' => 'reviewedByName',
+                    'reviewed_by_designation' => 'reviewedByDesignation',
+                    'approved_by_name' => 'approvedByName',
+                    'approved_by_designation' => 'approvedByDesignation',
+                ] as $column => $inputKey) {
+                    $row[$column] = trim((string) ($data[$inputKey] ?? '')) ?: null;
+                }
+
+                $newId = (int) DB::table('dcs_office_intake_drf')->insertGetId($row);
+                self::syncIntakeOriginators('dcs_office_drf_originators', 'office_intake_drf_id', $newId, $combinedOriginator);
+                self::syncDistributeOffices($newId, $data['distributeToOffice'] ?? []);
+                self::saveDrfBatchCourseIds($newId, $batchCourseIds);
+                self::saveDrfBatchItems($newId, $batchItems);
+
+                foreach ($officeIds as $officeId) {
+                    if ($officeId <= 0) {
+                        continue;
+                    }
+                    DB::table('dcs_office_drf_offices')->insert([
+                        'office_intake_drf_id' => $newId,
+                        'office_id' => $officeId,
+                        'created_at' => $now,
+                        'updated_at' => $now,
+                    ]);
+                }
+
+                return $newId;
+            });
+
+            self::saveIntakeReviewLink('drf', $drfId, $request->input('reviewDocumentLink'));
+            self::bumpOfficeInventoryCache();
+            $notifyOffice = RegisterQueryHelper::rfioNotificationOfficeCode();
+            $submitter = RegisterQueryHelper::currentUserDisplayName();
+            RegisterPersistHelper::logAdminChange(
+                'Created office DRF #' . $drfId . ' (batch of ' . $batchCount . '): ' . $summaryTitle
+            );
+            \App\Services\DcsAuditService::log(
+                'office.drf.create',
+                'review_intake',
+                null,
+                null,
+                ['drf_id' => $drfId, 'title' => $summaryTitle, 'batch' => true, 'course_count' => $batchCount]
+            );
+            DcsNotificationService::notifyOfficeDrfSubmitted(
+                $notifyOffice,
+                $submitter,
+                '',
+                $summaryTitle,
+                $drfId
+            );
+
+            return redirect()
+                ->route('dcs.office.drf.show', $drfId)
+                ->with('success', $batchCount > 1
+                    ? "Document Request Form saved as 1 batch request ({$batchCount} individual DRFs)."
+                    : 'Document Request Form saved. This document cannot be edited.')
+                ->with('locked', true);
+        }
+
         self::assertNoOpenDuplicateDrf(
             (string) ($data['drfTitle'] ?? ''),
             (string) ($data['originatorName'] ?? '')
@@ -3236,6 +3393,7 @@ class OfficeIntakeHelper
                 }
 
                 $drfId = DB::table('dcs_office_intake_drf')->insertGetId($row);
+                self::saveDrfBatchCourseIds((int) $drfId, (array) ($syllabiCtx['course_ids'] ?? []));
                 self::syncIntakeOriginators('dcs_office_drf_originators', 'office_intake_drf_id', $drfId, $data['originatorName'] ?? null);
                 self::syncDistributeOffices($drfId, $data['distributeToOffice'] ?? []);
 
@@ -3254,6 +3412,7 @@ class OfficeIntakeHelper
                 return $drfId;
             });
 
+        self::saveIntakeReviewLink('drf', $id, $request->input('reviewDocumentLink'));
         RegisterPersistHelper::logAdminChange(
             'Created office DRF #' . $id . ': ' . $data['drfTitle']
         );
@@ -3303,6 +3462,114 @@ class OfficeIntakeHelper
         self::assertCanAccessIntake();
         $ids = array_values(array_filter(array_map('intval', (array) $request->input('distributeToOffice', []))));
         $distributeOffices = self::officesForPreview($ids);
+        $logoSrc = self::printLogoSrc();
+        $sourceOffices = collect();
+        $viewerMode = false;
+        $allowPrint = false;
+
+        // Editable Form Templates layout drives office DRF print/preview.
+        $tpl = DcsPrintTemplateHelper::get('office_drf');
+        $identity = DcsPrintTemplateHelper::identityVars($tpl);
+        if (($identity['logoSrc'] ?? '') !== '') {
+            $logoSrc = $identity['logoSrc'];
+        }
+        $blocks = DcsPrintTemplateHelper::layoutBlocks($tpl);
+
+        $renderSingleDrf = function (object $drf, bool $embed = false) use ($blocks, $tpl, $identity, $logoSrc, $sourceOffices, $distributeOffices, $viewerMode, $allowPrint): string {
+            if ($blocks === []) {
+                return view('pages.dcs.office.drf-print', [
+                    'drf' => $drf,
+                    'logoSrc' => $logoSrc,
+                    'sourceOffices' => $sourceOffices,
+                    'viewerMode' => $viewerMode,
+                    'allowPrint' => $allowPrint,
+                    'embed' => $embed,
+                    'halfSheet' => true,
+                    'hideToolbar' => $embed,
+                    'printFormCode' => $identity['letterNumber'] !== '' ? $identity['letterNumber'] : 'CSPC-F-DCC-06',
+                    'printFormTitle' => $identity['formTitle'] !== '' ? $identity['formTitle'] : 'Document Request Form',
+                    'printRepublic' => $identity['republic'],
+                    'printInstitution' => $identity['institutionName'],
+                    'printAddress' => $identity['institutionAddress'],
+                    'printFooterLeft' => $identity['footerLeft'] !== '' ? $identity['footerLeft'] : 'Effectivity Date:',
+                    'printFooterCenter' => $identity['footerCenter'] !== '' ? $identity['footerCenter'] : 'Rev.',
+                    'printFooterEffectivity' => $identity['footerEffectivity'] !== '' ? $identity['footerEffectivity'] : 'January 2018',
+                    'printFooterRev' => $identity['footerRev'] !== '' ? $identity['footerRev'] : '0',
+                ])->render();
+            }
+
+            return view('pages.dcs.reports.print-layout-renderer', [
+                'tpl' => $tpl,
+                'values' => DcsPrintTemplateHelper::drfLayoutValues($drf, $distributeOffices, $sourceOffices),
+                'distributeOffices' => $distributeOffices,
+                'logoSrcOverride' => $logoSrc,
+                'preview' => true,
+                'halfSheet' => true,
+                'hideToolbar' => $embed,
+                'embed' => $embed,
+                'viewerMode' => $viewerMode,
+                'allowPrint' => false,
+                'printLockMessage' => 'Preview only — this is not a printable copy yet.',
+            ])->render();
+        };
+
+        $isBatch = strtolower(trim((string) $request->input('syllabiMode', 'single'))) === 'batch';
+        $batchItems = is_array($request->input('batchItems')) ? array_values($request->input('batchItems')) : [];
+        if ($isBatch && $batchItems !== []) {
+            $batchItemsValues = [];
+            $previews = [];
+            foreach ($batchItems as $bItem) {
+                if (! is_array($bItem)) {
+                    continue;
+                }
+                $itemTitle = trim((string) ($bItem['drfTitle'] ?? ''));
+                $itemDrf = (object) [
+                    'id' => 0,
+                    'doc_title' => $itemTitle,
+                    'drf_date' => $request->input('drfDate') ?: null,
+                    'originator_name' => RegisterPersistHelper::joinedOriginatorNames($bItem['originatorName'] ?? ''),
+                    'doc_type_kind' => $request->input('docTypeKind'),
+                    'description_reason' => trim((string) ($bItem['descriptionReason'] ?? '')),
+                    'prepared_by_name' => trim((string) $request->input('preparedByName', '')),
+                    'prepared_by_designation' => trim((string) $request->input('preparedByDesignation', '')),
+                    'reviewed_by_name' => trim((string) $request->input('reviewedByName', '')),
+                    'reviewed_by_designation' => trim((string) $request->input('reviewedByDesignation', '')),
+                    'approved_by_name' => trim((string) $request->input('approvedByName', '')),
+                    'approved_by_designation' => trim((string) $request->input('approvedByDesignation', '')),
+                    'preview_distribute_offices' => $distributeOffices,
+                ];
+                if ($blocks !== []) {
+                    $batchItemsValues[] = DcsPrintTemplateHelper::drfLayoutValues($itemDrf, $distributeOffices, $sourceOffices);
+                } else {
+                    $previews[] = [
+                        'title' => $itemTitle,
+                        'html' => $renderSingleDrf($itemDrf, true),
+                    ];
+                }
+            }
+            if ($batchItemsValues !== []) {
+                return response()->view('pages.dcs.reports.print-layout-renderer', [
+                    'tpl' => $tpl,
+                    'values' => $batchItemsValues[0],
+                    'batchItemsValues' => $batchItemsValues,
+                    'distributeOffices' => $distributeOffices,
+                    'logoSrcOverride' => $logoSrc,
+                    'preview' => true,
+                    'halfSheet' => true,
+                    'hideToolbar' => false,
+                    'embed' => false,
+                    'viewerMode' => false,
+                    'allowPrint' => false,
+                    'printLockMessage' => 'Preview only — this is not a printable copy yet.',
+                ]);
+            }
+            if ($previews !== []) {
+                return response()->view('pages.dcs.office.drf-batch-preview', [
+                    'previews' => $previews,
+                ]);
+            }
+        }
+
         $drf = (object) [
             'id' => 0,
             'doc_title' => trim((string) $request->input('drfTitle', '')),
@@ -3318,49 +3585,8 @@ class OfficeIntakeHelper
             'approved_by_designation' => trim((string) $request->input('approvedByDesignation', '')),
             'preview_distribute_offices' => $distributeOffices,
         ];
-        $logoSrc = self::printLogoSrc();
-        $sourceOffices = collect();
-        $viewerMode = false;
-        $allowPrint = false;
 
-        // Editable Form Templates layout drives office DRF print/preview.
-        $tpl = DcsPrintTemplateHelper::get('office_drf');
-        $identity = DcsPrintTemplateHelper::identityVars($tpl);
-        if (($identity['logoSrc'] ?? '') !== '') {
-            $logoSrc = $identity['logoSrc'];
-        }
-        $blocks = DcsPrintTemplateHelper::layoutBlocks($tpl);
-        if ($blocks === []) {
-            return response()->view('pages.dcs.office.drf-print', [
-                'drf' => $drf,
-                'logoSrc' => $logoSrc,
-                'sourceOffices' => $sourceOffices,
-                'viewerMode' => $viewerMode,
-                'allowPrint' => $allowPrint,
-                'printFormCode' => $identity['letterNumber'] !== '' ? $identity['letterNumber'] : 'CSPC-F-DCC-06',
-                'printFormTitle' => $identity['formTitle'] !== '' ? $identity['formTitle'] : 'Document Request Form',
-                'printRepublic' => $identity['republic'],
-                'printInstitution' => $identity['institutionName'],
-                'printAddress' => $identity['institutionAddress'],
-                'printFooterLeft' => $identity['footerLeft'] !== '' ? $identity['footerLeft'] : 'Effectivity Date:',
-                'printFooterCenter' => $identity['footerCenter'] !== '' ? $identity['footerCenter'] : 'Rev.',
-                'printFooterEffectivity' => $identity['footerEffectivity'] !== '' ? $identity['footerEffectivity'] : 'January 2018',
-                'printFooterRev' => $identity['footerRev'] !== '' ? $identity['footerRev'] : '0',
-            ]);
-        }
-
-        return response()->view('pages.dcs.reports.print-layout-renderer', [
-            'tpl' => $tpl,
-            'values' => DcsPrintTemplateHelper::drfLayoutValues($drf, $distributeOffices, $sourceOffices),
-            'distributeOffices' => $distributeOffices,
-            'logoSrcOverride' => $logoSrc,
-            'preview' => true,
-            'hideToolbar' => false,
-            'embed' => false,
-            'viewerMode' => $viewerMode,
-            'allowPrint' => false,
-            'printLockMessage' => 'Preview only — this is not a printable copy yet.',
-        ]);
+        return response($renderSingleDrf($drf, false));
     }
 
     /**
@@ -3608,6 +3834,7 @@ class OfficeIntakeHelper
             ['dcn_id' => $id, 'doc_no' => $docNo, 'title' => $docTitle]
         );
 
+        self::saveIntakeReviewLink('dcn', $id, $request->input('reviewDocumentLink'));
         // A DCN that will include a DRF waits until that DRF is saved, then sends one combined notice.
         if (! $request->boolean('alsoCreateDrf')) {
             DcsNotificationService::notifyOfficeDcnSubmitted(
@@ -3661,6 +3888,9 @@ class OfficeIntakeHelper
             'collegeId' => 'nullable|integer',
             'programId' => 'nullable|integer',
             'courseId' => 'nullable|integer',
+            'courseIds' => 'nullable|array',
+            'courseIds.*' => 'integer',
+            'syllabiMode' => 'nullable|in:single,batch',
             'semesterId' => 'nullable|integer',
             'schoolYearId' => 'nullable|integer',
             'descriptionReason' => 'required|string|max:5000',
@@ -3776,6 +4006,7 @@ class OfficeIntakeHelper
                 ->where('id', $id)
                 ->update($row);
             abort_if($affected < 1, 404, 'Document Request Form not found.');
+            self::saveDrfBatchCourseIds($id, (array) ($syllabiCtx['course_ids'] ?? []));
             self::syncIntakeOriginators('dcs_office_drf_originators', 'office_intake_drf_id', $id, $data['originatorName'] ?? null);
         });
 
@@ -3784,6 +4015,7 @@ class OfficeIntakeHelper
         RegisterPersistHelper::logAdminChange(
             'Updated office DRF #' . $id . ': ' . (string) ($data['drfTitle'] ?? '')
         );
+        self::saveIntakeReviewLink('drf', $id, $request->input('reviewDocumentLink'));
         self::bumpOfficeInventoryCache();
         \App\Services\DcsAuditService::log(
             'office.drf.update',
@@ -3939,6 +4171,7 @@ class OfficeIntakeHelper
             ['dcn_id' => $id, 'doc_no' => $docNo, 'title' => $docTitle]
         );
 
+        self::saveIntakeReviewLink('dcn', $id, $request->input('reviewDocumentLink'));
         DcsNotificationService::notifyOfficeIntakeResubmitted(
             RegisterQueryHelper::rfioNotificationOfficeCode(),
             RegisterQueryHelper::currentUserDisplayName(),
@@ -5370,24 +5603,469 @@ class OfficeIntakeHelper
             if ($exceptDrfId && $exceptDrfId > 0) {
                 $intake->where('id', '!=', $exceptDrfId);
             }
-            $cols = ['college_id', 'program_id', 'semester_id', 'course_id', 'school_year_id'];
+            $cols = ['id', 'college_id', 'program_id', 'semester_id', 'course_id', 'school_year_id'];
             if (Schema::hasColumn('dcs_office_intake_drf', 'sub_type_id')) {
                 $cols[] = 'sub_type_id';
             }
+            $batchMap = self::readDrfBatchCourseMap();
             foreach ($intake->get($cols) as $row) {
-                $push(
-                    $taken,
-                    $row->college_id ?? 0,
-                    $row->program_id ?? 0,
-                    $row->semester_id ?? 0,
-                    $row->course_id ?? 0,
-                    $row->school_year_id ?? 0,
-                    $row->sub_type_id ?? 0
-                );
+                $drfIdKey = (string) ((int) ($row->id ?? 0));
+                $batchIds = $batchMap[$drfIdKey] ?? [];
+                if ($batchIds === [] && ! empty($row->course_id)) {
+                    $batchIds = [(int) $row->course_id];
+                }
+                foreach ($batchIds as $cid) {
+                    $push(
+                        $taken,
+                        $row->college_id ?? 0,
+                        $row->program_id ?? 0,
+                        $row->semester_id ?? 0,
+                        $cid,
+                        $row->school_year_id ?? 0,
+                        $row->sub_type_id ?? 0
+                    );
+                }
             }
         }
 
         return $taken;
+    }
+
+    private static function drfBatchCoursesPath(): string
+    {
+        $dir = storage_path('app/private');
+        if (! is_dir($dir)) {
+            @mkdir($dir, 0775, true);
+        }
+
+        return $dir . DIRECTORY_SEPARATOR . 'dcs_drf_batch_courses.json';
+    }
+
+    /**
+     * @return array<string, list<int>>
+     */
+    private static function readDrfBatchCourseMap(): array
+    {
+        if (Schema::hasTable('dcs_office_drf_batch_items')) {
+            $out = [];
+            $rows = DB::table('dcs_office_drf_batch_items')
+                ->orderBy('sort_order')
+                ->orderBy('id')
+                ->get(['office_intake_drf_id', 'course_id']);
+            foreach ($rows as $r) {
+                $k = (string) ((int) $r->office_intake_drf_id);
+                $cid = (int) $r->course_id;
+                if ($cid > 0) {
+                    $out[$k][] = $cid;
+                }
+            }
+
+            return $out;
+        }
+
+        $path = self::drfBatchCoursesPath();
+        if (! is_file($path)) {
+            return [];
+        }
+        $raw = @file_get_contents($path);
+        $decoded = is_string($raw) ? json_decode($raw, true) : null;
+        if (! is_array($decoded)) {
+            return [];
+        }
+        $out = [];
+        foreach ($decoded as $k => $vals) {
+            if (! is_array($vals)) {
+                continue;
+            }
+            $ids = array_values(array_unique(array_filter(array_map('intval', $vals), fn ($v) => $v > 0)));
+            if ($ids !== []) {
+                $out[(string) $k] = $ids;
+            }
+        }
+
+        return $out;
+    }
+
+    /**
+     * Persists multiple course IDs for a Batch-mode Syllabi/TOS DRF.
+     *
+     * @param  list<int|string>  $courseIds
+     */
+    public static function saveDrfBatchCourseIds(int $drfId, array $courseIds): void
+    {
+        if ($drfId < 1) {
+            return;
+        }
+        if (Schema::hasTable('dcs_office_drf_batch_items')) {
+            // Persisted directly via saveDrfBatchItems() in the 3NF dcs_office_drf_batch_items table.
+            return;
+        }
+        $clean = array_values(array_unique(array_filter(array_map('intval', $courseIds), fn ($v) => $v > 0)));
+        $map = self::readDrfBatchCourseMap();
+        $key = (string) $drfId;
+        if (count($clean) > 1) {
+            $map[$key] = $clean;
+        } else {
+            unset($map[$key]);
+        }
+        $json = json_encode($map, JSON_PRETTY_PRINT);
+        if ($json !== false) {
+            @file_put_contents(self::drfBatchCoursesPath(), $json, LOCK_EX);
+        }
+    }
+
+    /**
+     * Returns all course IDs attached to a Batch-mode Syllabi/TOS DRF (empty if single-course).
+     *
+     * @return list<int>
+     */
+    public static function drfBatchCourseIds(int $drfId): array
+    {
+        if ($drfId < 1) {
+            return [];
+        }
+        if (Schema::hasTable('dcs_office_drf_batch_items')) {
+            return DB::table('dcs_office_drf_batch_items')
+                ->where('office_intake_drf_id', $drfId)
+                ->orderBy('sort_order')
+                ->orderBy('id')
+                ->pluck('course_id')
+                ->map(fn ($v) => (int) $v)
+                ->filter(fn ($v) => $v > 0)
+                ->values()
+                ->all();
+        }
+        $map = self::readDrfBatchCourseMap();
+
+        return $map[(string) $drfId] ?? [];
+    }
+
+    private static function drfBatchItemsPath(): string
+    {
+        $dir = storage_path('app/private');
+        if (! is_dir($dir)) {
+            @mkdir($dir, 0775, true);
+        }
+
+        return $dir . DIRECTORY_SEPARATOR . 'dcs_drf_batch_items.json';
+    }
+
+    /**
+     * @return array<string, list<array{course_id:int,drfTitle:string,originatorName:string,descriptionReason:string}>>
+     */
+    private static function readDrfBatchItemsMap(): array
+    {
+        $path = self::drfBatchItemsPath();
+        if (! is_file($path)) {
+            return [];
+        }
+        $raw = @file_get_contents($path);
+        $decoded = is_string($raw) ? json_decode($raw, true) : null;
+
+        return is_array($decoded) ? $decoded : [];
+    }
+
+    /**
+     * Persists individual per-course DRF payloads (title, originator, description) for a Batch DRF request.
+     *
+     * @param  list<array<string, mixed>>  $items
+     */
+    public static function saveDrfBatchItems(int $drfId, array $items): void
+    {
+        if ($drfId < 1) {
+            return;
+        }
+        $clean = [];
+        foreach ($items as $item) {
+            if (! is_array($item)) {
+                continue;
+            }
+            $cid = (int) ($item['course_id'] ?? 0);
+            if ($cid < 1) {
+                continue;
+            }
+            $clean[] = [
+                'course_id' => $cid,
+                'drfTitle' => trim((string) ($item['drfTitle'] ?? '')),
+                'originatorName' => trim((string) ($item['originatorName'] ?? '')),
+                'descriptionReason' => trim((string) ($item['descriptionReason'] ?? '')),
+            ];
+        }
+
+        if (Schema::hasTable('dcs_office_drf_batch_items')) {
+            DB::table('dcs_office_drf_batch_items')->where('office_intake_drf_id', $drfId)->delete();
+            if (count($clean) > 1) {
+                $now = now();
+                foreach ($clean as $idx => $row) {
+                    DB::table('dcs_office_drf_batch_items')->insert([
+                        'office_intake_drf_id' => $drfId,
+                        'course_id' => $row['course_id'],
+                        'doc_title' => mb_substr($row['drfTitle'], 0, 500),
+                        'originator_name' => mb_substr($row['originatorName'], 0, 500) ?: null,
+                        'description_reason' => $row['descriptionReason'] !== '' ? $row['descriptionReason'] : null,
+                        'sort_order' => $idx + 1,
+                        'created_at' => $now,
+                        'updated_at' => $now,
+                    ]);
+                }
+            }
+
+            return;
+        }
+
+        $map = self::readDrfBatchItemsMap();
+        $key = (string) $drfId;
+        if (count($clean) > 1) {
+            $map[$key] = $clean;
+        } else {
+            unset($map[$key]);
+        }
+        $json = json_encode($map, JSON_PRETTY_PRINT);
+        if ($json !== false) {
+            @file_put_contents(self::drfBatchItemsPath(), $json, LOCK_EX);
+        }
+    }
+
+    /**
+     * Returns per-course DRF items for a saved Batch DRF request (empty if single-course).
+     *
+     * @return list<array{course_id:int,drfTitle:string,originatorName:string,descriptionReason:string}>
+     */
+    public static function drfBatchItems(int $drfId): array
+    {
+        if ($drfId < 1) {
+            return [];
+        }
+        if (Schema::hasTable('dcs_office_drf_batch_items')) {
+            return DB::table('dcs_office_drf_batch_items')
+                ->where('office_intake_drf_id', $drfId)
+                ->orderBy('sort_order')
+                ->orderBy('id')
+                ->get(['course_id', 'doc_title', 'originator_name', 'description_reason'])
+                ->map(fn ($r) => [
+                    'course_id' => (int) $r->course_id,
+                    'drfTitle' => trim((string) ($r->doc_title ?? '')),
+                    'originatorName' => trim((string) ($r->originator_name ?? '')),
+                    'descriptionReason' => trim((string) ($r->description_reason ?? '')),
+                ])
+                ->values()
+                ->all();
+        }
+        $map = self::readDrfBatchItemsMap();
+        $rows = $map[(string) $drfId] ?? [];
+
+        return is_array($rows) ? array_values($rows) : [];
+    }
+
+    /**
+     * Packs office codes into DRF "Distribute document to" grid cells in tiered order:
+     * 1) 1 office per cell if all fit (<= capacity).
+     * 2) Up to 2 offices per cell (only combining when both fit cleanly without cutoff).
+     * 3) Up to 3+ offices per cell (greedy up to maxUnits).
+     * 4) Overflow to attach sheet only when all cells are full and offices still remain.
+     *
+     * @param  list<string>  $codes
+     * @return array{cells: list<string>, overflow: bool}
+     */
+    public static function packDistributeGridCells(array $codes, int $capacity = 24, float $maxUnits = 14.5): array
+    {
+        $capacity = max(1, $capacity);
+        $clean = array_values(array_filter(array_map(fn ($v) => trim((string) $v), $codes), fn ($v) => $v !== ''));
+        if ($clean === []) {
+            return ['cells' => array_fill(0, $capacity, ''), 'overflow' => false];
+        }
+
+        // Tier 1: exact 1-per-cell when all offices fit in individual cells (<= 24).
+        if (count($clean) <= $capacity) {
+            return [
+                'cells' => array_pad($clean, $capacity, ''),
+                'overflow' => false,
+            ];
+        }
+
+        $measure = static function (string $text): float {
+            $units = 0.0;
+            $len = mb_strlen($text);
+            for ($i = 0; $i < $len; $i++) {
+                $ch = mb_substr($text, $i, 1);
+                if ($ch === ' ' || $ch === ',' || $ch === '.' || $ch === '-' || $ch === '/') {
+                    $units += 0.48;
+                } elseif (str_contains('MWGOQDHNU', $ch)) {
+                    $units += 1.15;
+                } elseif (str_contains('IJL1ijltfr', $ch)) {
+                    $units += 0.55;
+                } elseif (ctype_upper($ch)) {
+                    $units += 1.02;
+                } else {
+                    $units += 0.80;
+                }
+            }
+
+            return $units;
+        };
+
+        $tryPack = static function (int $maxPerCell) use ($clean, $capacity, $maxUnits, $measure): array {
+            $cells = [];
+            $total = count($clean);
+            $idx = 0;
+            $overflow = false;
+
+            while ($idx < $total) {
+                if (count($cells) >= $capacity) {
+                    $overflow = true;
+                    break;
+                }
+                $current = $clean[$idx++];
+                $countInCell = 1;
+                $cellsLeftAfter = $capacity - 1 - count($cells);
+
+                // Only combine extra office codes into this cell when remaining offices
+                // still exceed the remaining empty cells (e.g. 28 offices -> 20 x 1 + 4 x 2).
+                while (
+                    $idx < $total
+                    && ($total - $idx) > $cellsLeftAfter
+                    && $countInCell < $maxPerCell
+                ) {
+                    $candidate = $current . ', ' . $clean[$idx];
+                    if ($measure($candidate) <= $maxUnits) {
+                        $current = $candidate;
+                        $countInCell++;
+                        $idx++;
+                    } else {
+                        break;
+                    }
+                }
+                $cells[] = $current;
+            }
+
+            return [
+                'cells' => array_pad(array_slice($cells, 0, $capacity), $capacity, ''),
+                'overflow' => $overflow,
+            ];
+        };
+
+        // Tier 2: fill all 24 cells with 1 per cell + only as many 2-per-cell as needed.
+        $twoPerCell = $tryPack(2);
+        if (! $twoPerCell['overflow']) {
+            return $twoPerCell;
+        }
+
+        // Tier 3: allow up to 3 per cell, then unlimited (up to maxUnits).
+        $threePerCell = $tryPack(3);
+        if (! $threePerCell['overflow']) {
+            return $threePerCell;
+        }
+
+        return $tryPack(99);
+    }
+
+    private static function intakeReviewLinksPath(): string
+    {
+        $dir = storage_path('app/private');
+        if (! is_dir($dir)) {
+            @mkdir($dir, 0775, true);
+        }
+
+        return $dir . DIRECTORY_SEPARATOR . 'dcs_intake_review_links.json';
+    }
+
+    /**
+     * @return array<string, string>
+     */
+    private static function readIntakeReviewLinksMap(): array
+    {
+        $path = self::intakeReviewLinksPath();
+        if (! is_file($path)) {
+            return [];
+        }
+        $raw = @file_get_contents($path);
+        $decoded = is_string($raw) ? json_decode($raw, true) : null;
+
+        return is_array($decoded) ? $decoded : [];
+    }
+
+    /**
+     * Persists an optional document review link attached to an office DRF or DCN submission.
+     */
+    public static function saveIntakeReviewLink(string $type, int $id, ?string $url): void
+    {
+        $type = strtolower(trim($type));
+        if (! in_array($type, ['drf', 'dcn'], true) || $id < 1) {
+            return;
+        }
+        $clean = trim((string) $url);
+        if ($clean !== '' && ! preg_match('#^https?://#i', $clean)) {
+            $clean = 'https://' . $clean;
+        }
+        $table = $type === 'dcn' ? 'dcs_office_intake_dcn' : 'dcs_office_intake_drf';
+        if (Schema::hasTable($table) && Schema::hasColumn($table, 'review_document_link')) {
+            DB::table($table)->where('id', $id)->update([
+                'review_document_link' => $clean !== '' ? mb_substr($clean, 0, 2000) : null,
+            ]);
+
+            return;
+        }
+        $map = self::readIntakeReviewLinksMap();
+        $key = $type . ':' . $id;
+        if ($clean !== '') {
+            $map[$key] = mb_substr($clean, 0, 2000);
+        } else {
+            unset($map[$key]);
+        }
+        $json = json_encode($map, JSON_PRETTY_PRINT);
+        if ($json !== false) {
+            @file_put_contents(self::intakeReviewLinksPath(), $json, LOCK_EX);
+        }
+    }
+
+    /**
+     * Returns the optional document review link attached to an office DRF or DCN (empty string if none).
+     */
+    public static function intakeReviewLink(string $type, int $id): string
+    {
+        $type = strtolower(trim($type));
+        if (! in_array($type, ['drf', 'dcn'], true) || $id < 1) {
+            return '';
+        }
+        $table = $type === 'dcn' ? 'dcs_office_intake_dcn' : 'dcs_office_intake_drf';
+        if (Schema::hasTable($table) && Schema::hasColumn($table, 'review_document_link')) {
+            return trim((string) (DB::table($table)->where('id', $id)->value('review_document_link') ?? ''));
+        }
+        $map = self::readIntakeReviewLinksMap();
+
+        return trim((string) ($map[$type . ':' . $id] ?? ''));
+    }
+
+    /**
+     * Escapes plain text safely and converts any http(s) URLs inside it into clickable links,
+     * even when surrounded by words, phrases, or spaces (e.g. "Please see attached https://...").
+     */
+    public static function linkifyHtml(?string $text): string
+    {
+        $raw = (string) $text;
+        if ($raw === '') {
+            return '';
+        }
+        $escaped = e($raw);
+        $linked = preg_replace_callback(
+            '#\bhttps?://[^\s<>"\']+#i',
+            static function (array $m): string {
+                $url = $m[0];
+                $trail = '';
+                while ($url !== '' && preg_match('/[.,;:!?)]$/', $url)) {
+                    $trail = substr($url, -1) . $trail;
+                    $url = substr($url, 0, -1);
+                }
+                if ($url === '') {
+                    return $m[0];
+                }
+
+                return '<a href="' . $url . '" target="_blank" rel="noopener noreferrer" style="color:#0d2a7a;text-decoration:underline;word-break:break-all;font-weight:600;">' . $url . '</a>' . $trail;
+            },
+            $escaped
+        );
+
+        return nl2br($linked ?? $escaped);
     }
 
     /**
@@ -5448,17 +6126,16 @@ class OfficeIntakeHelper
             'coursesByProgramSemester' => $courses,
             'coursesBySharedSemester' => $shared,
             'semesters' => $full['semesters'] ?? [],
-            // Requestors only see the single active school year (plus this DRF's year when editing).
+            // Offer all configured school years on office Syllabi/TOS DRF.
             'schoolYears' => self::officeDrfActiveSchoolYears($exceptDrfId),
             'takenSchoolYearsByCourse' => self::officeDrfSyllabiTakenSchoolYearsByCourse($exceptDrfId),
         ];
     }
 
     /**
-     * School years offered on office Syllabi/TOS DRF: the active S/Y only.
-     * When editing, also include that DRF's saved year so the form can redisplay it.
+     * School years offered on office Syllabi/TOS DRF: all non-deleted school years.
      *
-     * @return list<array{school_year_id:int,school_year:string,is_active?:bool}>
+     * @return list<array{school_year_id:int,school_year:string}>
      */
     public static function officeDrfActiveSchoolYears(?int $exceptDrfId = null): array
     {
@@ -5468,44 +6145,16 @@ class OfficeIntakeHelper
 
         $q = DB::table('dcs_school_years')->orderBy('school_year');
         SettingsRecycleHelper::applyNotDeleted($q, 'dcs_school_years');
-
-        $hasActiveCol = Schema::hasColumn('dcs_school_years', 'is_active');
-        $rows = collect();
-
-        if ($hasActiveCol) {
-            $active = (clone $q)->where('is_active', true)->get(['id', 'school_year', 'is_active']);
-            $rows = $rows->concat($active);
-        } else {
-            // Pre-migration fallback: keep previous "all years" behavior.
-            $rows = (clone $q)->get(['id', 'school_year']);
-        }
-
-        $keepId = 0;
-        if ($exceptDrfId && $exceptDrfId > 0
-            && Schema::hasTable('dcs_office_intake_drf')
-            && Schema::hasColumn('dcs_office_intake_drf', 'school_year_id')
-        ) {
-            $keepId = (int) (DB::table('dcs_office_intake_drf')->where('id', $exceptDrfId)->value('school_year_id') ?? 0);
-        }
-        if ($keepId > 0 && ! $rows->contains(fn ($r) => (int) $r->id === $keepId)) {
-            $extraQ = DB::table('dcs_school_years')->where('id', $keepId);
-            SettingsRecycleHelper::applyNotDeleted($extraQ, 'dcs_school_years');
-            $extraCols = $hasActiveCol ? ['id', 'school_year', 'is_active'] : ['id', 'school_year'];
-            $extra = $extraQ->first($extraCols);
-            if ($extra) {
-                $rows = $rows->push($extra);
-            }
-        }
+        $rows = $q->get(['id', 'school_year']);
 
         return $rows
             ->unique('id')
             ->sortBy('school_year')
             ->values()
-            ->map(fn ($y) => array_filter([
+            ->map(fn ($y) => [
                 'school_year_id' => (int) $y->id,
                 'school_year' => (string) $y->school_year,
-                'is_active' => $hasActiveCol ? ! empty($y->is_active) : null,
-            ], fn ($v) => $v !== null))
+            ])
             ->all();
     }
 
@@ -5580,7 +6229,7 @@ class OfficeIntakeHelper
         $sy = preg_replace('/^\s*s\/?y\s*/i', '', $schoolYear) ?: $schoolYear;
         $for = $shared ? $college : $program;
 
-        return $college.' '.$connector.' for '.$for.' in '.$course.', '.$semester.', '.$sy;
+        return $college.' '.$connector.' for '.$for.' in '.$course.', '.$semester.', S/Y '.$sy;
     }
 
     /**
@@ -5595,6 +6244,7 @@ class OfficeIntakeHelper
             'college_id' => null,
             'program_id' => null,
             'course_id' => null,
+            'course_ids' => [],
             'semester_id' => null,
             'school_year_id' => null,
             'is_syllabi' => false,
@@ -5605,32 +6255,43 @@ class OfficeIntakeHelper
 
         $collegeId = (int) ($data['collegeId'] ?? $data['college_id'] ?? 0);
         $programId = (int) ($data['programId'] ?? $data['program_id'] ?? 0);
-        $courseId = (int) ($data['courseId'] ?? $data['course_id'] ?? 0);
         $semesterId = (int) ($data['semesterId'] ?? $data['semester_id'] ?? 0);
         $schoolYearId = (int) ($data['schoolYearId'] ?? $data['school_year_id'] ?? 0);
-        $courseTypeHint = trim((string) ($data['courseType'] ?? $data['course_type'] ?? ''));
+        $mode = strtolower(trim((string) ($data['syllabiMode'] ?? 'single')));
 
-        $courseCols = ['id', 'program_id', 'semester_id'];
-        if (Schema::hasColumn('dcs_program_courses', 'course_type')) {
-            $courseCols[] = 'course_type';
+        $courseIds = [];
+        if ($mode === 'batch' && ! empty($data['courseIds']) && is_array($data['courseIds'])) {
+            $courseIds = array_values(array_unique(array_filter(
+                array_map('intval', $data['courseIds']),
+                fn ($id) => $id > 0
+            )));
+        } else {
+            $singleId = (int) ($data['courseId'] ?? $data['course_id'] ?? 0);
+            if ($singleId > 0) {
+                $courseIds = [$singleId];
+            } elseif (! empty($data['courseIds']) && is_array($data['courseIds'])) {
+                $courseIds = array_values(array_unique(array_filter(
+                    array_map('intval', $data['courseIds']),
+                    fn ($id) => $id > 0
+                )));
+            }
         }
-        $course = $courseId > 0
-            ? DB::table('dcs_program_courses')->where('id', $courseId)->first($courseCols)
-            : null;
+        $courseId = $courseIds[0] ?? 0;
 
         $errors = [];
         if ($collegeId < 1) {
             $errors['collegeId'] = 'Select a college.';
         }
         if ($programId < 1) {
-        if (! $shared && $programId < 1) {
             $errors['programId'] = 'Select a program.';
         }
         if ($semesterId < 1) {
             $errors['semesterId'] = 'Select a semester.';
         }
-        if ($courseId < 1) {
-            $errors['courseId'] = 'Select a course.';
+        if ($courseIds === []) {
+            $errors['courseId'] = $mode === 'batch'
+                ? 'Select at least one course for this batch.'
+                : 'Select a course.';
         }
         if ($schoolYearId < 1) {
             $errors['schoolYearId'] = 'Select a school year.';
@@ -5638,16 +6299,24 @@ class OfficeIntakeHelper
         if ($errors !== []) {
             throw ValidationException::withMessages($errors);
         }
+
         $program = DB::table('dcs_programs')->where('id', $programId)->first(['id', 'college_id']);
         if (! $program || (int) ($program->college_id ?? 0) !== $collegeId) {
             throw ValidationException::withMessages(['programId' => 'Selected program does not belong to that college.']);
         }
 
-        if (! $course
-            || (int) ($course->program_id ?? 0) !== $programId
-            || (int) ($course->semester_id ?? 0) !== $semesterId
-        ) {
-            throw ValidationException::withMessages(['courseId' => 'Selected course does not match the program and semester.']);
+        $matchedCourses = DB::table('dcs_program_courses')
+            ->whereIn('id', $courseIds)
+            ->get(['id', 'program_id', 'semester_id', 'course_name'])
+            ->keyBy(fn ($r) => (int) $r->id);
+
+        foreach ($courseIds as $cid) {
+            $course = $matchedCourses->get($cid);
+            if (! $course
+                || (int) ($course->program_id ?? 0) !== $programId
+                || (int) ($course->semester_id ?? 0) !== $semesterId
+            ) {
+                throw ValidationException::withMessages(['courseId' => 'One or more selected courses do not match the program and semester.']);
             }
         }
 
@@ -5655,49 +6324,32 @@ class OfficeIntakeHelper
             throw ValidationException::withMessages(['schoolYearId' => 'Select a valid school year.']);
         }
 
-        // New requests must use the active school year only (editing may keep a legacy year).
-        if (
-            Schema::hasColumn('dcs_school_years', 'is_active')
-            && ! (bool) DB::table('dcs_school_years')->where('id', $schoolYearId)->value('is_active')
-        ) {
-            $editingSameYear = $exceptDrfId
-                && $exceptDrfId > 0
-                && Schema::hasTable('dcs_office_intake_drf')
-                && Schema::hasColumn('dcs_office_intake_drf', 'school_year_id')
-                && (int) (DB::table('dcs_office_intake_drf')->where('id', $exceptDrfId)->value('school_year_id') ?? 0) === $schoolYearId;
-            if (! $editingSameYear) {
-                $activeLabel = (string) (DB::table('dcs_school_years')->where('is_active', true)->value('school_year') ?? '');
+        foreach ($courseIds as $cid) {
+            if (self::officeDrfSyllabiCourseSchoolYearTaken(
+                $collegeId,
+                $programId,
+                $semesterId,
+                $cid,
+                $schoolYearId,
+                $exceptDrfId,
+                $subTypeId
+            )) {
+                $sy = (string) (DB::table('dcs_school_years')->where('id', $schoolYearId)->value('school_year') ?? '');
+                $courseName = (string) ($matchedCourses->get($cid)->course_name ?? 'This course');
+                $subLabel = trim((string) (DB::table('dcs_doc_types')->where('id', $subTypeId)->value('doc_type_name') ?? 'this document type'));
                 throw ValidationException::withMessages([
-                    'schoolYearId' => $activeLabel !== ''
-                        ? 'Only the active school year (' . $activeLabel . ') can be requested. Change the active year in Settings if needed.'
-                        : 'No active school year is set. Ask Records to set one under Settings → School Years.',
+                    'schoolYearId' => trim($courseName) . ' already has an open office ' . $subLabel
+                        . ' request for S/Y ' . ($sy !== '' ? $sy : 'that school year')
+                        . '. Finish or cancel that request first, or choose another school year.',
                 ]);
             }
         }
 
-        if (self::officeDrfSyllabiCourseSchoolYearTaken(
-            $programId,
-            $shared ? 0 : $programId,
-            $semesterId,
-            $courseId,
-            $schoolYearId,
-            $exceptDrfId,
-            $subTypeId
-        )) {
-            $sy = (string) (DB::table('dcs_school_years')->where('id', $schoolYearId)->value('school_year') ?? '');
-            $courseName = (string) (DB::table('dcs_program_courses')->where('id', $courseId)->value('course_name') ?? 'This course');
-            $subLabel = trim((string) (DB::table('dcs_doc_types')->where('id', $subTypeId)->value('doc_type_name') ?? 'this document type'));
-            throw ValidationException::withMessages([
-                'schoolYearId' => trim($courseName) . ' already has an open office ' . $subLabel
-                    . ' request for S/Y ' . ($sy !== '' ? $sy : 'that school year')
-                    . '. Finish or cancel that request first, or choose another school year.',
-            ]);
-        }
-
         return [
+            'college_id' => $collegeId,
             'program_id' => $programId,
-            'program_id' => $shared ? null : $programId,
             'course_id' => $courseId,
+            'course_ids' => $courseIds,
             'semester_id' => $semesterId,
             'school_year_id' => $schoolYearId,
             'is_syllabi' => true,
@@ -6191,8 +6843,6 @@ class OfficeIntakeHelper
     private static function normalizeDrfSignatoryPayload(array $payload): ?array
     {
         $keys = [
-            'prepared_by_name',
-            'prepared_by_designation',
             'reviewed_by_name',
             'reviewed_by_designation',
             'approved_by_name',
@@ -8653,20 +9303,56 @@ class OfficeIntakeHelper
             'lockDistributeOffices' => ($distributeIds !== [] || $distribute !== []),
             'isSyllabiLike' => ! empty($syllabi['is_syllabi']),
             'peerIntakeIds' => $peerMerge['peer_intake_ids'],
-            'syllabi' => ! empty($syllabi['is_syllabi']) ? [
-                'college_id' => $syllabi['college_id'],
-                'program_id' => $syllabi['program_id'],
-                'course_id' => $syllabi['course_id'],
-                'course_name' => $syllabi['course'],
-                'semester_id' => $syllabi['semester_id'],
-                'school_year_id' => $syllabi['school_year_id'],
-                'course_type' => $syllabi['course_type'],
-                'year_level' => $syllabi['year_level'],
-                'doc_title' => trim((string) ($drf->doc_title ?? '')),
-                'drf_date' => $drfDate,
-                'peer_originators' => $peerMerge['peer_originators'],
-                'peer_intake_ids' => $peerMerge['peer_intake_ids'],
-            ] : null,
+            'syllabi' => ! empty($syllabi['is_syllabi']) ? (function () use ($drf, $syllabi, $drfDate, $peerMerge) {
+                $batchIds = self::drfBatchCourseIds((int) ($drf->id ?? 0));
+                $batchItems = self::drfBatchItems((int) ($drf->id ?? 0));
+                $courseOriginators = [];
+                foreach ($batchItems as $bItem) {
+                    $bCid = (int) ($bItem['course_id'] ?? 0);
+                    $bOrig = trim((string) ($bItem['originatorName'] ?? ''));
+                    if ($bCid > 0 && $bOrig !== '') {
+                        $parts = array_values(array_filter(array_map('trim', preg_split('/\s*,\s*/', $bOrig) ?: [])));
+                        if ($parts !== []) {
+                            $courseOriginators[(string) $bCid] = $parts;
+                        }
+                    }
+                }
+                if ($batchIds === [] && ! empty($syllabi['course_id'])) {
+                    $batchIds = [(int) $syllabi['course_id']];
+                }
+                $yearLevels = [];
+                if ($batchIds !== [] && Schema::hasTable('dcs_program_courses') && Schema::hasColumn('dcs_program_courses', 'year_level')) {
+                    $yearLevels = DB::table('dcs_program_courses')
+                        ->whereIn('id', $batchIds)
+                        ->pluck('year_level')
+                        ->map(fn ($y) => trim((string) $y))
+                        ->filter()
+                        ->unique()
+                        ->values()
+                        ->all();
+                }
+                if ($yearLevels === [] && ! empty($syllabi['year_level'])) {
+                    $yearLevels = [(string) $syllabi['year_level']];
+                }
+
+                return [
+                    'college_id' => $syllabi['college_id'],
+                    'program_id' => $syllabi['program_id'],
+                    'course_id' => $syllabi['course_id'],
+                    'course_ids' => $batchIds,
+                    'course_originators' => $courseOriginators,
+                    'course_name' => $syllabi['course'],
+                    'semester_id' => $syllabi['semester_id'],
+                    'school_year_id' => $syllabi['school_year_id'],
+                    'course_type' => $syllabi['course_type'],
+                    'year_level' => $syllabi['year_level'],
+                    'year_levels' => $yearLevels,
+                    'doc_title' => trim((string) ($drf->doc_title ?? '')),
+                    'drf_date' => $drfDate,
+                    'peer_originators' => $peerMerge['peer_originators'],
+                    'peer_intake_ids' => $peerMerge['peer_intake_ids'],
+                ];
+            })() : null,
         ];
 
         if ($isRecurring) {

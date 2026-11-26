@@ -200,4 +200,6 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
         </div>
     </div>
 </div>
-@include('pages.dcs.office.partials.print-unlock-list')
+@push('scripts')
+    @include('pages.dcs.office.partials.print-unlock-list')
+@endpush

@@ -80,19 +80,343 @@ html[data-dcs-sidebar-collapsed="1"] .ofi-page {
 }
 
 .ofi-syllabi-context {
-    margin-top: 12px;
-    padding: 14px 14px 12px;
-    border: 1px solid #dbeafe;
-    border-radius: 10px;
-    background: #f8fbff;
+    margin-top: 14px;
+    padding: 16px 18px;
+    border: 1.5px solid #dbe6f7;
+    border-radius: 12px;
+    background: linear-gradient(180deg, #f8fbff 0%, #ffffff 100%);
+    box-shadow: 0 2px 8px rgba(13, 42, 122, 0.04);
 }
 
 .ofi-syllabi-context.is-ofi-hidden {
     display: none !important;
 }
 
-.ofi-syllabi-grid {
+.ofi-syllabi-head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
     gap: 12px;
+    flex-wrap: wrap;
+    padding-bottom: 12px;
+    margin-bottom: 14px;
+    border-bottom: 1px solid #e2ecf8;
+}
+
+.ofi-syllabi-head-title {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    min-width: 0;
+}
+
+.ofi-syllabi-head-icon {
+    width: 34px;
+    height: 34px;
+    border-radius: 9px;
+    background: #e8f0fe;
+    color: #0d2a7a;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 0.9rem;
+    flex-shrink: 0;
+}
+
+.ofi-syllabi-head-title strong {
+    display: block;
+    font-size: 0.88rem;
+    font-weight: 700;
+    color: #0f172a;
+    line-height: 1.25;
+}
+
+.ofi-syllabi-head-sub {
+    display: block;
+    font-size: 0.74rem;
+    color: #64748b;
+    margin-top: 2px;
+}
+
+.ofi-mode-switch {
+    display: inline-flex;
+    align-items: center;
+    padding: 3px;
+    border-radius: 9px;
+    background: #e9eff8;
+    border: 1px solid #d5e0f2;
+    gap: 3px;
+    flex-shrink: 0;
+}
+
+.ofi-mode-btn {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 6px 13px;
+    border: none;
+    border-radius: 7px;
+    background: transparent;
+    color: #475569;
+    font-size: 0.76rem;
+    font-weight: 700;
+    cursor: pointer;
+    transition: all 0.15s ease;
+}
+
+.ofi-mode-btn:hover {
+    color: #0d2a7a;
+}
+
+.ofi-mode-btn.is-active {
+    background: #0d2a7a;
+    color: #ffffff;
+    box-shadow: 0 2px 6px rgba(13, 42, 122, 0.22);
+}
+
+.ofi-syllabi-grid {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 14px 16px;
+}
+
+.ofi-syllabi-grid > .reg-field {
+    min-width: 0;
+}
+
+.ofi-syllabi-grid > .reg-field label {
+    font-size: 0.7rem;
+    font-weight: 700;
+    letter-spacing: 0.04em;
+    color: #334155;
+    margin-bottom: 5px;
+}
+
+.ofi-syllabi-grid > .reg-field select {
+    width: 100%;
+    min-width: 0;
+    height: 40px;
+    border-radius: 8px;
+    border: 1.5px solid #cbd5e1;
+    background-color: #ffffff;
+    font-size: 0.84rem;
+    transition: border-color 0.15s ease, box-shadow 0.15s ease;
+}
+
+.ofi-syllabi-grid > .reg-field select:focus {
+    border-color: #0d2a7a;
+    box-shadow: 0 0 0 3px rgba(13, 42, 122, 0.1);
+}
+
+.ofi-syllabi-grid > .reg-field select:disabled {
+    background-color: #f1f5f9;
+    color: #94a3b8;
+    border-color: #e2e8f0;
+}
+
+.ofi-batch-courses {
+    margin-top: 14px;
+    padding: 12px 14px;
+    border-radius: 10px;
+    border: 1.5px solid #dbe6f7;
+    background: #ffffff;
+}
+
+.ofi-batch-courses.is-ofi-hidden,
+#ofiDrfSingleCourseWrap.is-ofi-hidden {
+    display: none !important;
+}
+
+.ofi-batch-courses-bar {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 10px;
+    flex-wrap: wrap;
+    margin-bottom: 10px;
+}
+
+.ofi-batch-courses-title {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+.ofi-batch-count {
+    display: inline-flex;
+    align-items: center;
+    padding: 2px 9px;
+    border-radius: 999px;
+    font-size: 0.7rem;
+    font-weight: 700;
+    background: #f1f5f9;
+    color: #64748b;
+}
+
+.ofi-batch-count.has-items {
+    background: #dbeafe;
+    color: #1d4ed8;
+}
+
+.ofi-batch-count.is-error {
+    background: #fee2e2;
+    color: #dc2626;
+}
+
+.ofi-batch-courses-actions {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    flex-wrap: wrap;
+}
+
+.ofi-batch-search {
+    height: 30px;
+    width: 170px;
+    padding: 0 10px;
+    border-radius: 7px;
+    border: 1px solid #cbd5e1;
+    font-size: 0.76rem;
+    color: #0f172a;
+    background: #f8fafc;
+}
+
+.ofi-batch-search:focus {
+    outline: none;
+    border-color: #0d2a7a;
+    background: #fff;
+}
+
+.ofi-batch-action-btn {
+    height: 30px;
+    padding: 0 10px;
+    border-radius: 7px;
+    border: 1px solid #cbd5e1;
+    background: #fff;
+    color: #334155;
+    font-size: 0.72rem;
+    font-weight: 700;
+    cursor: pointer;
+    transition: all 0.15s ease;
+}
+
+.ofi-batch-action-btn:hover {
+    border-color: #0d2a7a;
+    color: #0d2a7a;
+    background: #eff6ff;
+}
+
+.ofi-batch-courses-list {
+    max-height: 240px;
+    overflow-y: auto;
+    display: flex;
+    flex-direction: column;
+    gap: 5px;
+    padding-right: 2px;
+}
+
+.ofi-batch-row {
+    display: flex;
+    align-items: center;
+    gap: 9px;
+    padding: 8px 11px;
+    border-radius: 8px;
+    border: 1px solid #e2e8f0;
+    background: #f8fafc;
+    cursor: pointer;
+    font-size: 0.81rem;
+    transition: all 0.14s ease;
+}
+
+.ofi-batch-row:hover:not(.is-blocked) {
+    border-color: #93c5fd;
+    background: #eff6ff;
+}
+
+.ofi-batch-row.is-checked {
+    border-color: #2563eb;
+    background: #eff6ff;
+}
+
+.ofi-batch-row.is-blocked {
+    opacity: 0.6;
+    cursor: not-allowed;
+    background: #f1f5f9;
+}
+
+.ofi-batch-row input[type="checkbox"] {
+    width: 15px;
+    height: 15px;
+    accent-color: #0d2a7a;
+    flex-shrink: 0;
+    cursor: pointer;
+}
+
+.ofi-batch-code {
+    display: inline-flex;
+    align-items: center;
+    padding: 2px 7px;
+    border-radius: 5px;
+    background: #e2e8f0;
+    color: #1e293b;
+    font-size: 0.7rem;
+    font-weight: 700;
+    flex-shrink: 0;
+}
+
+.ofi-batch-row.is-checked .ofi-batch-code {
+    background: #dbeafe;
+    color: #1e40af;
+}
+
+.ofi-batch-name {
+    flex: 1;
+    min-width: 0;
+    color: #0f172a;
+    font-weight: 600;
+}
+
+.ofi-batch-year {
+    font-size: 0.69rem;
+    font-weight: 700;
+    color: #475569;
+    background: #ffffff;
+    border: 1px solid #e2e8f0;
+    padding: 2px 7px;
+    border-radius: 999px;
+    flex-shrink: 0;
+}
+
+.ofi-batch-taken {
+    font-size: 0.68rem;
+    font-weight: 700;
+    color: #b45309;
+    background: #fef3c7;
+    padding: 2px 7px;
+    border-radius: 999px;
+    flex-shrink: 0;
+}
+
+.ofi-batch-empty {
+    padding: 16px 12px;
+    text-align: center;
+    font-size: 0.78rem;
+    color: #64748b;
+    background: #f8fafc;
+    border-radius: 8px;
+    border: 1px dashed #cbd5e1;
+}
+
+@media (max-width: 900px) {
+    .ofi-syllabi-grid {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+    }
+}
+
+@media (max-width: 600px) {
+    .ofi-syllabi-grid {
+        grid-template-columns: 1fr;
+    }
 }
 
 /* .reg-field { display:flex } beats bare [hidden] — force-hide Program for GE/PE/NSTP. */

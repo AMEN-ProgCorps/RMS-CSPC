@@ -6868,7 +6868,7 @@ function syllabiYearLevelOptionsHtml(selected) {
     const levels = [...new Set(fromCatalog.filter((y) => capped.includes(y)))]
         .sort((a, b) => yearLevelSortIndex(a) - yearLevelSortIndex(b));
     const opts = levels.length ? levels : capped;
-    return '<option value="">Year</option>' + opts.map((y) =>
+    return '<option value="" disabled' + (sel === '' ? ' selected' : '') + '>Year</option>' + opts.map((y) =>
         `<option value="${y}"${y === sel ? ' selected' : ''}>${y}</option>`
     ).join('');
 }
@@ -6980,9 +6980,9 @@ function updateSyllabiCpTriggerLabel() {
     }
     const text = selected.length === 1
         ? `${selected[0].college_name || 'College'} — ${selected[0].program_name || 'Program'}`
-        : `${selected.length} programs selected`;
+        : selected.map((p) => (String(p.program_code || '').trim() || String(p.program_name || '').trim() || 'Program')).join(', ');
     labelEl.textContent = text;
-    labelEl.title = text;
+    labelEl.title = selected.map((p) => `${p.college_name || 'College'} — ${p.program_name || 'Program'}`).join(', ');
 }
 
 function renderSyllabiCpPrograms(collegeId) {
@@ -7035,12 +7035,19 @@ function renderSyllabiCpPrograms(collegeId) {
 function renderSyllabiCpColleges(preferCollegeId = '') {
     const host = document.getElementById('syllabiCpColleges');
     if (!host) return;
-    const colleges = catalogCollegesList();
+    const allColleges = catalogCollegesList();
+    const courseType = String(document.getElementById('syllabiCourseType')?.value || '').trim();
+    const selectedCollegeId = String(document.getElementById('syllabiCollege')?.value || '').trim();
+    const colleges = (courseType === 'Major' && selectedCollegeId)
+        ? allColleges.filter((c) => String(c.college_id) === selectedCollegeId)
+        : allColleges;
     if (!colleges.length) {
         host.innerHTML = '<div class="reg-cp-programs-empty">No colleges found</div>';
         return;
     }
-    const active = String(preferCollegeId || window.__syllabiCpActiveCollegeId || document.getElementById('syllabiCollege')?.value || colleges[0].college_id || '');
+    const active = (courseType === 'Major' && selectedCollegeId)
+        ? selectedCollegeId
+        : String(preferCollegeId || window.__syllabiCpActiveCollegeId || selectedCollegeId || colleges[0].college_id || '');
     host.innerHTML = colleges.map((c) => {
         const id = String(c.college_id);
         const count = catalogProgramsForCollege(id).length;
@@ -7815,13 +7822,52 @@ function refreshSyllabiYearSectionHeaders() {
     if (!firstRows.length) return;
 
     const selectedProgramIds = getSelectedSyllabiProgramIds();
+    const cat = window.__registerCatalog || {};
+    const progMetaById = {};
+    Object.values(cat.programsByCollege || {}).forEach((list) => {
+        (list || []).forEach((p) => {
+            progMetaById[String(p.program_id)] = p;
+        });
+    });
+    const allCatalogCourses = [];
+    Object.entries(cat.coursesByProgramSemester || {}).forEach(([key, rows]) => {
+        const pid = String(key.split(':')[0] || '');
+        (rows || []).forEach((c) => allCatalogCourses.push({ ...c, _pid: pid }));
+    });
     const groups = firstRows.map((first) => {
-        const year = (first.querySelector('.syllabi-merged-year')?.value || '').trim();
+        let year = (first.querySelector('.syllabi-merged-year')?.value || '').trim();
         const code = (first.querySelector('.syllabi-merged-code')?.value || '').trim();
         const name = (first.querySelector('.syllabi-merged-course')?.value || '').trim();
-        const programId = String(first.dataset.programId || '');
-        const programName = String(first.dataset.programName || '');
-        const programCode = String(first.dataset.programCode || '');
+        let programId = String(first.dataset.programId || '');
+        let programName = String(first.dataset.programName || '');
+        let programCode = String(first.dataset.programCode || '');
+
+        // Hydrate missing program/year metadata on saved rows from catalog lookup so they never fall back to "PROGRAM · PROGRAM / NO YEAR LEVEL".
+        if ((!programId || !programName || !year) && (code || name)) {
+            const cLower = code.toLowerCase();
+            const nLower = name.toLowerCase();
+            const match = allCatalogCourses.find((c) =>
+                (cLower && String(c.course_code || '').trim().toLowerCase() === cLower)
+                || (nLower && String(c.course_name || '').trim().toLowerCase() === nLower)
+            );
+            if (match) {
+                if (!programId && match._pid) {
+                    programId = match._pid;
+                    first.dataset.programId = programId;
+                }
+                if (!year && match.year_level) {
+                    year = String(match.year_level).trim();
+                    const yEl = first.querySelector('.syllabi-merged-year');
+                    if (yEl) yEl.value = year;
+                }
+            }
+        }
+        if (programId && !programName && progMetaById[programId]) {
+            programName = String(progMetaById[programId].program_name || '').trim();
+            programCode = String(progMetaById[programId].program_code || '').trim();
+            first.dataset.programName = programName;
+            first.dataset.programCode = programCode;
+        }
         const groupId = first.dataset.group;
         const rows = [...tbody.querySelectorAll(`tr[data-group="${groupId}"]`)]
             .sort((a, b) => (parseInt(a.dataset.copyNo, 10) || 0) - (parseInt(b.dataset.copyNo, 10) || 0));

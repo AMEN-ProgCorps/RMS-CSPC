@@ -1724,8 +1724,8 @@ class DcsPrintTemplateHelper
 
                 // Body — identical spacing to official DRF print
                 self::block('text', 'body', 0.5, $titleY, 7.5, $titleH, 'DOCUMENT REQUEST FORM', 'form_title', array_merge($style, ['align' => 'center', 'fontWeight' => 700, 'fontSizePt' => 12])),
-                self::block('field', 'body', 0.5, $requestY, 2.55, $rowH, 'Request # :', 'request_no', array_merge($style, ['underline' => true])),
-                self::block('field', 'body', 4.55, $requestY, 3.45, $rowH, 'Date:', 'drf_date', array_merge($style, ['underline' => true])),
+                self::block('field', 'body', 0.5, $requestY, 1.55, $rowH, 'Request # :', 'request_no', array_merge($style, ['underline' => true])),
+                self::block('field', 'body', 4.55, $requestY, 2.24, $rowH, 'Date:', 'drf_date', array_merge($style, ['underline' => true])),
                 self::block('field', 'body', 0.5, $originatorY, 7.5, $rowH, 'Originator :', 'originator', array_merge($style, ['underline' => true])),
                 self::block('field', 'body', 0.5, $docTitleY, 7.5, $rowH, 'Document Title :', 'doc_title', array_merge($style, ['underline' => true])),
                 array_merge(

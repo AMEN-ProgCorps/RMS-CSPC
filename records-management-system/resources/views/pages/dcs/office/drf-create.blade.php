@@ -223,33 +223,6 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
                     <span>Document Request Form{{ ($isRecurring ?? false) ? ' · Recurring' : '' }}</span>
                 </div>
                 <div class="reg-card-body ofi-drf-form">
-                    <div class="reg-field">
-                        <label for="drfOriginatorName">Originator <span class="ofi-req">*</span></label>
-                        <input type="text" id="drfOriginatorName" name="originatorName" value="{{ old('originatorName', $prefill['originatorName'] ?? '') }}" required placeholder="Separate multiple originators with a comma">
-                        @if($isRecurring ?? false)
-                            <div id="drfSuggestOriginator" class="ofi-suggest" hidden></div>
-                        @endif
-                    </div>
-                    <div class="reg-grid-2-1">
-                        @include('pages.dcs.office.partials.dcn-department-field', [
-                            'userOfficeId' => $userOfficeId ?? 0,
-                            'userOfficeCode' => $userOfficeCode ?? '',
-                            'userOfficeName' => $userOfficeName ?? '',
-                            'userOfficeLabel' => $userOfficeLabel ?? '',
-                            'departmentFieldLabel' => 'Source unit',
-                        ])
-                        <div class="reg-field">
-                            <label>Date <span class="ofi-req">*</span></label>
-                            <input type="date" id="drfDate" name="drfDate" value="{{ old('drfDate', $prefill['drfDate'] ?? now()->toDateString()) }}" required>
-                        </div>
-                    </div>
-                    <div class="reg-field">
-                        <label for="drfTitle">Document Title <span class="ofi-req">*</span></label>
-                        <input type="text" id="drfTitle" name="drfTitle" value="{{ old('drfTitle', $prefill['drfTitle'] ?? '') }}" required placeholder="Enter document title">
-                        @if($isRecurring ?? false)
-                            <div id="drfSuggestTitle" class="ofi-suggest" hidden></div>
-                        @endif
-                    </div>
                     <div class="reg-field" id="ofiDrfDocTypeBlock">
                         <label>Type of document <span class="ofi-req">*</span></label>
                         @php
@@ -343,15 +316,46 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
                         @endphp
                         @include('pages.dcs.office.partials.drf-syllabi-context', [
                             'syllabiContextVisible' => $syllabiContextVisible,
+                            'allowBatchMode' => ! ($isRecurring ?? false) && (($fromDcnId ?? 0) < 1),
+                            'oldSyllabiMode' => old('syllabiMode', 'single'),
                             'oldCourseType' => old('courseType', ''),
                             'oldCollegeId' => old('collegeId', ''),
                             'oldProgramId' => old('programId', ''),
                             'oldSemesterId' => old('semesterId', ''),
                             'oldCourseId' => old('courseId', ''),
+                            'oldCourseIds' => old('courseIds', []),
+                            'oldBatchItems' => old('batchItems', []),
                             'oldSchoolYearId' => old('schoolYearId', ''),
                         ])
                     </div>
-                    <div class="reg-field">
+                    <div class="reg-field" id="ofiDrfSingleTitleWrap">
+                        <label for="drfTitle">Document Title <span class="ofi-req">*</span></label>
+                        <input type="text" id="drfTitle" name="drfTitle" value="{{ old('drfTitle', $prefill['drfTitle'] ?? '') }}" required placeholder="Enter document title">
+                        @if($isRecurring ?? false)
+                            <div id="drfSuggestTitle" class="ofi-suggest" hidden></div>
+                        @endif
+                    </div>
+                    <div class="reg-field" id="ofiDrfSingleOriginatorWrap">
+                        <label for="drfOriginatorName">Originator <span class="ofi-req">*</span></label>
+                        <input type="text" id="drfOriginatorName" name="originatorName" value="{{ old('originatorName', $prefill['originatorName'] ?? '') }}" required placeholder="Separate multiple originators with a comma">
+                        @if($isRecurring ?? false)
+                            <div id="drfSuggestOriginator" class="ofi-suggest" hidden></div>
+                        @endif
+                    </div>
+                    <div class="reg-grid-2-1">
+                        @include('pages.dcs.office.partials.dcn-department-field', [
+                            'userOfficeId' => $userOfficeId ?? 0,
+                            'userOfficeCode' => $userOfficeCode ?? '',
+                            'userOfficeName' => $userOfficeName ?? '',
+                            'userOfficeLabel' => $userOfficeLabel ?? '',
+                            'departmentFieldLabel' => 'Source unit',
+                        ])
+                        <div class="reg-field">
+                            <label>Date <span class="ofi-req">*</span></label>
+                            <input type="date" id="drfDate" name="drfDate" value="{{ old('drfDate', $prefill['drfDate'] ?? now()->toDateString()) }}" required>
+                        </div>
+                    </div>
+                    <div class="reg-field" id="ofiDrfSingleDescWrap">
                         <label>Description/reason for request (define in detail) <span class="ofi-req">*</span></label>
                         <textarea id="descriptionReason" name="descriptionReason" rows="4" required maxlength="5000" placeholder="For document control and dissemination">{{ old('descriptionReason') }}</textarea>
                     </div>
@@ -389,6 +393,8 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
                         </div>
                     </div>
 
+                    @include('pages.dcs.office.partials.review-link-field', ['value' => old('reviewDocumentLink', '')])
+
                     @php
                         $templateSig = $sigPrefill ?? null;
                     @endphp
@@ -400,18 +406,16 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
                                 <div class="reg-field">
                                     <label for="preparedByName">Name <span class="ofi-req">*</span></label>
                                     <input type="text" id="preparedByName" name="preparedByName"
-                                        value="{{ old('preparedByName', $templateSig['prepared_by_name'] ?? '') }}"
+                                        value="{{ old('preparedByName') }}"
                                         required maxlength="255"
-                                        placeholder="Prepared by name"
-                                        data-sig-key="prepared_by_name">
+                                        placeholder="Prepared by name">
                                 </div>
                                 <div class="reg-field">
                                     <label for="preparedByDesignation">Designation <span class="ofi-req">*</span></label>
                                     <input type="text" id="preparedByDesignation" name="preparedByDesignation"
-                                        value="{{ old('preparedByDesignation', $templateSig['prepared_by_designation'] ?? '') }}"
+                                        value="{{ old('preparedByDesignation') }}"
                                         required maxlength="255"
-                                        placeholder="Prepared by designation"
-                                        data-sig-key="prepared_by_designation">
+                                        placeholder="Prepared by designation">
                                 </div>
                             </div>
                         </div>

@@ -36,6 +36,8 @@ DCS file: CSPC-F-DCC-01 print. Originator stays on the single signature line, co
         }
         @if(!empty($hideToolbar) || !empty($embed))
         .print-toolbar { display: none !important; }
+        @endif
+        @if(!empty($embed))
         .sheet { margin: 0 !important; box-shadow: none !important; }
         @endif
         .print-toolbar {

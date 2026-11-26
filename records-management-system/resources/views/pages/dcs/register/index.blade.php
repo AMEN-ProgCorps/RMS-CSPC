@@ -3263,17 +3263,40 @@ function applyOfficeIntakeSyllabiDrfDefaults(prefill) {
     const drfDate = String(syl.drf_date || prefill?.drfDate || '').trim();
     const originators = officeIntakeSyllabiOriginatorNames(prefill);
     seedOfficeIntakePeerIds(prefill);
-    const tr = ensureSyllabiRowForIntakeCourse(prefill) || findSyllabiRowForIntakeCourse(prefill);
-    if (!tr) return;
 
-    // Stamp only the office request's selected course — never cascade to other rows.
+    const requestedCourseIds = Array.isArray(syl.course_ids) && syl.course_ids.length
+        ? syl.course_ids.map((id) => String(id)).filter(Boolean)
+        : (syl.course_id ? [String(syl.course_id)] : []);
+
+    const matchedEntries = [];
+    const seenTr = new Set();
+    if (requestedCourseIds.length > 0) {
+        requestedCourseIds.forEach((cid) => {
+            const subPrefill = { ...prefill, syllabi: { ...syl, course_id: cid } };
+            const r = ensureSyllabiRowForIntakeCourse(subPrefill) || findSyllabiRowForIntakeCourse(subPrefill);
+            if (r && !seenTr.has(r)) {
+                seenTr.add(r);
+                matchedEntries.push({ tr: r, courseId: cid });
+            }
+        });
+    } else {
+        const single = ensureSyllabiRowForIntakeCourse(prefill) || findSyllabiRowForIntakeCourse(prefill);
+        if (single) matchedEntries.push({ tr: single, courseId: syl.course_id ? String(syl.course_id) : '' });
+    }
+    if (!matchedEntries.length) return;
+
+    const perCourseOriginators = (syl.course_originators && typeof syl.course_originators === 'object')
+        ? syl.course_originators
+        : null;
+
+    // Stamp only the office request's selected course(s) — never cascade to unrelated rows.
     window.__syllabiIntakeStampLock = true;
     try {
-        tr.dataset.intakeCourse = '1';
+        matchedEntries.forEach(({ tr }) => { tr.dataset.intakeCourse = '1'; });
 
-        // Uncheck empty DRF rows that are not this request (keep prior registered DRF data).
+        // Uncheck empty DRF rows that are not part of this request (keep prior registered DRF data).
         document.querySelectorAll('#syllabiTableBody tr[data-is-first="true"]').forEach((other) => {
-            if (other === tr) return;
+            if (seenTr.has(other)) return;
             const cb = other.querySelector('.syllabi-drf-availability');
             if (!cb || !cb.checked) return;
             const date = String(other.querySelector('input[name="syllabiDrfDate[]"]')?.value || '').trim();
@@ -3283,35 +3306,40 @@ function applyOfficeIntakeSyllabiDrfDefaults(prefill) {
             if (typeof window.syncSyllabiDrfRow === 'function') window.syncSyllabiDrfRow(other);
         });
 
-        // Course availability on so faculty/received fields are usable for this row.
-        const availCb = tr.querySelector('.syllabi-merged-availability');
-        if (availCb && !availCb.checked) {
-            availCb.checked = true;
-            if (typeof window.syncSyllabiMergedFields === 'function') {
-                window.syncSyllabiMergedFields(tr.dataset.group);
+        matchedEntries.forEach(({ tr, courseId }) => {
+            // Course availability on so faculty/received fields are usable for this row.
+            const availCb = tr.querySelector('.syllabi-merged-availability');
+            if (availCb && !availCb.checked) {
+                availCb.checked = true;
+                if (typeof window.syncSyllabiMergedFields === 'function') {
+                    window.syncSyllabiMergedFields(tr.dataset.group);
+                }
+                if (typeof window.syncSyllabiAvailability === 'function') {
+                    window.syncSyllabiAvailability(tr.dataset.group);
+                }
             }
-            if (typeof window.syncSyllabiAvailability === 'function') {
-                window.syncSyllabiAvailability(tr.dataset.group);
-            }
-        }
 
-        const checkbox = tr.querySelector('.syllabi-drf-availability');
-        if (checkbox) {
-            checkbox.checked = true;
-            if (typeof window.syncSyllabiDrfRow === 'function') {
-                window.syncSyllabiDrfRow(tr);
+            const checkbox = tr.querySelector('.syllabi-drf-availability');
+            if (checkbox) {
+                checkbox.checked = true;
+                if (typeof window.syncSyllabiDrfRow === 'function') {
+                    window.syncSyllabiDrfRow(tr);
+                }
             }
-        }
-        if (drfDate) {
-            const dateInput = tr.querySelector('input[name="syllabiDrfDate[]"]');
-            if (dateInput) {
-                dateInput.disabled = false;
-                dateInput.readOnly = false;
-                dateInput.classList.remove('is-locked');
-                dateInput.value = drfDate;
+            if (drfDate) {
+                const dateInput = tr.querySelector('input[name="syllabiDrfDate[]"]');
+                if (dateInput) {
+                    dateInput.disabled = false;
+                    dateInput.readOnly = false;
+                    dateInput.classList.remove('is-locked');
+                    dateInput.value = drfDate;
+                }
             }
-        }
-        originators.forEach((name) => seedSyllabiFacultyFromOriginator(name, tr));
+            const rowOriginators = (perCourseOriginators && courseId && Array.isArray(perCourseOriginators[courseId]) && perCourseOriginators[courseId].length)
+                ? perCourseOriginators[courseId]
+                : originators;
+            rowOriginators.forEach((name) => seedSyllabiFacultyFromOriginator(name, tr));
+        });
     } finally {
         window.__syllabiIntakeStampLock = false;
     }
@@ -3368,15 +3396,20 @@ async function applyOfficeIntakeSyllabiPrefill(prefill) {
         await wait(40);
     }
     if (typeof refreshSyllabiYearLevelDisplay === 'function') {
-        const available = typeof yearLevelsFromCourses === 'function'
+        const fromCourses = typeof yearLevelsFromCourses === 'function'
             ? yearLevelsFromCourses(typeof catalogCoursesForContext === 'function' ? catalogCoursesForContext() : [])
             : [];
-        // Keep the request course's year selected so that course row is present to stamp.
-        const prefer = syl.year_level ? [String(syl.year_level)] : null;
-        refreshSyllabiYearLevelDisplay(
-            available.length ? available : (prefer || []),
-            prefer && prefer.length ? prefer : null
-        );
+        const allowed = typeof allowedYearLevelsForCourseType === 'function'
+            ? allowedYearLevelsForCourseType(courseType)
+            : [];
+        const reqYears = Array.isArray(syl.year_levels) && syl.year_levels.length
+            ? syl.year_levels.map((y) => String(y)).filter(Boolean)
+            : (syl.year_level ? [String(syl.year_level)] : []);
+        const allYears = [...new Set([...allowed, ...fromCourses, ...reqYears])]
+            .filter(Boolean)
+            .sort((a, b) => yearLevelSortIndex(a) - yearLevelSortIndex(b));
+        // Include all year levels for this registration pack so future requests for other year levels merge cleanly.
+        refreshSyllabiYearLevelDisplay(allYears, null);
     }
     if (syl.school_year_id && sySel) {
         sySel.disabled = false;
@@ -9022,12 +9055,15 @@ function syllabiSelectionErrors() {
         && isInstitutionalSyllabiCourseType(courseType);
     const required = [
         ['syllabiCollege', 'College'],
-        [['syllabiProgram', 'Program']],
+        ['syllabiProgram', 'Program'],
         ['syllabiSemester', 'Semester'],
         ['syllabiCourseType', 'Course type'],
         ['syllabiSchoolYear', 'School year'],
     ];
     return required.flatMap(([id, label]) => {
+        if (id === 'syllabiProgram' && typeof getSelectedSyllabiProgramIds === 'function' && getSelectedSyllabiProgramIds().length > 0) {
+            return [];
+        }
         const el = document.getElementById(id);
         const hidden = document.getElementById(id + 'Hidden') || document.getElementById(id + '__locked');
         const value = (el && String(el.value || '').trim())
@@ -10740,7 +10776,7 @@ function syllabiYearLevelOptionsHtml(selected) {
         .filter((y) => capped.includes(y))
         .sort((a, b) => yearLevelSortIndex(a) - yearLevelSortIndex(b));
     const opts = levels.length ? levels : capped;
-    return '<option value="">Year</option>' + opts.map((y) =>
+    return '<option value="" disabled' + (sel === '' ? ' selected' : '') + '>Year</option>' + opts.map((y) =>
         `<option value="${y}"${y === sel ? ' selected' : ''}>${y}</option>`
     ).join('');
 }
@@ -10853,9 +10889,9 @@ function updateSyllabiCpTriggerLabel() {
     }
     const text = selected.length === 1
         ? `${selected[0].college_name || 'College'} — ${selected[0].program_name || 'Program'}`
-        : `${selected.length} programs selected`;
+        : selected.map((p) => (String(p.program_code || '').trim() || String(p.program_name || '').trim() || 'Program')).join(', ');
     labelEl.textContent = text;
-    labelEl.title = text;
+    labelEl.title = selected.map((p) => `${p.college_name || 'College'} — ${p.program_name || 'Program'}`).join(', ');
 }
 
 function renderSyllabiCpPrograms(collegeId) {
@@ -10908,12 +10944,19 @@ function renderSyllabiCpPrograms(collegeId) {
 function renderSyllabiCpColleges(preferCollegeId = '') {
     const host = document.getElementById('syllabiCpColleges');
     if (!host) return;
-    const colleges = catalogCollegesList();
+    const allColleges = catalogCollegesList();
+    const courseType = String(document.getElementById('syllabiCourseType')?.value || '').trim();
+    const selectedCollegeId = String(document.getElementById('syllabiCollege')?.value || '').trim();
+    const colleges = (courseType === 'Major' && selectedCollegeId)
+        ? allColleges.filter((c) => String(c.college_id) === selectedCollegeId)
+        : allColleges;
     if (!colleges.length) {
         host.innerHTML = '<div class="reg-cp-programs-empty">No colleges found</div>';
         return;
     }
-    const active = String(preferCollegeId || window.__syllabiCpActiveCollegeId || document.getElementById('syllabiCollege')?.value || colleges[0].college_id || '');
+    const active = (courseType === 'Major' && selectedCollegeId)
+        ? selectedCollegeId
+        : String(preferCollegeId || window.__syllabiCpActiveCollegeId || selectedCollegeId || colleges[0].college_id || '');
     host.innerHTML = colleges.map((c) => {
         const id = String(c.college_id);
         const count = catalogProgramsForCollege(id).length;
@@ -11206,6 +11249,33 @@ function syncSyllabiContextCascade() {
 
 const SYLLABI_CTX_STORAGE_KEY = 'dcs_reg_syllabi_ctx_v1';
 
+const __isSyllabiPageReload = (() => {
+    try {
+        const nav = performance.getEntriesByType?.('navigation')?.[0];
+        return nav ? nav.type === 'reload' : (performance.navigation?.type === 1);
+    } catch (_) {
+        return false;
+    }
+})();
+const __hasDraftParamOnLoad = (() => {
+    try {
+        const qs = new URLSearchParams(window.location.search);
+        return !!(qs.get('draft') || qs.get('draft_id'));
+    } catch (_) {
+        return false;
+    }
+})();
+
+// On a fresh navigation to Register Document (not a page reload and not resuming a draft),
+// clear any stale Syllabi dropdown state so new registrations always start blank.
+if (!__isSyllabiPageReload && !__hasDraftParamOnLoad) {
+    try {
+        sessionStorage.removeItem(SYLLABI_CTX_STORAGE_KEY);
+    } catch (_) {
+        // ignore
+    }
+}
+
 function clearSyllabiContextSelectionStorage() {
     try {
         sessionStorage.removeItem(SYLLABI_CTX_STORAGE_KEY);
@@ -11237,6 +11307,7 @@ function persistSyllabiContextSelection() {
 
 async function restoreSyllabiContextSelection() {
     if (window.__officeIntakeSyllabiLocked || window.__officeIntakePrefill) return false;
+    if (!__isSyllabiPageReload && !__hasDraftParamOnLoad && !window.activeDraftId) return false;
     let raw = null;
     try {
         raw = sessionStorage.getItem(SYLLABI_CTX_STORAGE_KEY);

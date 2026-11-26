@@ -70,8 +70,25 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
             $sourceOffice = (string) ($meta['office'] ?? '');
         }
 
+        $batchItems = OfficeIntakeHelper::drfBatchItems((int) $drf->id);
+        if (count($batchItems) > 1 && \Illuminate\Support\Facades\Schema::hasTable('dcs_program_courses')) {
+            $cIds = array_values(array_unique(array_filter(array_map(fn ($i) => (int) ($i['course_id'] ?? 0), $batchItems))));
+            $courseMap = $cIds !== []
+                ? \Illuminate\Support\Facades\DB::table('dcs_program_courses')->whereIn('id', $cIds)->get(['id', 'course_code', 'course_name', 'year_level'])->keyBy('id')
+                : collect();
+            $batchItems = array_map(function (array $item) use ($courseMap) {
+                $c = $courseMap->get((int) ($item['course_id'] ?? 0));
+                $item['course_code'] = trim((string) ($c->course_code ?? ''));
+                $item['course_name'] = trim((string) ($c->course_name ?? ''));
+                $item['year_level'] = trim((string) ($c->year_level ?? ''));
+
+                return $item;
+            }, $batchItems);
+        }
+
         return [
             'drf' => $drf,
+            'batchItems' => $batchItems,
             'distributeOffices' => $distributeOffices,
             'departmentLabel' => $sourceOffice !== '' ? $sourceOffice : '—',
             'immutableMessage' => OfficeIntakeHelper::IMMUTABLE_MESSAGE,
@@ -158,7 +175,7 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
                 <i class="fa-solid fa-triangle-exclamation" aria-hidden="true"></i>
                 <div class="ofi-alert-body">
                     <strong>RFIU asked for corrections</strong>
-                    <span>{{ $editReason }}</span>
+                    <span>{!! \App\Helpers\OfficeIntakeHelper::linkifyHtml($editReason) !!}</span>
                 </div>
             </div>
         @endif
@@ -195,16 +212,21 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
             @endif
         </div>
 
+        @php
+            $isBatchShow = is_array($batchItems ?? null) && count($batchItems) > 1;
+        @endphp
         <section class="reg-card ofi-show-card">
             <div class="reg-card-header">
-                <span>Document Request Form</span>
+                <span>Document Request Form @if($isBatchShow)<span style="margin-left:8px;padding:2px 9px;border-radius:999px;background:#e8f0fe;color:#0d2a7a;font-size:11px;font-weight:700;">Batch · {{ count($batchItems) }} DRFs</span>@endif</span>
                 <span class="ofi-form-code-badge">{{ \App\Helpers\DcsPrintTemplateHelper::get('office_drf')->form_code ?? 'CSPC-F-DCC-06' }}</span>
             </div>
             <div class="reg-card-body ofi-drf-form ofi-show-form">
+                @unless($isBatchShow)
                 <div class="reg-field">
                     <label>Originator</label>
                     <div class="ofi-show-value"><x-dcs.originator-lines :name="$originator" /></div>
                 </div>
+                @endunless
                 <div class="reg-grid-2-1">
                     <div class="reg-field">
                         <label>Source unit</label>
@@ -216,10 +238,12 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
                     </div>
                 </div>
 
+                @unless($isBatchShow)
                 <div class="reg-field">
                     <label>Document Title</label>
                     <div class="ofi-show-value">{{ $drf->doc_title ?: '—' }}</div>
                 </div>
+                @endunless
 
                 @php
                     $syllabiCtx = \App\Helpers\OfficeIntakeHelper::officeDrfSyllabiContextFromRow($drf);
@@ -249,12 +273,49 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
                             <div class="ofi-show-value">{{ $syllabiCtx['semester'] ?: '—' }}</div>
                         </div>
                         <div class="reg-field">
+                            <label>School year</label>
+                            <div class="ofi-show-value">{{ $syllabiCtx['school_year'] ?: '—' }}</div>
+                        </div>
+                        @unless($isBatchShow)
+                        <div class="reg-field">
                             <label>Course name</label>
                             <div class="ofi-show-value">{{ $syllabiCtx['course'] ?: '—' }}</div>
                         </div>
-                        <div class="reg-field">
-                            <label>School year</label>
-                            <div class="ofi-show-value">{{ $syllabiCtx['school_year'] ?: '—' }}</div>
+                        @endunless
+                    </div>
+                @endif
+
+                @if($isBatchShow)
+                    <div class="reg-field" style="margin-top:12px;">
+                        <label>Individual DRFs in this batch ({{ count($batchItems) }} courses)</label>
+                        <div style="display:flex;flex-direction:column;gap:12px;margin-top:6px;">
+                            @foreach($batchItems as $bIdx => $bItem)
+                                <div style="border:1.5px solid #dbe6f7;border-radius:10px;background:#f8fbff;padding:12px 14px;">
+                                    <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-bottom:10px;padding-bottom:8px;border-bottom:1px solid #e2ecf8;">
+                                        <span style="padding:2px 9px;border-radius:999px;background:#0d2a7a;color:#fff;font-size:11px;font-weight:700;">DRF #{{ $bIdx + 1 }}</span>
+                                        <strong style="font-size:0.9rem;color:#0f172a;">
+                                            @if(!empty($bItem['course_code'])){{ $bItem['course_code'] }} — @endif{{ $bItem['course_name'] ?: ('Course #' . ($bItem['course_id'] ?? '')) }}
+                                        </strong>
+                                        @if(!empty($bItem['year_level']))
+                                            <span style="margin-left:auto;padding:2px 8px;border-radius:999px;background:#e2e8f0;color:#334155;font-size:11px;font-weight:600;">{{ $bItem['year_level'] }}</span>
+                                        @endif
+                                    </div>
+                                    <div style="display:flex;flex-direction:column;gap:8px;">
+                                        <div class="reg-field" style="margin:0;">
+                                            <label>Document Title</label>
+                                            <div class="ofi-show-value" style="background:#fff;">{{ ($bItem['drfTitle'] ?? '') !== '' ? $bItem['drfTitle'] : '—' }}</div>
+                                        </div>
+                                        <div class="reg-field" style="margin:0;">
+                                            <label>Originator</label>
+                                            <div class="ofi-show-value" style="background:#fff;"><x-dcs.originator-lines :name="$bItem['originatorName'] ?? ''" /></div>
+                                        </div>
+                                        <div class="reg-field" style="margin:0;">
+                                            <label>Description/reason for request</label>
+                                            <div class="ofi-show-value is-multiline" style="background:#fff;">{{ ($bItem['descriptionReason'] ?? '') !== '' ? $bItem['descriptionReason'] : '—' }}</div>
+                                        </div>
+                                    </div>
+                                </div>
+                            @endforeach
                         </div>
                     </div>
                 @endif
@@ -315,10 +376,12 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
                     @endif
                 </div>
 
+                @unless($isBatchShow)
                 <div class="reg-field">
                     <label>Description/reason for request (define in detail)</label>
                     <div class="ofi-show-value is-multiline">{{ $drf->description_reason ?: '—' }}</div>
                 </div>
+                @endunless
 
                 <div class="reg-field">
                     <label class="ofi-distribute-label">
@@ -347,6 +410,18 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
                         <div class="ofi-show-value is-empty">—</div>
                     @endif
                 </div>
+
+                @php $drfReviewLink = \App\Helpers\OfficeIntakeHelper::intakeReviewLink('drf', (int) $drf->id); @endphp
+                @if($drfReviewLink !== '')
+                    <div class="reg-field">
+                        <label>Document link for review</label>
+                        <div class="ofi-show-value">
+                            <a href="{{ $drfReviewLink }}" target="_blank" rel="noopener noreferrer" style="color:#0d2a7a;font-weight:600;text-decoration:underline;word-break:break-all;">
+                                <i class="fa-solid fa-arrow-up-right-from-square" style="margin-right:5px;font-size:0.8em;"></i>{{ $drfReviewLink }}
+                            </a>
+                        </div>
+                    </div>
+                @endif
 
                 <div class="ofi-sig-block ofi-sig-block--show">
                     <p class="ofi-sig-heading">Signatories</p>

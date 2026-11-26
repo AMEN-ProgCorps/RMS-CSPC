@@ -859,7 +859,39 @@ tr.st-course-data.is-selected td {
     font-size: 0.82rem;
     color: var(--set-text-sec);
     line-height: 1.5;
-    margin-bottom: 20px;
+    margin-bottom: 16px;
+}
+
+.delete-modal .delete-preview-wrap {
+    margin: 0 0 18px;
+    padding: 10px 12px;
+    border-radius: 10px;
+    border: 1px solid #fecaca;
+    background: #fef2f2;
+    text-align: left;
+}
+
+.delete-modal .delete-preview-label {
+    font-size: 0.68rem;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    color: #991b1b;
+    margin-bottom: 6px;
+}
+
+.delete-modal .delete-preview-list {
+    margin: 0;
+    padding-left: 16px;
+    max-height: 160px;
+    overflow-y: auto;
+    display: flex;
+    flex-direction: column;
+    gap: 3px;
+    font-size: 0.78rem;
+    font-weight: 600;
+    color: #7f1d1d;
+    line-height: 1.35;
 }
 
 .delete-modal .st-btn-danger {

@@ -10714,7 +10714,7 @@ async function loadSyllabiContextDropdowns() {
     }
 }
 
-const SYLLABI_YEAR_LEVELS = ['1st Year', '2nd Year', '3rd Year', '4th Year', '5th Year'];
+const SYLLABI_YEAR_LEVELS = @json(\App\Helpers\CourseTypeRules::allYearLevels());
 
 /**
  * Years level sort index.
@@ -10746,9 +10746,8 @@ function syllabiYearLevelOptionsHtml(selected) {
 }
 
 function allowedYearLevelsForCourseType(type) {
-    if (type === 'GE Courses') return ['1st Year', '2nd Year', '3rd Year'];
-    if (type === 'PE Courses') return ['1st Year', '2nd Year'];
-    if (type === 'NSTP') return ['1st Year'];
+    if (type === 'PE Courses') return SYLLABI_YEAR_LEVELS.filter((y) => ['1st Year', '2nd Year'].includes(y));
+    if (type === 'NSTP') return SYLLABI_YEAR_LEVELS.filter((y) => y === '1st Year');
     return [...SYLLABI_YEAR_LEVELS];
 }
 

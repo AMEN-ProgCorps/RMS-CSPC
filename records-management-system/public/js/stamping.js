@@ -43,6 +43,45 @@ document.addEventListener('DOMContentLoaded', function () {
     const pageIndicator = document.getElementById('pageIndicator');
     const customPosHint = document.getElementById('customPosHint');
 
+    const toggleImportStampBtn   = document.getElementById('toggleImportStampBtn');
+    const importStampBox         = document.getElementById('importStampBox');
+    const importStampLabel       = document.getElementById('importStampLabel');
+    const importStampFile        = document.getElementById('importStampFile');
+    const importStampPreviewWrap = document.getElementById('importStampPreviewWrap');
+    const importStampPreviewImg  = document.getElementById('importStampPreviewImg');
+    const cancelImportStampBtn   = document.getElementById('cancelImportStampBtn');
+    const submitImportStampBtn   = document.getElementById('submitImportStampBtn');
+
+    const stampSizeSlider        = document.getElementById('stampSizeSlider');
+    const stampSizeReadout       = document.getElementById('stampSizeReadout');
+    const resetStampSizeBtn      = document.getElementById('resetStampSizeBtn');
+    const redetectAutoPlaceBtn   = document.getElementById('redetectAutoPlaceBtn');
+
+    const deleteCustomStampModal   = document.getElementById('deleteCustomStampModal');
+    const deleteCustomStampName    = document.getElementById('deleteCustomStampName');
+    const deleteCustomStampCancel  = document.getElementById('deleteCustomStampCancel');
+    const deleteCustomStampConfirm = document.getElementById('deleteCustomStampConfirm');
+    let pendingDeleteCustomStampId = null;
+
+    let stampCatalog = Array.isArray(window.DCS_STAMPS_CATALOG) && window.DCS_STAMPS_CATALOG.length
+        ? window.DCS_STAMPS_CATALOG.slice()
+        : [{
+            id: 'reference',
+            label: 'Reference',
+            title: 'REFERENCE',
+            color: '#b03030',
+            width_mm: 36,
+            height_mm: 13,
+            aspect: 36 / 13,
+            image_url: '/images/stamps/reference.png',
+            is_custom: false,
+        }];
+
+    function getStampDef(id) {
+        if (!id) return stampCatalog[0] || null;
+        return stampCatalog.find(function (s) { return s.id === id; }) || stampCatalog[0] || null;
+    }
+
     // ═══════════════════════════════════════════
     // STATE
     // ═══════════════════════════════════════════
@@ -70,6 +109,9 @@ document.addEventListener('DOMContentLoaded', function () {
         pageWidthMm: null,
         pageHeightMm: null,
         pageMetricsLocked: false,
+        stampBaseWidthMm: 36,
+        stampBaseHeightMm: 13,
+        stampScale: 1,
         stampWidthMm: 36,
         stampHeightMm: 13,
         pdfDoc: null,
@@ -79,6 +121,8 @@ document.addEventListener('DOMContentLoaded', function () {
     let placementTimer = null;
     let placementRequestId = 0;
     let dragState = null;
+    let resizeState = null;
+    let importPreviewObjectUrl = null;
     let renderToken = 0;
     let pageObserver = null;
     let pageRenderQueue = [];
@@ -116,9 +160,11 @@ document.addEventListener('DOMContentLoaded', function () {
         return raw || 'document';
     }
 
-    /** Download / display name: REFERENCE (scan-name). */
+    /** Download / display name: STAMP_TITLE (scan-name). */
     function referenceDocTitle() {
-        return 'REFERENCE (' + scanBaseName() + ')';
+        var def = getStampDef(state.stampType || (state.selectedFile && state.selectedFile.stamp_type) || 'reference');
+        var prefix = (def && def.title) ? def.title : 'REFERENCE';
+        return prefix + ' (' + scanBaseName() + ')';
     }
 
     function sanitizeDownloadName(name) {
@@ -834,12 +880,15 @@ document.addEventListener('DOMContentLoaded', function () {
 
     function applyAutoPlacementMetrics(data) {
         if (!data) return;
-        if (data.stamp_width_mm) state.stampWidthMm = data.stamp_width_mm;
-        if (data.stamp_height_mm) state.stampHeightMm = data.stamp_height_mm;
+        if (Math.abs((state.stampScale || 1) - 1) < 0.001) {
+            if (data.stamp_width_mm) state.stampWidthMm = data.stamp_width_mm;
+            if (data.stamp_height_mm) state.stampHeightMm = data.stamp_height_mm;
+        }
         if (data.page_width_mm) state.pageWidthMm = data.page_width_mm;
         if (data.page_height_mm) state.pageHeightMm = data.page_height_mm;
         if (data.page_width_mm && data.page_height_mm) state.pageMetricsLocked = true;
-        if (data.width_pct) state.widthPct = data.width_pct;
+        if (data.width_pct && Math.abs((state.stampScale || 1) - 1) < 0.001) state.widthPct = data.width_pct;
+        syncStampSizeUI();
     }
 
     /** Apply empty-area result to one page only (never mirrors across pages). */
@@ -1130,8 +1179,103 @@ document.addEventListener('DOMContentLoaded', function () {
         dragState = null;
     }
 
+    function syncStampSizeUI() {
+        var pct = Math.round((state.stampScale || 1) * 100);
+        if (stampSizeSlider) {
+            var clamped = Math.max(40, Math.min(250, pct));
+            stampSizeSlider.value = String(clamped);
+        }
+        if (stampSizeReadout) {
+            var w = Math.round((state.stampWidthMm || 36) * 10) / 10;
+            var h = Math.round((state.stampHeightMm || 13) * 10) / 10;
+            stampSizeReadout.textContent = pct + '% · ' + w + ' × ' + h + ' mm';
+        }
+    }
+
+    function applyStampScale(scale) {
+        var baseW = Math.max(1, state.stampBaseWidthMm || 36);
+        var baseH = Math.max(1, state.stampBaseHeightMm || 13);
+        var minScale = Math.max(0.35, 8 / baseW, 5 / baseH);
+        var maxScale = Math.min(3.0, 160 / baseW, 160 / baseH);
+        var nextScale = Math.max(minScale, Math.min(maxScale, Number(scale) || 1));
+
+        state.stampScale = Math.round(nextScale * 1000) / 1000;
+        state.stampWidthMm = Math.round(baseW * state.stampScale * 100) / 100;
+        state.stampHeightMm = Math.round(baseH * state.stampScale * 100) / 100;
+        state.widthPct = stampWidthPct();
+
+        // Keep existing placements clamped within the page when growing the stamp.
+        Object.keys(state.pagePlacements).forEach(function (key) {
+            var p = state.pagePlacements[key];
+            if (!p) return;
+            setPagePlacement(parseInt(key, 10) || 1, p.x_pct, p.y_pct, p.mode);
+        });
+
+        syncStampSizeUI();
+        if (state.stampType) {
+            paintAllPageOverlays();
+        }
+    }
+
+    function beginStampResize(handle, clientX, clientY) {
+        var overlay = handle && handle.closest('.st-stamp-overlay');
+        if (!overlay || overlay.style.display === 'none') return;
+        var stage = overlay.closest('.st-page-stage');
+        if (!stage) return;
+        var pageEl = pageContentEl(stage);
+        var pageRect = pageEl.getBoundingClientRect();
+        var overlayRect = overlay.getBoundingClientRect();
+        if (!pageRect.width || !overlayRect.width) return;
+
+        resizeState = {
+            overlay: overlay,
+            startX: clientX,
+            startY: clientY,
+            startWidthPx: overlayRect.width,
+            stageW: pageRect.width,
+            startScale: state.stampScale || 1,
+        };
+        overlay.classList.add('is-resizing');
+    }
+
+    function moveStampResize(clientX) {
+        if (!resizeState) return;
+        var dx = clientX - resizeState.startX;
+        var newWidthPx = Math.max(24, resizeState.startWidthPx + dx);
+        var ratio = newWidthPx / Math.max(1, resizeState.startWidthPx);
+        applyStampScale(resizeState.startScale * ratio);
+    }
+
+    function endStampResize() {
+        if (!resizeState) return;
+        if (resizeState.overlay) resizeState.overlay.classList.remove('is-resizing');
+        resizeState = null;
+    }
+
+    if (stampSizeSlider) {
+        stampSizeSlider.addEventListener('input', function () {
+            var pct = parseFloat(this.value) || 100;
+            applyStampScale(pct / 100);
+        });
+    }
+
+    if (resetStampSizeBtn) {
+        resetStampSizeBtn.addEventListener('click', function () {
+            applyStampScale(1);
+        });
+    }
+
     if (pageStack) {
         pageStack.addEventListener('pointerdown', function (e) {
+            const resizeHandle = e.target.closest('.st-stamp-resize-handle');
+            if (resizeHandle && pageStack.contains(resizeHandle)) {
+                if (e.button != null && e.button !== 0) return;
+                e.preventDefault();
+                e.stopPropagation();
+                resizeHandle.setPointerCapture?.(e.pointerId);
+                beginStampResize(resizeHandle, e.clientX, e.clientY);
+                return;
+            }
             const overlay = e.target.closest('.st-stamp-overlay');
             if (!overlay || !pageStack.contains(overlay)) return;
             if (e.button != null && e.button !== 0) return;
@@ -1140,12 +1284,23 @@ document.addEventListener('DOMContentLoaded', function () {
             beginStampDrag(overlay, e.clientX, e.clientY);
         });
         pageStack.addEventListener('pointermove', function (e) {
+            if (resizeState) {
+                e.preventDefault();
+                moveStampResize(e.clientX);
+                return;
+            }
             if (!dragState) return;
             e.preventDefault();
             moveStampDrag(e.clientX, e.clientY);
         });
-        pageStack.addEventListener('pointerup', endStampDrag);
-        pageStack.addEventListener('pointercancel', endStampDrag);
+        pageStack.addEventListener('pointerup', function () {
+            endStampResize();
+            endStampDrag();
+        });
+        pageStack.addEventListener('pointercancel', function () {
+            endStampResize();
+            endStampDrag();
+        });
     }
 
     function setPlacementPending(pending) {
@@ -1179,37 +1334,313 @@ document.addEventListener('DOMContentLoaded', function () {
     }
 
     // ═══════════════════════════════════════════
-    // STAMP TYPE
+    // STAMP TYPE & CUSTOM STAMP IMPORT
     // ═══════════════════════════════════════════
 
-    if (typePills) {
-        typePills.addEventListener('click', function (e) {
-            const pill = e.target.closest('.st-type-pill');
-            if (!pill) return;
+    function renderStampPills() {
+        if (!typePills) return;
+        typePills.innerHTML = '';
+        stampCatalog.forEach(function (st) {
+            var btn = document.createElement('button');
+            btn.type = 'button';
+            btn.className = 'st-type-pill' + (st.is_custom ? ' is-custom' : '') + (state.stampType === st.id ? ' selected' : '');
+            btn.dataset.type = st.id;
 
-            document.querySelectorAll('.st-type-pill').forEach(p => p.classList.remove('selected'));
-            pill.classList.add('selected');
+            if (st.is_custom) {
+                var img = document.createElement('img');
+                img.src = st.image_url;
+                img.alt = '';
+                img.className = 'st-pill-thumb';
+                btn.appendChild(img);
+            } else {
+                var dot = document.createElement('span');
+                dot.className = 'st-pill-color';
+                dot.style.background = st.color || '#b03030';
+                btn.appendChild(dot);
+            }
 
-            state.stampType = pill.dataset.type;
+            var txt = document.createElement('span');
+            txt.className = 'st-pill-text';
+            txt.textContent = st.label || st.id;
+            btn.appendChild(txt);
+
+            if (st.is_custom) {
+                var del = document.createElement('span');
+                del.className = 'st-pill-delete';
+                del.dataset.deleteStamp = st.id;
+                del.title = 'Remove custom stamp';
+                del.setAttribute('role', 'button');
+                del.setAttribute('tabindex', '0');
+                del.innerHTML = '&times;';
+                btn.appendChild(del);
+            }
+
+            typePills.appendChild(btn);
+        });
+    }
+
+    function selectStampById(stampId) {
+        var def = getStampDef(stampId);
+        if (!def) return;
+
+        document.querySelectorAll('.st-type-pill').forEach(function (p) {
+            p.classList.toggle('selected', p.dataset.type === def.id);
+        });
+
+        state.stampType = def.id;
+        state.stampBaseWidthMm = Number(def.width_mm) || 36;
+        state.stampBaseHeightMm = Number(def.height_mm) || 13;
+        state.stampScale = 1;
+        state.stampWidthMm = state.stampBaseWidthMm;
+        state.stampHeightMm = state.stampBaseHeightMm;
+        syncStampSizeUI();
+
+        state.xPct = null;
+        state.yPct = null;
+        state.pagePlacements = {};
+        state.activePage = 1;
+        resetAutoPlaceQueue();
+        if (autoPlace && autoPlace.checked) {
+            state.position = 'auto';
+            state.placement = null;
+        } else {
+            state.position = document.querySelector('.st-pos-dot.active')?.dataset.pos || 'bottom-right';
+            state.placementPending = false;
+        }
+
+        // Immediate visible place while auto-detect runs — mid-right, not bottom.
+        placePresetOnPage(state.position === 'auto' ? 'middle-right' : state.position);
+        if (state.position === 'auto') setPlacementPending(true);
+        renderOverlayContent();
+        updateOverlay();
+        checkReady();
+    }
+
+    function resetImportStampForm() {
+        if (importStampLabel) importStampLabel.value = '';
+        if (importStampFile) importStampFile.value = '';
+        if (importStampPreviewWrap) importStampPreviewWrap.style.display = 'none';
+        if (importStampPreviewImg) importStampPreviewImg.src = '';
+        if (importPreviewObjectUrl) {
+            URL.revokeObjectURL(importPreviewObjectUrl);
+            importPreviewObjectUrl = null;
+        }
+    }
+
+    if (toggleImportStampBtn && importStampBox) {
+        toggleImportStampBtn.addEventListener('click', function () {
+            var open = importStampBox.style.display !== 'none';
+            if (open) {
+                importStampBox.style.display = 'none';
+                resetImportStampForm();
+            } else {
+                importStampBox.style.display = 'block';
+                if (importStampLabel) importStampLabel.focus();
+            }
+        });
+    }
+
+    if (cancelImportStampBtn && importStampBox) {
+        cancelImportStampBtn.addEventListener('click', function () {
+            importStampBox.style.display = 'none';
+            resetImportStampForm();
+        });
+    }
+
+    if (importStampFile) {
+        importStampFile.addEventListener('change', function () {
+            var file = this.files && this.files[0];
+            if (importPreviewObjectUrl) {
+                URL.revokeObjectURL(importPreviewObjectUrl);
+                importPreviewObjectUrl = null;
+            }
+            if (!file) {
+                if (importStampPreviewWrap) importStampPreviewWrap.style.display = 'none';
+                return;
+            }
+            importPreviewObjectUrl = URL.createObjectURL(file);
+            if (importStampPreviewImg) importStampPreviewImg.src = importPreviewObjectUrl;
+            if (importStampPreviewWrap) importStampPreviewWrap.style.display = 'flex';
+            if (importStampLabel && !importStampLabel.value.trim()) {
+                var guessed = file.name.replace(/\.[^.]+$/, '').replace(/[_-]+/g, ' ').trim();
+                importStampLabel.value = guessed.slice(0, 60);
+            }
+        });
+    }
+
+    if (submitImportStampBtn) {
+        submitImportStampBtn.addEventListener('click', function () {
+            var label = importStampLabel ? importStampLabel.value.trim() : '';
+            var file = importStampFile && importStampFile.files && importStampFile.files[0];
+            if (!label) {
+                showToast('Please enter a name for the stamp.', 'error');
+                if (importStampLabel) importStampLabel.focus();
+                return;
+            }
+            if (!file) {
+                showToast('Please select a PNG, JPG, or WebP stamp image.', 'error');
+                return;
+            }
+
+            var originalHTML = submitImportStampBtn.innerHTML;
+            submitImportStampBtn.disabled = true;
+            submitImportStampBtn.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> Saving…';
+
+            var fd = new FormData();
+            fd.append('label', label);
+            fd.append('image', file);
+
+            fetch('/dcs/stamp/custom', {
+                method: 'POST',
+                headers: {
+                    'X-CSRF-TOKEN': document.querySelector('meta[name="csrf-token"]').content,
+                    'Accept': 'application/json',
+                },
+                body: fd,
+            })
+            .then(function (res) {
+                return res.json().catch(function () {
+                    throw new Error('Could not upload stamp image.');
+                }).then(function (data) {
+                    if (!res.ok || !data.success) {
+                        throw new Error(data.message || 'Could not import stamp.');
+                    }
+                    return data;
+                });
+            })
+            .then(function (data) {
+                if (Array.isArray(data.stamps)) {
+                    stampCatalog = data.stamps;
+                    window.DCS_STAMPS_CATALOG = data.stamps;
+                } else if (data.stamp) {
+                    stampCatalog.push(data.stamp);
+                }
+                renderStampPills();
+                if (importStampBox) importStampBox.style.display = 'none';
+                resetImportStampForm();
+                if (data.stamp && data.stamp.id) {
+                    selectStampById(data.stamp.id);
+                }
+                showToast(data.message || 'Custom stamp imported.', 'success');
+            })
+            .catch(function (err) {
+                showToast(err.message || 'Could not import stamp.', 'error');
+            })
+            .finally(function () {
+                submitImportStampBtn.disabled = false;
+                submitImportStampBtn.innerHTML = originalHTML;
+            });
+        });
+    }
+
+    if (redetectAutoPlaceBtn) {
+        redetectAutoPlaceBtn.addEventListener('click', function () {
+            if (!state.selectedFile || !state.stampType) return;
+            state.position = 'auto';
             state.xPct = null;
             state.yPct = null;
             state.pagePlacements = {};
-            state.activePage = 1;
+            state.placement = null;
+            if (autoPlace) autoPlace.checked = true;
+            if (manualWrap) manualWrap.style.display = 'none';
             resetAutoPlaceQueue();
-            if (autoPlace && autoPlace.checked) {
-                state.position = 'auto';
-                state.placement = null;
-            } else {
-                state.position = document.querySelector('.st-pos-dot.active')?.dataset.pos || 'bottom-right';
-                state.placementPending = false;
-            }
-
-            // Immediate visible place while auto-detect runs — mid-right, not bottom.
-            placePresetOnPage(state.position === 'auto' ? 'middle-right' : state.position);
-            if (state.position === 'auto') setPlacementPending(true);
-            renderOverlayContent();
             updateOverlay();
             checkReady();
+        });
+    }
+
+    function openDeleteCustomStampModal(delId) {
+        var delDef = getStampDef(delId);
+        pendingDeleteCustomStampId = delId;
+        if (deleteCustomStampName) {
+            deleteCustomStampName.textContent = '"' + ((delDef && delDef.label) || delId) + '"';
+        }
+        if (deleteCustomStampModal) {
+            deleteCustomStampModal.style.display = 'flex';
+        }
+    }
+
+    function closeDeleteCustomStampModal() {
+        if (deleteCustomStampConfirm && deleteCustomStampConfirm.classList.contains('is-loading')) return;
+        pendingDeleteCustomStampId = null;
+        if (deleteCustomStampModal) {
+            deleteCustomStampModal.style.display = 'none';
+        }
+    }
+
+    if (deleteCustomStampCancel) {
+        deleteCustomStampCancel.addEventListener('click', closeDeleteCustomStampModal);
+    }
+    if (deleteCustomStampModal) {
+        deleteCustomStampModal.addEventListener('click', function (e) {
+            if (e.target === deleteCustomStampModal) closeDeleteCustomStampModal();
+        });
+    }
+    if (deleteCustomStampConfirm) {
+        deleteCustomStampConfirm.addEventListener('click', function () {
+            var delId = pendingDeleteCustomStampId;
+            if (!delId || deleteCustomStampConfirm.disabled) return;
+            var originalHTML = deleteCustomStampConfirm.innerHTML;
+            deleteCustomStampConfirm.disabled = true;
+            deleteCustomStampConfirm.classList.add('is-loading');
+            deleteCustomStampConfirm.innerHTML = '<i class="fa-solid fa-spinner fa-spin" aria-hidden="true"></i> Removing…';
+            if (deleteCustomStampCancel) deleteCustomStampCancel.disabled = true;
+
+            fetch('/dcs/stamp/custom/' + encodeURIComponent(delId), {
+                method: 'DELETE',
+                headers: {
+                    'X-CSRF-TOKEN': document.querySelector('meta[name="csrf-token"]').content,
+                    'Accept': 'application/json',
+                },
+            })
+            .then(function (res) {
+                return res.json().then(function (data) {
+                    if (!res.ok || !data.success) throw new Error(data.message || 'Could not remove stamp.');
+                    return data;
+                });
+            })
+            .then(function (data) {
+                if (Array.isArray(data.stamps)) {
+                    stampCatalog = data.stamps;
+                    window.DCS_STAMPS_CATALOG = data.stamps;
+                } else {
+                    stampCatalog = stampCatalog.filter(function (s) { return s.id !== delId; });
+                }
+                var wasSelected = state.stampType === delId;
+                renderStampPills();
+                if (wasSelected) {
+                    selectStampById('reference');
+                }
+                pendingDeleteCustomStampId = null;
+                if (deleteCustomStampModal) deleteCustomStampModal.style.display = 'none';
+                showToast('Custom stamp removed.', 'success');
+            })
+            .catch(function (err) {
+                showToast(err.message || 'Could not remove custom stamp.', 'error');
+            })
+            .finally(function () {
+                deleteCustomStampConfirm.disabled = false;
+                deleteCustomStampConfirm.classList.remove('is-loading');
+                deleteCustomStampConfirm.innerHTML = originalHTML;
+                if (deleteCustomStampCancel) deleteCustomStampCancel.disabled = false;
+            });
+        });
+    }
+
+    if (typePills) {
+        typePills.addEventListener('click', function (e) {
+            const delBtn = e.target.closest('.st-pill-delete');
+            if (delBtn) {
+                e.preventDefault();
+                e.stopPropagation();
+                var delId = delBtn.dataset.deleteStamp;
+                if (delId) openDeleteCustomStampModal(delId);
+                return;
+            }
+
+            const pill = e.target.closest('.st-type-pill');
+            if (!pill) return;
+            selectStampById(pill.dataset.type);
         });
     }
 
@@ -1282,7 +1713,10 @@ document.addEventListener('DOMContentLoaded', function () {
     function renderOverlayContent() {
         if (!state.stampType) return;
 
-        var cfg = STAMP_STYLES[state.stampType] || STAMP_STYLES.reference;
+        var def = getStampDef(state.stampType) || STAMP_STYLES.reference;
+        var titleText = def.title || def.label || 'REFERENCE';
+        var colorVal = def.color || '#b03030';
+        var imageUrl = def.image_url || '';
 
         allOverlays().forEach(function (ov, idx) {
             var art = ov.querySelector('.st-stamp-art');
@@ -1296,6 +1730,10 @@ document.addEventListener('DOMContentLoaded', function () {
 
             if (fallback) fallback.style.display = 'none';
             if (art) {
+                if (imageUrl && art.getAttribute('src') !== imageUrl) {
+                    art.setAttribute('src', imageUrl);
+                }
+                art.alt = titleText;
                 art.style.display = 'block';
                 art.onerror = function () {
                     art.style.display = 'none';
@@ -1310,8 +1748,8 @@ document.addEventListener('DOMContentLoaded', function () {
             }
 
             if (title) {
-                title.textContent = cfg.title;
-                title.style.color = cfg.color;
+                title.textContent = titleText;
+                title.style.color = colorVal;
             }
             if (divider) divider.style.display = 'none';
             if (date) date.style.display = 'none';
@@ -1401,6 +1839,8 @@ document.addEventListener('DOMContentLoaded', function () {
             doc_title:    state.docTitle,
             rev:          String(state.rev),
             stamp_type:   state.stampType || 'reference',
+            stamp_width_mm:  Math.round((state.stampWidthMm || 36) * 100) / 100,
+            stamp_height_mm: Math.round((state.stampHeightMm || 13) * 100) / 100,
             position:     state.position || 'auto',
             all_pages:    state.allPages,
         };
@@ -1409,22 +1849,19 @@ document.addEventListener('DOMContentLoaded', function () {
             return payload;
         }
 
-        // Manual drags → send ONLY customized pages (server auto-fills the rest).
-        // Pure auto → server finds an empty area on EVERY page (accurate for large PDFs).
-        if (hasCustomPagePlacement()) {
-            var pagePositions = captureAllPagePositions().filter(function (row) {
-                var stored = state.pagePlacements[String(row.page)];
-                return stored && stored.mode === 'custom';
-            });
+        // Send exact previewed coordinates (dragged OR auto-detected) for pages
+        // already resolved so the applied stamp lands exactly where previewed;
+        // any remaining un-rendered pages are auto-placed by the server.
+        var resolvedPages = captureAllPagePositions().filter(function (row) {
+            var stored = state.pagePlacements[String(row.page)];
+            return stored && (stored.mode === 'custom' || (state.position === 'auto' && autoPlaceDone[row.page]));
+        });
+
+        if (resolvedPages.length > 0) {
             payload.position = 'custom';
-            payload.page_positions = pagePositions;
-            if (pagePositions.length) {
-                payload.x_pct = pagePositions[0].x_pct;
-                payload.y_pct = pagePositions[0].y_pct;
-            } else if (state.xPct != null && state.yPct != null) {
-                payload.x_pct = state.xPct;
-                payload.y_pct = state.yPct;
-            }
+            payload.page_positions = resolvedPages;
+            payload.x_pct = resolvedPages[0].x_pct;
+            payload.y_pct = resolvedPages[0].y_pct;
         } else if (state.position === 'auto') {
             payload.position = 'auto';
         } else if (state.position === 'custom') {
@@ -1506,8 +1943,8 @@ document.addEventListener('DOMContentLoaded', function () {
                 showToast('Wait for the stamp preview, then drag it if needed before applying.', 'error');
                 return;
             }
-            var cfg = STAMP_STYLES[state.stampType] || {};
-            if (confirmLabel) confirmLabel.textContent = cfg.title || state.stampType;
+            var def = getStampDef(state.stampType) || {};
+            if (confirmLabel) confirmLabel.textContent = def.label || def.title || state.stampType;
             confirmModal.style.display = 'flex';
         });
     }

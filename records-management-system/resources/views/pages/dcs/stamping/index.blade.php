@@ -214,7 +214,10 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
             return DB::table('dcs_doc_types')->whereNull('parent_id')->orderBy('doc_type_name')->get();
         });
 
-        return compact('documents', 'docTypes');
+        $availableStamps = app(\App\Services\StampService::class)->availableStampsCatalog();
+        $stampLabelMap = collect($availableStamps)->pluck('label', 'id')->all();
+
+        return compact('documents', 'docTypes', 'availableStamps', 'stampLabelMap');
     }
 
     /**
@@ -465,7 +468,7 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
                                                        target="_blank"
                                                        rel="noopener"
                                                        class="st-file-tag st-file-{{ $file['cls'] }} {{ $file['stamped'] ? 'st-file-stamped' : '' }}"
-                                                       title="{{ $file['label'] }}{{ $file['stamped'] ? ' — ' . strtoupper(str_replace('_',' ',$file['stamp_type'])) : '' }}">
+                                                       title="{{ $file['label'] }}{{ $file['stamped'] ? ' — ' . strtoupper($stampLabelMap[$file['stamp_type']] ?? str_replace('_',' ',$file['stamp_type'])) : '' }}">
                                                         @if($file['stamped'])
                                                             <i class="fa-solid fa-stamp"></i>
                                                         @else
@@ -474,7 +477,7 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
                                                         {{ $file['abbr'] }}
                                                     </a>
                                                     @if($file['stamped'])
-                                                        <span class="st-stamp-badge" title="{{ strtoupper(str_replace('_',' ',$file['stamp_type'])) }}">
+                                                        <span class="st-stamp-badge" title="{{ strtoupper($stampLabelMap[$file['stamp_type']] ?? str_replace('_',' ',$file['stamp_type'])) }}">
                                                             <i class="fa-solid fa-lock"></i>
                                                         </span>
                                                     @endif
@@ -573,6 +576,7 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
                                         <div class="st-stamp-sub" style="display:none;"></div>
                                     </div>
                                 </div>
+                                <span class="st-stamp-resize-handle" title="Drag corner to resize" aria-label="Resize stamp"></span>
                                 <span class="st-stamp-pages">All pages</span>
                                 <span class="st-auto-badge is-detecting st-detecting-badge" style="display:none;">
                                     <i class="fa-solid fa-spinner fa-spin"></i> Finding empty area…
@@ -603,23 +607,75 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
                     </div>
 
                     <div class="st-section">
-                        <label class="st-label">Stamp Type</label>
-                        <p style="margin:0 0 8px;font-size:0.75rem;color:var(--st-text-subtle);">
-                            The stamp appears on the PDF preview first. Drag it before you apply.
-                        </p>
-                        <div class="st-type-pills" id="typePills">
-                            <button class="st-type-pill" data-type="reference" type="button">
-                                <span class="st-pill-color" style="background:#b03030"></span> Reference
+                        <div class="st-label-row">
+                            <label class="st-label" style="margin-bottom:0;">Stamp Type</label>
+                            <button type="button" class="st-import-toggle-btn" id="toggleImportStampBtn">
+                                <i class="fa-solid fa-plus"></i> Import Stamp
                             </button>
+                        </div>
+                        <p style="margin:6px 0 8px;font-size:0.75rem;color:var(--st-text-subtle);">
+                            Pick a stamp or import a PNG/JPG image. Drag to move or drag the bottom-right corner to resize.
+                        </p>
+
+                        <div class="st-import-box" id="importStampBox" style="display:none;">
+                            <div class="st-form-group">
+                                <label class="st-label-sm" for="importStampLabel">Stamp Name</label>
+                                <input type="text" id="importStampLabel" class="st-input" placeholder="e.g. Controlled Copy, Approved" maxlength="60">
+                            </div>
+                            <div class="st-form-group">
+                                <label class="st-label-sm" for="importStampFile">Stamp Image (PNG, JPG, WebP)</label>
+                                <input type="file" id="importStampFile" class="st-file-input" accept="image/png,image/jpeg,image/webp">
+                            </div>
+                            <div class="st-import-preview" id="importStampPreviewWrap" style="display:none;">
+                                <img id="importStampPreviewImg" src="" alt="Stamp preview">
+                            </div>
+                            <div class="st-import-actions">
+                                <button type="button" class="st-import-cancel" id="cancelImportStampBtn">Cancel</button>
+                                <button type="button" class="st-import-submit" id="submitImportStampBtn">
+                                    <i class="fa-solid fa-upload"></i> Save Stamp
+                                </button>
+                            </div>
+                        </div>
+
+                        <div class="st-type-pills" id="typePills">
+                            @foreach($availableStamps as $st)
+                                <button class="st-type-pill {{ !empty($st['is_custom']) ? 'is-custom' : '' }}" data-type="{{ $st['id'] }}" type="button">
+                                    @if(!empty($st['is_custom']))
+                                        <img src="{{ $st['image_url'] }}" alt="" class="st-pill-thumb">
+                                    @else
+                                        <span class="st-pill-color" style="background:{{ $st['color'] ?? '#b03030' }}"></span>
+                                    @endif
+                                    <span class="st-pill-text">{{ $st['label'] }}</span>
+                                    @if(!empty($st['is_custom']))
+                                        <span class="st-pill-delete" data-delete-stamp="{{ $st['id'] }}" title="Remove custom stamp" role="button" tabindex="0">&times;</span>
+                                    @endif
+                                </button>
+                            @endforeach
+                        </div>
+                    </div>
+
+                    <div class="st-section" id="stampSizeSection">
+                        <div class="st-label-row">
+                            <label class="st-label" for="stampSizeSlider" style="margin-bottom:0;">Stamp Size</label>
+                            <button type="button" class="st-size-reset-btn" id="resetStampSizeBtn" title="Reset to default size">Reset</button>
+                        </div>
+                        <div class="st-size-control">
+                            <input type="range" id="stampSizeSlider" class="st-size-slider" min="40" max="250" step="5" value="100">
+                            <div class="st-size-readout" id="stampSizeReadout">100% · 36 × 13 mm</div>
                         </div>
                     </div>
 
                     <div class="st-section">
-                        <label class="st-label">Position</label>
+                        <div class="st-label-row">
+                            <label class="st-label" style="margin-bottom:0;">Position</label>
+                            <button type="button" class="st-redetect-btn" id="redetectAutoPlaceBtn" title="Scan each page again for an empty area">
+                                <i class="fa-solid fa-wand-magic-sparkles"></i> Find empty area
+                            </button>
+                        </div>
                         <label class="st-checkbox-wrap" style="margin-bottom:10px;">
                             <input type="checkbox" id="autoPlace" checked>
                             <span class="st-checkbox-custom"></span>
-                            <span>Auto-place in empty area <small style="color:var(--st-text-subtle);font-weight:400;">(preview first — drag before Apply)</small></span>
+                            <span>Auto-place in empty area <small style="color:var(--st-text-subtle);font-weight:400;">(drag any page to adjust)</small></span>
                         </label>
 
                         <div id="manualPosWrap" style="display:none;">
@@ -705,7 +761,26 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
         </div>
     </div>
 
+    <div class="st-confirm-overlay" id="deleteCustomStampModal" style="display:none;">
+        <div class="st-confirm">
+            <div class="st-confirm-icon is-danger">
+                <i class="fa-solid fa-trash-can"></i>
+            </div>
+            <h3>Remove Custom Stamp?</h3>
+            <p>Remove custom stamp <strong id="deleteCustomStampName"></strong>? Previously stamped documents will not be affected.</p>
+            <div class="st-confirm-actions">
+                <button class="st-btn-secondary" id="deleteCustomStampCancel" type="button">Cancel</button>
+                <button class="st-btn-primary st-btn-danger-confirm" id="deleteCustomStampConfirm" type="button">
+                    <i class="fa-solid fa-trash-can"></i> Remove
+                </button>
+            </div>
+        </div>
+    </div>
+
     <div wire:ignore>
+        <script>
+            window.DCS_STAMPS_CATALOG = @json($availableStamps);
+        </script>
         <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js" crossorigin="anonymous" referrerpolicy="no-referrer"></script>
         <script>
             if (window.pdfjsLib) {

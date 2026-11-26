@@ -22,13 +22,100 @@ class CourseTypeRules
         'Major',
     ];
 
+    /** Default year levels when no custom list has been saved yet. */
+    public const DEFAULT_YEAR_LEVELS = [
+        '1st Year',
+        '2nd Year',
+        '3rd Year',
+        '4th Year',
+        '5th Year',
+    ];
+
     /** @var array<string, list<string>> */
-    private const YEAR_CAPS = [
-        'GE Courses' => ['1st Year', '2nd Year', '3rd Year', '4th Year', '5th Year'],
+    private const FIXED_YEAR_CAPS = [
         'PE Courses' => ['1st Year', '2nd Year'],
         'NSTP' => ['1st Year'],
-        'Major' => ['1st Year', '2nd Year', '3rd Year', '4th Year', '5th Year'],
     ];
+
+    /** @var list<string>|null */
+    private static ?array $yearLevelsMemo = null;
+
+    private static function yearLevelsFilePath(): string
+    {
+        $dir = storage_path('app/private');
+        if (! is_dir($dir)) {
+            @mkdir($dir, 0775, true);
+        }
+
+        return $dir . DIRECTORY_SEPARATOR . 'dcs_year_levels.json';
+    }
+
+    /**
+     * Returns all configured year levels (persisted in Settings → Syllabi → Year Levels).
+     *
+     * @return list<string>
+     */
+    public static function allYearLevels(): array
+    {
+        if (self::$yearLevelsMemo !== null) {
+            return self::$yearLevelsMemo;
+        }
+
+        $path = self::yearLevelsFilePath();
+        if (is_file($path)) {
+            $raw = @file_get_contents($path);
+            $decoded = is_string($raw) ? json_decode($raw, true) : null;
+            if (is_array($decoded)) {
+                $clean = [];
+                $seen = [];
+                foreach ($decoded as $val) {
+                    $label = trim((string) $val);
+                    $key = mb_strtolower($label);
+                    if ($label !== '' && ! isset($seen[$key])) {
+                        $seen[$key] = true;
+                        $clean[] = $label;
+                    }
+                }
+                if ($clean !== []) {
+                    return self::$yearLevelsMemo = $clean;
+                }
+            }
+        }
+
+        return self::$yearLevelsMemo = self::DEFAULT_YEAR_LEVELS;
+    }
+
+    /**
+     * Persists the ordered list of year levels.
+     *
+     * @param  list<string>  $levels
+     * @return list<string>
+     */
+    public static function saveYearLevels(array $levels): array
+    {
+        $clean = [];
+        $seen = [];
+        foreach ($levels as $val) {
+            $label = trim((string) $val);
+            $key = mb_strtolower($label);
+            if ($label !== '' && ! isset($seen[$key])) {
+                $seen[$key] = true;
+                $clean[] = $label;
+            }
+        }
+        if ($clean === []) {
+            throw new \InvalidArgumentException('At least one year level is required.');
+        }
+
+        $json = json_encode($clean, JSON_PRETTY_PRINT | JSON_UNESCAPED_UNICODE);
+        if ($json === false || @file_put_contents(self::yearLevelsFilePath(), $json, LOCK_EX) === false) {
+            throw new \RuntimeException('Could not save year levels.');
+        }
+
+        self::$yearLevelsMemo = $clean;
+
+        return $clean;
+    }
 
     /**
      * Terminal year for PE/NSTP may only go through 2nd Semester
@@ -60,12 +147,15 @@ class CourseTypeRules
      */
     public static function allowedYearLevels(?string $courseType): array
     {
+        $all = self::allYearLevels();
         $type = trim((string) $courseType);
-        if ($type === '' || ! isset(self::YEAR_CAPS[$type])) {
-            return SyllabiMonitoringHelper::YEAR_LEVELS;
+        if ($type !== '' && isset(self::FIXED_YEAR_CAPS[$type])) {
+            $cap = array_values(array_intersect($all, self::FIXED_YEAR_CAPS[$type]));
+
+            return $cap !== [] ? $cap : self::FIXED_YEAR_CAPS[$type];
         }
 
-        return self::YEAR_CAPS[$type];
+        return $all;
     }
 
     public static function isYearLevelAllowed(?string $courseType, ?string $yearLevel): bool

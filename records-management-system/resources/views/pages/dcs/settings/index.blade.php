@@ -43,6 +43,8 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
         ['code' => '', 'name' => ''],
     ];
     public string $semesterName = '';
+    public string $yearLevelName = '';
+    public string $yearLevelOriginal = '';
     public string $schoolYear = '';
     /** When saving a school year, mark it as the sole active S/Y for office intake. */
     public bool $schoolYearIsActive = false;
@@ -56,9 +58,9 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
     public string $courseSchoolYearId = '';
     /** @var list<int|string> Multi-select on the Course Names table */
     public array $selectedCourseIds = [];
-    /** @var list<array{semester_id: string, type: string, year_level: string, code: string, name: string}> */
+    /** @var list<array{type: string, year_level: string, code: string, name: string}> */
     public array $courseRows = [
-        ['semester_id' => '', 'type' => '', 'year_level' => '', 'code' => '', 'name' => ''],
+        ['type' => '', 'year_level' => '', 'code' => '', 'name' => ''],
     ];
     public string $bulkCollegeId = '';
     public string $bulkProgramId = '';
@@ -578,7 +580,7 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
         $this->reset([
             'docTypeName', 'originatorName',
             'facultyName', 'facultyCollegeIds', 'collegeId', 'collegeName', 'officeId', 'programName', 'programCode',
-            'semesterName', 'schoolYear', 'schoolYearIsActive', 'programId', 'semesterId', 'courseName', 'courseCode', 'courseYearLevel', 'courseType', 'courseSchoolYearId',
+            'semesterName', 'yearLevelName', 'yearLevelOriginal', 'schoolYear', 'schoolYearIsActive', 'programId', 'semesterId', 'courseName', 'courseCode', 'courseYearLevel', 'courseType', 'courseSchoolYearId',
             'bulkCollegeId', 'bulkProgramId', 'bulkFillSemester', 'bulkFillYear', 'bulkFillType',
             'deleteTitle', 'deleteMessage',
         ]);
@@ -586,7 +588,7 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
         $this->schoolYearIsActive = false;
         $this->collegeProgramRows = [['code' => '', 'name' => '']];
         $this->docTypeSubRows = [['name' => '']];
-        $this->courseRows = [['semester_id' => '', 'type' => '', 'year_level' => '', 'code' => '', 'name' => '']];
+        $this->courseRows = [['type' => '', 'year_level' => '', 'code' => '', 'name' => '']];
         $this->bulkRows = [];
         $this->csvFile = null;
         $this->resetValidation();
@@ -875,7 +877,7 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
     public function openProgramCourse(?int $id = null): void
     {
         $this->resetFormFor('programCourse', $id);
-        $this->courseRows = [['semester_id' => '', 'type' => '', 'year_level' => '', 'code' => '', 'name' => '']];
+        $this->courseRows = [['type' => '', 'year_level' => '', 'code' => '', 'name' => '']];
         $this->courseName = '';
         $this->courseCode = '';
         $this->programId = '';
@@ -1090,9 +1092,7 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
      */
     public function addCourseRow(): void
     {
-        $last = end($this->courseRows);
-        $carrySem = is_array($last) ? (string) ($last['semester_id'] ?? '') : '';
-        $this->courseRows[] = ['semester_id' => $carrySem, 'type' => '', 'year_level' => '', 'code' => '', 'name' => ''];
+        $this->courseRows[] = ['type' => '', 'year_level' => '', 'code' => '', 'name' => ''];
         $this->dispatch('settings-focus-last-course-row');
     }
 
@@ -1106,7 +1106,7 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
     public function removeCourseRow(int $index): void
     {
         if (count($this->courseRows) <= 1) {
-            $this->courseRows = [['semester_id' => '', 'type' => '', 'year_level' => '', 'code' => '', 'name' => '']];
+            $this->courseRows = [['type' => '', 'year_level' => '', 'code' => '', 'name' => '']];
             return;
         }
         unset($this->courseRows[$index]);
@@ -1186,11 +1186,99 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
             'college' => $this->saveCollege(),
             'program' => $this->saveProgram(),
             'semester' => $this->saveSemester(),
+            'yearLevel' => $this->saveYearLevel(),
             'schoolYear' => $this->saveSchoolYear(),
             'programCourse' => $this->saveProgramCourse(),
             'programCoursesBulk' => $this->saveProgramCoursesBulk(),
             default => null,
         };
+    }
+
+    /**
+     * Opens the Add / Edit Year Level modal.
+     *
+     * @param ?string $existing
+     *
+     * @return void
+     */
+    public function openYearLevel(?string $existing = null): void
+    {
+        $this->resetFormFor('yearLevel', $existing !== null ? 1 : null);
+        $this->yearLevelOriginal = $existing !== null ? trim($existing) : '';
+        $this->yearLevelName = $this->yearLevelOriginal;
+    }
+
+    private function saveYearLevel(): void
+    {
+        $this->validate([
+            'yearLevelName' => 'required|string|max:50',
+        ]);
+        $name = trim($this->yearLevelName);
+        $levels = \App\Helpers\CourseTypeRules::allYearLevels();
+        $orig = trim($this->yearLevelOriginal);
+
+        foreach ($levels as $lvl) {
+            if (mb_strtolower($lvl) === mb_strtolower($name) && ($orig === '' || mb_strtolower($lvl) !== mb_strtolower($orig))) {
+                $this->addError('yearLevelName', 'This year level already exists.');
+
+                return;
+            }
+        }
+
+        if ($orig !== '') {
+            $updated = false;
+            foreach ($levels as $idx => $lvl) {
+                if ($lvl === $orig) {
+                    $levels[$idx] = $name;
+                    $updated = true;
+                    break;
+                }
+            }
+            if (! $updated) {
+                $levels[] = $name;
+            }
+            \App\Helpers\CourseTypeRules::saveYearLevels($levels);
+            if ($orig !== $name && Schema::hasColumn('dcs_program_courses', 'year_level')) {
+                DB::table('dcs_program_courses')->where('year_level', $orig)->update(['year_level' => $name]);
+            }
+            $this->done('Year level updated.');
+
+            return;
+        }
+
+        $levels[] = $name;
+        \App\Helpers\CourseTypeRules::saveYearLevels($levels);
+        $this->done('Year level added.');
+    }
+
+    public function confirmDeleteYearLevel(string $label): void
+    {
+        \App\Helpers\RegisterQueryHelper::assertFullDcsUser('settings');
+        $this->resetValidation();
+        $this->editingId = 1;
+        $this->parentId = null;
+        $this->yearLevelOriginal = trim($label);
+        $this->deleteTitle = 'Remove Year Level';
+        $this->deleteMessage = 'Remove "' . $this->yearLevelOriginal . '" from the year level options? Existing courses with this label keep their data.';
+        $this->modalKind = 'yearLevel:delete';
+        $this->dispatch('settings-open-modal');
+    }
+
+    private function destroyYearLevel(): void
+    {
+        $target = trim($this->yearLevelOriginal);
+        $levels = array_values(array_filter(
+            \App\Helpers\CourseTypeRules::allYearLevels(),
+            fn ($lvl) => $lvl !== $target
+        ));
+        if ($levels === []) {
+            $this->closeModal();
+            $this->fail('At least one year level must remain.');
+
+            return;
+        }
+        \App\Helpers\CourseTypeRules::saveYearLevels($levels);
+        $this->done('Year level removed.');
     }
 
     /**
@@ -1217,6 +1305,7 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
             'college' => $this->destroyCollege($id),
             'program' => $this->destroyProgram($id),
             'semester' => $this->destroySemester($id),
+            'yearLevel' => $this->destroyYearLevel(),
             'schoolYear' => $this->destroySchoolYear($id),
             'programCourse' => $this->destroyProgramCourse($id),
             'programCoursesSelected' => $this->destroySelectedProgramCourses(),
@@ -1920,8 +2009,8 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
 
         $rules = [
             'programId' => 'required|integer|exists:dcs_programs,id',
+            'semesterId' => 'required|integer|exists:dcs_semesters,id',
             'courseRows' => 'required|array|min:1',
-            'courseRows.*.semester_id' => 'nullable|integer|exists:dcs_semesters,id',
             'courseRows.*.name' => 'nullable|string|max:255',
             'courseRows.*.code' => 'nullable|string|max:50',
             'courseRows.*.type' => 'nullable|string|max:50',
@@ -1933,24 +2022,17 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
         $this->validate($rules);
 
         $programId = (int) $this->programId;
+        $semesterId = (int) $this->semesterId;
         $schoolYearId = $hasSchoolYear ? (int) $this->courseSchoolYearId : null;
-        $semesterNamesById = DB::table('dcs_semesters')
-            ->pluck('semester_name', 'id')
-            ->map(fn ($v) => (string) $v)
-            ->all();
 
         $entries = [];
         foreach ($this->courseRows as $i => $row) {
-            $rowSemId = (int) ($row['semester_id'] ?? 0);
             $name = trim((string) ($row['name'] ?? ''));
             $code = trim((string) ($row['code'] ?? ''));
             $type = trim((string) ($row['type'] ?? ''));
             $year = trim((string) ($row['year_level'] ?? ''));
-            if ($rowSemId < 1 && $name === '' && $code === '' && $type === '' && $year === '') {
+            if ($name === '' && $code === '' && $type === '' && $year === '') {
                 continue;
-            }
-            if ($rowSemId < 1 || ! isset($semesterNamesById[$rowSemId])) {
-                $this->addError("courseRows.{$i}.semester_id", 'Semester is required.');
             }
             if ($hasCourseType && $type === '') {
                 $this->addError("courseRows.{$i}.type", 'Course type is required.');
@@ -1966,8 +2048,7 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
             if ($hasCourseCode && $code === '') {
                 $this->addError("courseRows.{$i}.code", 'Course code is required.');
             }
-            if ($this->getErrorBag()->has("courseRows.{$i}.semester_id")
-                || $this->getErrorBag()->has("courseRows.{$i}.type")
+            if ($this->getErrorBag()->has("courseRows.{$i}.type")
                 || $this->getErrorBag()->has("courseRows.{$i}.year_level")
                 || $this->getErrorBag()->has("courseRows.{$i}.name")
                 || $this->getErrorBag()->has("courseRows.{$i}.code")) {
@@ -1978,7 +2059,7 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
                     $this->addError("courseRows.{$i}.year_level", 'Year level is not allowed for '.$type.'.');
                     continue;
                 }
-                $semName = (string) ($semesterNamesById[$rowSemId] ?? '');
+                $semName = (string) (DB::table('dcs_semesters')->where('id', $semesterId)->value('semester_name') ?? '');
                 if ($semName !== '' && ! \App\Helpers\CourseTypeRules::isYearSemesterAllowed($type, $year, $semName)) {
                     $this->addError("courseRows.{$i}.year_level", $type.' cannot use '.$year.' / '.$semName.'.');
                     continue;
@@ -1986,7 +2067,6 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
             }
             $entries[] = [
                 'index' => $i,
-                'semester_id' => $rowSemId,
                 'name' => $name,
                 'code' => $code,
                 'type' => $hasCourseType ? $type : null,
@@ -2006,10 +2086,10 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
         $seenNames = [];
         $seenCodes = [];
         foreach ($entries as $entry) {
-            $scope = mb_strtolower($entry['semester_id'].'|'.($entry['type'] ?? '').'|'.($entry['year_level'] ?? ''));
+            $scope = mb_strtolower(($entry['type'] ?? '').'|'.($entry['year_level'] ?? ''));
             $nameKey = $scope.'|'.mb_strtolower($entry['name']);
             if (isset($seenNames[$nameKey])) {
-                $this->addError("courseRows.{$entry['index']}.name", 'Duplicate course name for this semester, type, and year level in this list.');
+                $this->addError("courseRows.{$entry['index']}.name", 'Duplicate course name for this type and year level in this list.');
                 continue;
             }
             $seenNames[$nameKey] = true;
@@ -2017,7 +2097,7 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
             if ($hasCourseCode) {
                 $codeKey = $scope.'|'.mb_strtolower($entry['code']);
                 if (isset($seenCodes[$codeKey])) {
-                    $this->addError("courseRows.{$entry['index']}.code", 'Duplicate course code for this semester, type, and year level in this list.');
+                    $this->addError("courseRows.{$entry['index']}.code", 'Duplicate course code for this type and year level in this list.');
                     continue;
                 }
                 $seenCodes[$codeKey] = true;
@@ -2029,16 +2109,15 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
         }
 
         foreach ($entries as $entry) {
-            $rowSemesterId = (int) $entry['semester_id'];
             $rowType = $entry['type'];
             $rowYear = $entry['year_level'];
-            if ($this->programCourseNameTaken($programId, $rowSemesterId, $entry['name'], $rowYear, $hasYearLevel, $rowType, $hasCourseType, null, false, $schoolYearId, $hasSchoolYear)) {
+            if ($this->programCourseNameTaken($programId, $semesterId, $entry['name'], $rowYear, $hasYearLevel, $rowType, $hasCourseType, null, false, $schoolYearId, $hasSchoolYear)) {
                 $this->addError(
                     "courseRows.{$entry['index']}.name",
                     'Already listed for this program, school year, semester, year level, and course type.'
                 );
             }
-            if ($hasCourseCode && $this->programCourseCodeTaken($programId, $rowSemesterId, $entry['code'], $rowYear, $hasYearLevel, $rowType, $hasCourseType, null, false, $schoolYearId, $hasSchoolYear)) {
+            if ($hasCourseCode && $this->programCourseCodeTaken($programId, $semesterId, $entry['code'], $rowYear, $hasYearLevel, $rowType, $hasCourseType, null, false, $schoolYearId, $hasSchoolYear)) {
                 $this->addError(
                     "courseRows.{$entry['index']}.code",
                     'Code already used for this program, school year, semester, year level, and course type.'
@@ -2054,7 +2133,7 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
         foreach ($entries as $entry) {
             $payload = [
                 'program_id' => $programId,
-                'semester_id' => (int) $entry['semester_id'],
+                'semester_id' => $semesterId,
                 'course_name' => $entry['name'],
                 'created_at' => $now,
                 'updated_at' => $now,
@@ -2075,7 +2154,7 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
         }
 
         $count = count($entries);
-        $this->courseRows = [['semester_id' => '', 'type' => '', 'year_level' => '', 'code' => '', 'name' => '']];
+        $this->courseRows = [['type' => '', 'year_level' => '', 'code' => '', 'name' => '']];
         $this->resetValidation();
         \App\Helpers\RegisterPersistHelper::logAdminChange(
             'DCS settings: ' . ($count === 1 ? 'Course added.' : "{$count} courses added.")
@@ -2197,7 +2276,7 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
         $hasYearLevel = Schema::hasColumn('dcs_program_courses', 'year_level');
         $hasCourseType = Schema::hasColumn('dcs_program_courses', 'course_type');
         $hasSchoolYear = Schema::hasColumn('dcs_program_courses', 'school_year_id');
-        $years = \App\Helpers\SyllabiMonitoringHelper::YEAR_LEVELS;
+        $years = \App\Helpers\CourseTypeRules::allYearLevels();
         $types = \App\Helpers\SyllabiMonitoringHelper::COURSE_TYPES;
 
         // Keep a dense 0..n index list so Livewire nested models stay stable.
@@ -3264,6 +3343,7 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
             'programs' => $programs,
             'programsByCollege' => $programs->groupBy(fn ($row) => (string) $row->college_id),
             'semesters' => $semestersQ->get(['id', 'semester_name']),
+            'yearLevels' => \App\Helpers\CourseTypeRules::allYearLevels(),
             'schoolYears' => $schoolYearsQ->get(
                 Schema::hasColumn('dcs_school_years', 'is_active')
                     ? ['id', 'school_year', 'is_active']
@@ -3388,6 +3468,7 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
                 colleges: 'colleges',
                 programs: 'colleges', // Programs now live under Colleges
                 semesters: 'semesters',
+                yearlevels: 'yearlevels',
                 schoolyears: 'schoolyears',
                 coursenames: 'coursenames',
             };
@@ -3458,9 +3539,9 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
 >
 <script>
 (function () {
-    const legacy = { faculties: 'faculties', colleges: 'colleges', programs: 'colleges', semesters: 'semesters', schoolyears: 'schoolyears', coursenames: 'coursenames' };
+    const legacy = { faculties: 'faculties', colleges: 'colleges', programs: 'colleges', semesters: 'semesters', yearlevels: 'yearlevels', schoolyears: 'schoolyears', coursenames: 'coursenames' };
     const allowed = ['doctypes', 'signatories', 'originators', 'syllabi'];
-    const allowedSec = ['faculties', 'colleges', 'semesters', 'schoolyears', 'coursenames'];
+    const allowedSec = ['faculties', 'colleges', 'semesters', 'yearlevels', 'schoolyears', 'coursenames'];
     const qs = new URLSearchParams(window.location.search);
     let t = qs.get('tab') || sessionStorage.getItem('settingsActiveTab') || 'doctypes';
     let s = qs.get('section') || sessionStorage.getItem('settingsSyllabiSection') || 'colleges';
@@ -4006,6 +4087,7 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
             @foreach ([
                 'colleges' => ['fa-graduation-cap', 'Colleges'],
                 'semesters' => ['fa-calendar-week', 'Semesters'],
+                'yearlevels' => ['fa-layer-group', 'Year Levels'],
                 'schoolyears' => ['fa-calendar-days', 'School Years'],
                 'coursenames' => ['fa-list-check', 'Course Names'],
                 'faculties' => ['fa-chalkboard-user', 'Faculty'],
@@ -4230,6 +4312,35 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
         </div>
         </div>
 
+        <div class="syllabi-section" data-syllabi-section="yearlevels" wire:key="settings-syllabi-yearlevels" x-show="syllabiSection === 'yearlevels'">
+        <div class="panel-toolbar">
+            <span class="panel-subtitle">Year levels available when adding courses and registering Syllabi / TOS</span>
+            <button type="button" class="btn-primary" wire:click="openYearLevel()"><i class="fa-solid fa-plus"></i> Add Year Level</button>
+        </div>
+        <div class="table-wrap">
+            <table class="settings-table">
+                <thead><tr><th>Year Level</th><th style="width:140px;">Actions</th></tr></thead>
+                <tbody>
+                    @forelse($yearLevels as $yl)
+                        <tr wire:key="yl-{{ md5($yl) }}">
+                            <td data-label="Year Level">{{ $yl }}</td>
+                            <td>
+                                <div class="row-actions">
+                                    <button type="button" class="icon-btn" title="Edit" wire:click="openYearLevel(@js($yl))"><i class="fa-solid fa-pen"></i></button>
+                                    @if(!empty($canSoftDelete) && count($yearLevels) > 1)
+                                    <button type="button" class="icon-btn icon-btn-danger" title="Remove" wire:click="confirmDeleteYearLevel(@js($yl))"><i class="fa-solid fa-trash"></i></button>
+                                    @endif
+                                </div>
+                            </td>
+                        </tr>
+                    @empty
+                        <tr><td colspan="2" class="empty-cell">No year levels yet.</td></tr>
+                    @endforelse
+                </tbody>
+            </table>
+        </div>
+        </div>
+
         <div class="syllabi-section" data-syllabi-section="schoolyears" wire:key="settings-syllabi-schoolyears" x-show="syllabiSection === 'schoolyears'">
         <div class="panel-toolbar">
             <span class="panel-subtitle">Academic school years — only the <strong>Active</strong> year is offered on office Syllabi/TOS DRF requests</span>
@@ -4365,7 +4476,7 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
                         <tr wire:key="course-names-empty"><td colspan="{{ $courseTableColspan }}" class="empty-cell">No courses yet.</td></tr>
                     @else
                     @php
-                        $knownYears = \App\Helpers\SyllabiMonitoringHelper::YEAR_LEVELS;
+                        $knownYears = \App\Helpers\CourseTypeRules::allYearLevels();
                         $knownTypes = \App\Helpers\SyllabiMonitoringHelper::COURSE_TYPES;
                         $typeOrder = array_flip($knownTypes);
                         $coursesByYear = [];
@@ -4541,7 +4652,7 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
                 </div>
             </div>
         @else
-            <form class="st-modal{{ $modalKind === 'faculty' ? ' st-modal--faculty' : ($modalKind === 'programCourse' && ! $editingId ? ' st-modal--courses' : '') }}" wire:submit.prevent="{{ str_starts_with($modalKind, 'import') ? 'runCsvImport' : 'save' }}">
+            <form class="st-modal{{ $modalKind === 'faculty' ? ' st-modal--faculty' : '' }}" wire:submit.prevent="{{ str_starts_with($modalKind, 'import') ? 'runCsvImport' : 'save' }}">
                 <div class="st-modal-top">
                     <div class="st-modal-heading">
                         <div class="st-modal-icon"><i class="fa-solid {{ $modalKind === 'faculty' ? 'fa-chalkboard-user' : (str_starts_with($modalKind, 'import') ? 'fa-file-csv' : 'fa-pen-to-square') }}"></i></div>
@@ -4554,6 +4665,7 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
                             @elseif($modalKind === 'college') {{ $editingId ? 'Edit College' : 'Add College' }}
                             @elseif($modalKind === 'program') {{ $editingId ? 'Edit Program' : 'Add Program' }}
                             @elseif($modalKind === 'semester') {{ $editingId ? 'Edit Semester' : 'Add Semester' }}
+                            @elseif($modalKind === 'yearLevel') {{ $yearLevelOriginal !== '' ? 'Edit Year Level' : 'Add Year Level' }}
                             @elseif($modalKind === 'schoolYear') {{ $editingId ? 'Edit School Year' : 'Add School Year' }}
                             @elseif($modalKind === 'programCourse') {{ $editingId ? 'Edit Course' : 'Add Courses' }}
                             @elseif($modalKind === 'programCoursesBulk') Edit courses by program
@@ -4802,6 +4914,12 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
                         <input type="text" class="st-input @error('semesterName') error @enderror" wire:model="semesterName">
                         @error('semesterName') <div class="field-error">{{ $message }}</div> @enderror
                     </div>
+                @elseif($modalKind === 'yearLevel')
+                    <div class="st-field">
+                        <label class="st-label">Year Level</label>
+                        <input type="text" class="st-input @error('yearLevelName') error @enderror" wire:model="yearLevelName" placeholder="e.g. 6th Year">
+                        @error('yearLevelName') <div class="field-error">{{ $message }}</div> @enderror
+                    </div>
                 @elseif($modalKind === 'schoolYear')
                     <div class="st-field">
                         <label class="st-label">School Year</label>
@@ -4887,17 +5005,18 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
                         @error('courseSchoolYearId') <div class="field-error">{{ $message }}</div> @enderror
                     </div>
                     @endif
+                    <div class="st-field">
+                        <label class="st-label">Semester</label>
+                        <select class="st-input @error('semesterId') error @enderror" wire:model="semesterId">
+                            <option value="" disabled @selected($semesterId === '')>Select semester</option>
+                            @foreach($semesterOptions as $sem)
+                                <option value="{{ $sem->id }}">{{ $sem->semester_name }}</option>
+                            @endforeach
+                        </select>
+                        @error('semesterId') <div class="field-error">{{ $message }}</div> @enderror
+                    </div>
+
                     @if($editingId)
-                        <div class="st-field">
-                            <label class="st-label">Semester</label>
-                            <select class="st-input @error('semesterId') error @enderror" wire:model="semesterId">
-                                <option value="" disabled @selected($semesterId === '')>Select semester</option>
-                                @foreach($semesterOptions as $sem)
-                                    <option value="{{ $sem->id }}">{{ $sem->semester_name }}</option>
-                                @endforeach
-                            </select>
-                            @error('semesterId') <div class="field-error">{{ $message }}</div> @enderror
-                        </div>
                         <div class="st-field">
                             <label class="st-label">Course Type</label>
                             <select class="st-input @error('courseType') error @enderror" wire:model.live="courseType">
@@ -4932,10 +5051,9 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
                     @else
                         <div class="st-field">
                             <label class="st-label">Courses</label>
-                            <p class="st-faculty-hint" style="margin-top:0;">Pick college/program{{ $hasCourseSchoolYear ? ' and school year' : '' }} once. Add 1st Semester and 2nd Semester courses together in one submission — set semester, type, and year level on each row.</p>
+                            <p class="st-faculty-hint" style="margin-top:0;">Pick college/program{{ $hasCourseSchoolYear ? ', school year' : '' }}, and semester once. Mix GE, PE, NSTP, and Major in the same list — set type and year level on each row.</p>
                             <div class="st-course-rows st-course-rows--mixed">
                                 <div class="st-course-row st-course-row--mixed st-course-row-head">
-                                    <span>Semester</span>
                                     <span>Type</span>
                                     <span>Year</span>
                                     <span>Code</span>
@@ -4944,28 +5062,15 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
                                 </div>
                                 @foreach($courseRows as $i => $row)
                                     @php
-                                        $rowSemId = trim((string) ($row['semester_id'] ?? ''));
                                         $rowType = trim((string) ($row['type'] ?? ''));
                                         $rowYearOptions = \App\Helpers\CourseTypeRules::allowedYearLevels($rowType !== '' ? $rowType : null);
                                     @endphp
                                     <div class="st-course-row st-course-row--mixed" wire:key="course-row-{{ $i }}">
                                         <div>
                                             <select
-                                                class="st-input @error('courseRows.'.$i.'.semester_id') error @enderror"
-                                                wire:model="courseRows.{{ $i }}.semester_id"
-                                                @if($i === 0) data-course-first-input @endif
-                                            >
-                                                <option value="" disabled @selected($rowSemId === '')>Semester</option>
-                                                @foreach($semesterOptions as $sem)
-                                                    <option value="{{ $sem->id }}">{{ $sem->semester_name }}</option>
-                                                @endforeach
-                                            </select>
-                                            @error('courseRows.'.$i.'.semester_id') <div class="field-error">{{ $message }}</div> @enderror
-                                        </div>
-                                        <div>
-                                            <select
                                                 class="st-input @error('courseRows.'.$i.'.type') error @enderror"
                                                 wire:model.live="courseRows.{{ $i }}.type"
+                                                @if($i === 0) data-course-first-input @endif
                                             >
                                                 <option value="" disabled @selected($rowType === '')>Type</option>
                                                 <option value="GE Courses">GE</option>

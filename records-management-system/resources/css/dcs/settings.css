@@ -195,6 +195,7 @@ html[data-dcs-settings-boot-tab="syllabi"] #dcsSettingsRoot [data-tab-panel]:not
 html[data-dcs-settings-boot-section="faculties"] #dcsSettingsRoot [data-syllabi-section]:not([data-syllabi-section="faculties"]),
 html[data-dcs-settings-boot-section="colleges"] #dcsSettingsRoot [data-syllabi-section]:not([data-syllabi-section="colleges"]),
 html[data-dcs-settings-boot-section="semesters"] #dcsSettingsRoot [data-syllabi-section]:not([data-syllabi-section="semesters"]),
+html[data-dcs-settings-boot-section="yearlevels"] #dcsSettingsRoot [data-syllabi-section]:not([data-syllabi-section="yearlevels"]),
 html[data-dcs-settings-boot-section="schoolyears"] #dcsSettingsRoot [data-syllabi-section]:not([data-syllabi-section="schoolyears"]),
 html[data-dcs-settings-boot-section="coursenames"] #dcsSettingsRoot [data-syllabi-section]:not([data-syllabi-section="coursenames"]) {
     display: none !important;
@@ -1216,11 +1217,6 @@ tr.st-course-data.is-selected td {
     margin-bottom: 8px;
 }
 
-.st-modal.st-modal--courses {
-    width: min(860px, calc(100vw - 32px));
-    max-width: 860px;
-}
-
 /* ── Form Fields ── */
 .st-field {
     margin-bottom: 16px;
@@ -1335,7 +1331,7 @@ tr.st-course-data.is-selected td {
 }
 
 .st-course-row--mixed {
-    grid-template-columns: minmax(112px, 1.05fr) minmax(80px, 0.78fr) minmax(90px, 0.85fr) minmax(84px, 0.75fr) minmax(160px, 1.9fr) 36px;
+    grid-template-columns: minmax(88px, 0.85fr) minmax(96px, 0.95fr) minmax(88px, 0.75fr) minmax(160px, 2fr) 36px;
 }
 
 .st-course-rows--mixed {

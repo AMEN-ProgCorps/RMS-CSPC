@@ -2680,7 +2680,7 @@ class RegisterPersistHelper
     public static function normalizeSyllabiYearLevel(mixed $year): ?string
     {
         $year = trim((string) $year);
-        if ($year === '' || ! in_array($year, SyllabiMonitoringHelper::YEAR_LEVELS, true)) {
+        if ($year === '' || ! in_array($year, CourseTypeRules::allYearLevels(), true)) {
             return null;
         }
 

@@ -81,7 +81,7 @@ class SyllabiMonitoringHelper
         if ($courseType) {
             $found = CourseTypeRules::filterYearLevelsForType($courseType, $found);
         }
-        $order = array_flip(self::YEAR_LEVELS);
+        $order = array_flip(CourseTypeRules::allYearLevels());
         usort($found, function ($a, $b) use ($order) {
             return ($order[$a] ?? 99) <=> ($order[$b] ?? 99);
         });
@@ -139,7 +139,7 @@ class SyllabiMonitoringHelper
 
         $hasYearLevel = Schema::hasColumn('dcs_program_courses', 'year_level');
         if ($yearLevel !== null && $yearLevel !== '') {
-            if (! $hasYearLevel || ! in_array($yearLevel, self::YEAR_LEVELS, true)) {
+            if (! $hasYearLevel || ! in_array($yearLevel, CourseTypeRules::allYearLevels(), true)) {
                 $yearLevel = null;
             }
         } else {

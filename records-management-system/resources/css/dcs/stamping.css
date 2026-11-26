@@ -676,7 +676,7 @@ body {
 .st-modal-overlay {
     position: fixed;
     inset: 0;
-    background: rgba(15,23,42,0.55);
+    background: rgba(15, 23, 42, 0.55);
     backdrop-filter: blur(2px);
     -webkit-backdrop-filter: blur(2px);
     display: flex;
@@ -1063,6 +1063,188 @@ body {
     flex-shrink: 0;
 }
 
+.st-label-row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+    margin-bottom: 6px;
+}
+
+.st-import-toggle-btn {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    padding: 4px 9px;
+    border-radius: 6px;
+    border: 1px solid color-mix(in srgb, var(--st-accent) 30%, var(--st-border));
+    background: var(--st-accent-subtle);
+    color: var(--st-accent);
+    font-size: 0.7rem;
+    font-weight: 700;
+    cursor: pointer;
+    transition: all 0.15s ease;
+}
+
+.st-import-toggle-btn:hover {
+    background: var(--st-accent);
+    color: #fff;
+    border-color: var(--st-accent);
+}
+
+.st-import-box {
+    margin: 8px 0 10px;
+    padding: 12px;
+    border: 1.5px dashed color-mix(in srgb, var(--st-accent) 35%, var(--st-border));
+    border-radius: 10px;
+    background: #f8fafc;
+}
+
+.st-file-input {
+    width: 100%;
+    font-size: 0.75rem;
+    color: var(--st-text-muted);
+    padding: 6px 8px;
+    border: 1px solid var(--st-border);
+    border-radius: 7px;
+    background: #fff;
+    cursor: pointer;
+}
+
+.st-import-preview {
+    margin: 8px 0;
+    padding: 8px;
+    border-radius: 8px;
+    border: 1px solid var(--st-border);
+    background: repeating-conic-gradient(#f1f5f9 0% 25%, #ffffff 0% 50%) 50% / 12px 12px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    min-height: 54px;
+}
+
+.st-import-preview img {
+    max-width: 100%;
+    max-height: 76px;
+    object-fit: contain;
+}
+
+.st-import-actions {
+    display: flex;
+    justify-content: flex-end;
+    gap: 6px;
+    margin-top: 8px;
+}
+
+.st-import-cancel,
+.st-import-submit {
+    height: 30px;
+    padding: 0 11px;
+    border-radius: 7px;
+    font-size: 0.72rem;
+    font-weight: 700;
+    cursor: pointer;
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    transition: all 0.15s ease;
+}
+
+.st-import-cancel {
+    border: 1px solid var(--st-border);
+    background: #fff;
+    color: var(--st-text-muted);
+}
+
+.st-import-cancel:hover {
+    background: #f1f5f9;
+    color: var(--st-text);
+}
+
+.st-import-submit {
+    border: none;
+    background: var(--st-accent);
+    color: #fff;
+}
+
+.st-import-submit:hover:not(:disabled) {
+    background: var(--st-accent-dark);
+}
+
+.st-import-submit:disabled {
+    opacity: 0.55;
+    cursor: not-allowed;
+}
+
+.st-pill-thumb {
+    width: 22px;
+    height: 14px;
+    object-fit: contain;
+    border-radius: 3px;
+    flex-shrink: 0;
+    background: rgba(255, 255, 255, 0.9);
+}
+
+.st-pill-text {
+    max-width: 140px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.st-pill-delete {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 16px;
+    height: 16px;
+    margin-left: 2px;
+    border-radius: 999px;
+    font-size: 0.85rem;
+    line-height: 1;
+    color: var(--st-text-subtle);
+    transition: all 0.15s ease;
+}
+
+.st-pill-delete:hover {
+    background: #fee2e2;
+    color: #dc2626;
+}
+
+/* ── Stamp Size Control ── */
+
+.st-size-reset-btn {
+    border: none;
+    background: transparent;
+    color: var(--st-accent);
+    font-size: 0.7rem;
+    font-weight: 700;
+    cursor: pointer;
+    padding: 2px 4px;
+}
+
+.st-size-reset-btn:hover {
+    text-decoration: underline;
+}
+
+.st-size-control {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+}
+
+.st-size-slider {
+    width: 100%;
+    accent-color: var(--st-accent);
+    cursor: pointer;
+}
+
+.st-size-readout {
+    font-size: 0.73rem;
+    font-weight: 600;
+    color: var(--st-text-muted);
+    font-variant-numeric: tabular-nums;
+}
+
 /* ── Certified Fields ── */
 
 .st-form-group { margin-bottom: 12px; }
@@ -1211,6 +1393,39 @@ body {
 .st-stamp-overlay.is-dragging {
     cursor: grabbing;
     opacity: 0.95;
+}
+
+.st-stamp-overlay.is-resizing {
+    cursor: nwse-resize;
+    outline: 1.5px dashed var(--st-accent);
+    outline-offset: 2px;
+}
+
+.st-stamp-overlay:hover {
+    outline: 1.5px dashed color-mix(in srgb, var(--st-accent) 60%, transparent);
+    outline-offset: 2px;
+}
+
+.st-stamp-resize-handle {
+    position: absolute;
+    right: -6px;
+    bottom: -6px;
+    width: 13px;
+    height: 13px;
+    border-radius: 3px;
+    background: var(--st-accent);
+    border: 2px solid #fff;
+    box-shadow: 0 1px 4px rgba(15, 23, 42, 0.35);
+    cursor: nwse-resize;
+    z-index: 4;
+    opacity: 0.85;
+    transition: transform 0.12s ease, opacity 0.12s ease;
+}
+
+.st-stamp-resize-handle:hover,
+.st-stamp-overlay.is-resizing .st-stamp-resize-handle {
+    opacity: 1;
+    transform: scale(1.18);
 }
 
 .st-stamp-overlay.pos-top-left     { top: 4%; left: 4%; right: auto; bottom: auto; transform: none; }
@@ -1502,7 +1717,7 @@ body {
 .st-confirm-overlay {
     position: fixed;
     inset: 0;
-    background: rgba(15,23,42,0.55);
+    background: rgba(15, 23, 42, 0.55);
     backdrop-filter: blur(2px);
     -webkit-backdrop-filter: blur(2px);
     display: flex;
@@ -1510,6 +1725,39 @@ body {
     justify-content: center;
     z-index: 25000;
     animation: fadeInUp var(--dcs-ease-fast) both;
+}
+
+.st-confirm-icon.is-danger {
+    background: #fef2f2;
+    color: #dc2626;
+}
+
+.st-confirm-actions .st-btn-primary.st-btn-danger-confirm {
+    background: linear-gradient(135deg, #dc2626 0%, #b91c1c 100%);
+}
+
+.st-confirm-actions .st-btn-primary.st-btn-danger-confirm:hover {
+    background: linear-gradient(135deg, #b91c1c 0%, #991b1b 100%);
+}
+
+.st-redetect-btn {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    padding: 3px 8px;
+    border-radius: 6px;
+    border: 1px solid var(--st-border);
+    background: #fff;
+    color: var(--st-accent);
+    font-size: 0.69rem;
+    font-weight: 700;
+    cursor: pointer;
+    transition: all 0.15s ease;
+}
+
+.st-redetect-btn:hover {
+    background: var(--st-accent-subtle);
+    border-color: var(--st-accent);
 }
 
 .st-confirm {

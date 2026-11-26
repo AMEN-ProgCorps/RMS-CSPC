@@ -39,7 +39,7 @@ class StampService
         'certified_true_copy' => 'Certified True Copy',
     ];
 
-    /** Only Reference may be applied going forward. */
+    /** Built-in Reference stamp (always available). Custom imported stamps are stored in customStampsDir(). */
     private const STAMPS = [
         'reference' => [
             'label'     => 'Reference',
@@ -47,13 +47,389 @@ class StampService
             'subtitle'  => '',
             'color'     => [176, 48, 48],
             // Aspect matches reference.png (~2.8:1) including signature overhang.
-            'width'     => 36,
-            'height'    => 13,
+            'width'     => 36.0,
+            'height'    => 13.0,
             'titleSize' => 9,
             'subSize'   => 5,
             'image'     => 'images/stamps/reference.png',
         ],
     ];
+
+    // ──────────────────────────────────────────
+    // CUSTOM STAMPS REGISTRY (persistent files + JSON manifest)
+    // ──────────────────────────────────────────
+
+    private function customStampsDir(): string
+    {
+        $dir = storage_path('app/private/stamps/custom');
+        if (! is_dir($dir)) {
+            @mkdir($dir, 0775, true);
+        }
+
+        return $dir;
+    }
+
+    private function customStampsManifestPath(): string
+    {
+        return $this->customStampsDir() . DIRECTORY_SEPARATOR . 'manifest.json';
+    }
+
+    /**
+     * @return list<array<string, mixed>>
+     */
+    private function readCustomStampManifest(): array
+    {
+        $path = $this->customStampsManifestPath();
+        if (! is_file($path)) {
+            return [];
+        }
+        $raw = @file_get_contents($path);
+        if (! is_string($raw) || trim($raw) === '') {
+            return [];
+        }
+        $decoded = json_decode($raw, true);
+        if (! is_array($decoded)) {
+            return [];
+        }
+
+        $dir = $this->customStampsDir();
+        $out = [];
+        foreach ($decoded as $item) {
+            if (! is_array($item)) {
+                continue;
+            }
+            $id = (string) ($item['id'] ?? '');
+            $filename = basename((string) ($item['filename'] ?? ''));
+            if ($id === '' || $filename === '' || ! is_file($dir . DIRECTORY_SEPARATOR . $filename)) {
+                continue;
+            }
+            $out[] = $item;
+        }
+
+        return $out;
+    }
+
+    /**
+     * @param  list<array<string, mixed>>  $items
+     */
+    private function writeCustomStampManifest(array $items): void
+    {
+        $path = $this->customStampsManifestPath();
+        $json = json_encode(array_values($items), JSON_PRETTY_PRINT | JSON_UNESCAPED_UNICODE);
+        if ($json === false || @file_put_contents($path, $json, LOCK_EX) === false) {
+            throw new \RuntimeException('Could not save custom stamps registry.');
+        }
+    }
+
+    /**
+     * Returns all available stamps (built-in + custom imported) for the Stamping UI.
+     *
+     * @return list<array<string, mixed>>
+     */
+    public function availableStampsCatalog(): array
+    {
+        $refPath = public_path('images/stamps/reference.png');
+        $refVer = @filemtime($refPath) ?: time();
+        $items = [[
+            'id'        => 'reference',
+            'label'     => 'Reference',
+            'title'     => 'REFERENCE',
+            'color'     => '#b03030',
+            'width_mm'  => 36.0,
+            'height_mm' => 13.0,
+            'aspect'    => round(36.0 / 13.0, 4),
+            'image_url' => asset('images/stamps/reference.png') . '?v=' . $refVer,
+            'is_custom' => false,
+        ]];
+
+        foreach ($this->readCustomStampManifest() as $entry) {
+            $id = (string) $entry['id'];
+            $w = max(10.0, min(160.0, (float) ($entry['width_mm'] ?? 36.0)));
+            $h = max(6.0, min(160.0, (float) ($entry['height_mm'] ?? 15.0)));
+            $ver = (int) ($entry['updated_ts'] ?? time());
+            $items[] = [
+                'id'        => $id,
+                'label'     => (string) ($entry['label'] ?? 'Custom Stamp'),
+                'title'     => mb_strtoupper((string) ($entry['label'] ?? 'CUSTOM')),
+                'color'     => '#1d4ed8',
+                'width_mm'  => round($w, 2),
+                'height_mm' => round($h, 2),
+                'aspect'    => round($w / max(0.1, $h), 4),
+                'image_url' => '/dcs/stamp/custom/' . rawurlencode($id) . '/image?v=' . $ver,
+                'is_custom' => true,
+            ];
+        }
+
+        return $items;
+    }
+
+    public function listCustomStamps()
+    {
+        \App\Helpers\RegisterQueryHelper::assertFullDcsUser('stamping');
+
+        return response()->json([
+            'success' => true,
+            'stamps'  => $this->availableStampsCatalog(),
+        ]);
+    }
+
+    public function uploadCustomStamp(Request $request)
+    {
+        \App\Helpers\RegisterQueryHelper::assertFullDcsUser('stamping');
+        $rateCheck = RateLimiterService::check('dcs_action');
+        if (! $rateCheck['allowed']) {
+            return response()->json(['success' => false, 'message' => $rateCheck['message']], 429);
+        }
+
+        $validated = $request->validate([
+            'label' => 'required|string|max:60',
+            'image' => 'required|file|mimes:png,jpg,jpeg,webp|max:4096',
+        ]);
+
+        $label = trim((string) $validated['label']);
+        if ($label === '') {
+            return response()->json(['success' => false, 'message' => 'Enter a stamp name.'], 422);
+        }
+
+        $file = $request->file('image');
+        $realPath = $file->getRealPath();
+        $info = $realPath ? @getimagesize($realPath) : false;
+        if (! is_array($info) || empty($info[0]) || empty($info[1])) {
+            return response()->json(['success' => false, 'message' => 'Could not read image dimensions. Upload a valid PNG, JPG, or WebP image.'], 422);
+        }
+
+        $pxW = (int) $info[0];
+        $pxH = (int) $info[1];
+        $mime = strtolower((string) ($info['mime'] ?? $file->getMimeType() ?? 'image/png'));
+
+        $id = 'custom_' . substr(bin2hex(random_bytes(5)), 0, 8);
+        $dir = $this->customStampsDir();
+
+        // Store as PNG (converting WebP to PNG so FPDI can embed it reliably).
+        $isJpeg = in_array($mime, ['image/jpeg', 'image/jpg'], true);
+        $ext = $isJpeg ? 'jpg' : 'png';
+        $filename = $id . '.' . $ext;
+        $destPath = $dir . DIRECTORY_SEPARATOR . $filename;
+
+        if ($mime === 'image/webp') {
+            $converted = false;
+            if (function_exists('imagecreatefromwebp') && function_exists('imagepng')) {
+                $gd = @imagecreatefromwebp($realPath);
+                if ($gd !== false) {
+                    @imagesavealpha($gd, true);
+                    $converted = @imagepng($gd, $destPath);
+                    @imagedestroy($gd);
+                }
+            } elseif (class_exists(\Imagick::class)) {
+                try {
+                    $im = new \Imagick($realPath);
+                    $im->setImageFormat('png');
+                    $im->writeImage($destPath);
+                    $im->clear();
+                    $converted = is_file($destPath);
+                } catch (\Throwable) {
+                    $converted = false;
+                }
+            }
+            if (! $converted) {
+                return response()->json(['success' => false, 'message' => 'WebP conversion is unavailable on this server. Please upload a PNG or JPG image.'], 422);
+            }
+            $mime = 'image/png';
+        } else {
+            if (! @copy($realPath, $destPath)) {
+                return response()->json(['success' => false, 'message' => 'Could not save stamp image on the server.'], 500);
+            }
+        }
+
+        // Default physical size in mm preserving exact image aspect ratio.
+        $aspect = $pxW / max(1, $pxH);
+        $defaultW = 36.0;
+        $defaultH = round($defaultW / max(0.15, $aspect), 2);
+        if ($defaultH > 45.0) {
+            $defaultH = 45.0;
+            $defaultW = round($defaultH * $aspect, 2);
+        } elseif ($defaultH < 10.0) {
+            $defaultH = 10.0;
+            $defaultW = round($defaultH * $aspect, 2);
+        }
+        $defaultW = max(12.0, min(90.0, $defaultW));
+        $defaultH = max(8.0, min(90.0, $defaultH));
+
+        $nowTs = time();
+        $entry = [
+            'id'         => $id,
+            'label'      => $label,
+            'filename'   => $filename,
+            'mime'       => $mime,
+            'fpdi_type'  => $isJpeg ? 'JPEG' : 'PNG',
+            'width_mm'   => $defaultW,
+            'height_mm'  => $defaultH,
+            'aspect'     => round($aspect, 4),
+            'created_by' => Auth::id(),
+            'created_at' => now()->toIso8601String(),
+            'updated_ts' => $nowTs,
+        ];
+
+        $manifest = $this->readCustomStampManifest();
+        $manifest[] = $entry;
+        $this->writeCustomStampManifest($manifest);
+
+        \App\Helpers\RegisterPersistHelper::logAdminChange('Added custom stamp: ' . $label);
+
+        return response()->json([
+            'success' => true,
+            'message' => 'Custom stamp "' . $label . '" imported.',
+            'stamp'   => [
+                'id'        => $id,
+                'label'     => $label,
+                'title'     => mb_strtoupper($label),
+                'color'     => '#1d4ed8',
+                'width_mm'  => $defaultW,
+                'height_mm' => $defaultH,
+                'aspect'    => round($aspect, 4),
+                'image_url' => '/dcs/stamp/custom/' . rawurlencode($id) . '/image?v=' . $nowTs,
+                'is_custom' => true,
+            ],
+            'stamps' => $this->availableStampsCatalog(),
+        ]);
+    }
+
+    public function deleteCustomStamp(string $id)
+    {
+        \App\Helpers\RegisterQueryHelper::assertFullDcsUser('stamping');
+        if (! preg_match('/^custom_[a-z0-9_-]{4,40}$/i', $id)) {
+            return response()->json(['success' => false, 'message' => 'Invalid custom stamp ID.'], 422);
+        }
+
+        $manifest = $this->readCustomStampManifest();
+        $removed = null;
+        $remaining = [];
+        foreach ($manifest as $item) {
+            if ((string) ($item['id'] ?? '') === $id) {
+                $removed = $item;
+            } else {
+                $remaining[] = $item;
+            }
+        }
+
+        if ($removed === null) {
+            return response()->json(['success' => false, 'message' => 'Custom stamp not found.'], 404);
+        }
+
+        $file = $this->customStampsDir() . DIRECTORY_SEPARATOR . basename((string) ($removed['filename'] ?? ''));
+        if (is_file($file)) {
+            @unlink($file);
+        }
+        $this->writeCustomStampManifest($remaining);
+
+        \App\Helpers\RegisterPersistHelper::logAdminChange('Deleted custom stamp: ' . ($removed['label'] ?? $id));
+
+        return response()->json([
+            'success' => true,
+            'message' => 'Custom stamp removed.',
+            'stamps'  => $this->availableStampsCatalog(),
+        ]);
+    }
+
+    public function serveCustomStampImage(string $id)
+    {
+        \App\Helpers\RegisterQueryHelper::assertFullDcsUser('stamping');
+        if (! preg_match('/^custom_[a-z0-9_-]{4,40}$/i', $id)) {
+            abort(404);
+        }
+
+        foreach ($this->readCustomStampManifest() as $item) {
+            if ((string) ($item['id'] ?? '') !== $id) {
+                continue;
+            }
+            $file = $this->customStampsDir() . DIRECTORY_SEPARATOR . basename((string) ($item['filename'] ?? ''));
+            if (! is_file($file) || ! is_readable($file)) {
+                abort(404);
+            }
+            $mime = (string) ($item['mime'] ?? 'image/png');
+
+            return response()->file($file, [
+                'Content-Type'  => $mime,
+                'Cache-Control' => 'private, max-age=86400',
+            ]);
+        }
+
+        abort(404);
+    }
+
+    /**
+     * Resolves a stamp definition (built-in or custom) and applies optional resize overrides in mm.
+     *
+     * @return array<string, mixed>|null
+     */
+    private function resolveStampConfig(string $stampType, ?float $overrideWidthMm = null, ?float $overrideHeightMm = null): ?array
+    {
+        $cfg = null;
+        if (isset(self::STAMPS[$stampType])) {
+            $cfg = self::STAMPS[$stampType];
+        } else {
+            foreach ($this->readCustomStampManifest() as $item) {
+                if ((string) ($item['id'] ?? '') === $stampType) {
+                    $file = $this->customStampsDir() . DIRECTORY_SEPARATOR . basename((string) ($item['filename'] ?? ''));
+                    $cfg = [
+                        'label'               => (string) ($item['label'] ?? 'Custom Stamp'),
+                        'title'               => mb_strtoupper((string) ($item['label'] ?? 'CUSTOM')),
+                        'subtitle'            => '',
+                        'color'               => [29, 78, 216],
+                        'width'               => (float) ($item['width_mm'] ?? 36.0),
+                        'height'              => (float) ($item['height_mm'] ?? 15.0),
+                        'titleSize'           => 9,
+                        'subSize'             => 5,
+                        'image'               => '',
+                        'absolute_image_path' => $file,
+                        'fpdi_type'           => (string) ($item['fpdi_type'] ?? 'PNG'),
+                    ];
+                    break;
+                }
+            }
+        }
+
+        if (! $cfg) {
+            return null;
+        }
+
+        $baseW = max(1.0, (float) $cfg['width']);
+        $baseH = max(1.0, (float) $cfg['height']);
+        $aspect = $baseW / $baseH;
+
+        if ($overrideWidthMm !== null && $overrideWidthMm > 0) {
+            $w = max(8.0, min(160.0, $overrideWidthMm));
+            $h = ($overrideHeightMm !== null && $overrideHeightMm > 0)
+                ? max(5.0, min(160.0, $overrideHeightMm))
+                : max(5.0, min(160.0, round($w / max(0.1, $aspect), 2)));
+            $cfg['width'] = round($w, 2);
+            $cfg['height'] = round($h, 2);
+        } elseif ($overrideHeightMm !== null && $overrideHeightMm > 0) {
+            $h = max(5.0, min(160.0, $overrideHeightMm));
+            $w = max(8.0, min(160.0, round($h * $aspect, 2)));
+            $cfg['width'] = round($w, 2);
+            $cfg['height'] = round($h, 2);
+        }
+
+        return $cfg;
+    }
+
+    public function stampLabelFor(string $stampType): string
+    {
+        if (isset(self::STAMPS[$stampType]['label'])) {
+            return (string) self::STAMPS[$stampType]['label'];
+        }
+        if (isset(self::STAMP_LABELS[$stampType])) {
+            return (string) self::STAMP_LABELS[$stampType];
+        }
+        foreach ($this->readCustomStampManifest() as $item) {
+            if ((string) ($item['id'] ?? '') === $stampType) {
+                return (string) ($item['label'] ?? $stampType);
+            }
+        }
+
+        return $stampType;
+    }
 
     // ──────────────────────────────────────────
     // SHARED VALIDATION
@@ -70,7 +446,9 @@ class StampService
             'doc_no'       => 'nullable|string|max:100',
             'doc_title'    => 'nullable|string|max:500',
             'rev'          => 'nullable|string|max:20',
-            'stamp_type'   => 'required|string|in:reference',
+            'stamp_type'   => 'required|string|max:50',
+            'stamp_width_mm'  => 'nullable|numeric|min:8|max:160',
+            'stamp_height_mm' => 'nullable|numeric|min:5|max:160',
             'position'     => 'required|string|in:top-left,top-right,bottom-left,bottom-right,center,auto,custom',
             'x_pct'        => 'nullable|numeric|min:0|max:100',
             'y_pct'        => 'nullable|numeric|min:0|max:100',
@@ -80,6 +458,10 @@ class StampService
             'page_positions.*.x_pct' => 'required|numeric|min:0|max:100',
             'page_positions.*.y_pct' => 'required|numeric|min:0|max:100',
         ]);
+
+        if (! $this->resolveStampConfig((string) $validated['stamp_type'])) {
+            abort(422, 'Unsupported or removed stamp type.');
+        }
 
         if ($validated['position'] === 'custom') {
             $hasPagePositions = !empty($validated['page_positions']);
@@ -324,6 +706,34 @@ class StampService
                 return $toMm($midEmpty['x'], $midEmpty['y']);
             }
 
+            // --- 2b) Full-page empty scan when mid-band is crowded (e.g. dense tables/forms) ---
+            $fullYStart = $marginPx;
+            $fullYEnd = max($marginPx, $imgH - $stampHpx - $marginPx);
+            $fullBest = null;
+            $fullBestScore = -1.0;
+            for ($y = $fullYStart; $y <= $fullYEnd; $y += $coarseStep) {
+                for ($x = $marginPx; $x + $stampWpx <= $imgW - $marginPx; $x += $coarseStep) {
+                    if (!$isMostlyEmpty($x, $y)) {
+                        continue;
+                    }
+                    $ink = $inkAt($x, $y);
+                    $score = $scoreMidSpot($x, $y, $ink);
+                    if ($score > $fullBestScore) {
+                        $fullBestScore = $score;
+                        $fullBest = ['x' => $x, 'y' => $y, 'ink' => $ink];
+                    }
+                }
+            }
+            if ($fullBest !== null) {
+                Log::debug('Stamp: full-page empty scan hit', [
+                    'page' => $pageNum,
+                    'x' => round($fullBest['x'] / $pxPerMm, 1),
+                    'y' => round($fullBest['y'] / $pxPerMm, 1),
+                ]);
+
+                return $toMm($fullBest['x'], $fullBest['y']);
+            }
+
             // --- 3) Mid-band least-ink (even if not perfectly empty) — still never bottom ---
             $findLeastInkMid = function (int $step) use (
                 $midYStart, $midYEnd, $marginPx, $stampWpx, $stampHpx, $imgW, $inkAt, $scoreMidSpot
@@ -559,7 +969,14 @@ class StampService
                 return $blocked;
             }
 
-            $config = self::STAMPS[$validated['stamp_type']];
+            $config = $this->resolveStampConfig(
+                (string) $validated['stamp_type'],
+                isset($validated['stamp_width_mm']) ? (float) $validated['stamp_width_mm'] : null,
+                isset($validated['stamp_height_mm']) ? (float) $validated['stamp_height_mm'] : null
+            );
+            if (! $config) {
+                return response()->json(['success' => false, 'message' => 'Stamp type not found.'], 422);
+            }
             $size   = $this->getPdfPageSize($sourcePath, $page);
 
             $pos = $this->resolveStampPosition(
@@ -667,6 +1084,8 @@ class StampService
                     'x_pct' => $validated['x_pct'] ?? null,
                     'y_pct' => $validated['y_pct'] ?? null,
                     'page_positions' => $validated['page_positions'] ?? [],
+                    'stamp_width_mm' => isset($validated['stamp_width_mm']) ? (float) $validated['stamp_width_mm'] : null,
+                    'stamp_height_mm' => isset($validated['stamp_height_mm']) ? (float) $validated['stamp_height_mm'] : null,
                 ]
             );
 
@@ -730,7 +1149,7 @@ class StampService
                 $action = 'applied';
             }
 
-            $stampLabel = self::STAMPS[$validated['stamp_type']]['label'] ?? self::STAMP_LABELS[$validated['stamp_type']] ?? $validated['stamp_type'];
+            $stampLabel = $this->stampLabelFor((string) $validated['stamp_type']);
 
             Log::debug("Stamp {$action}", [
                 'doc'  => $validated['doc_no'] ?? 'N/A',
@@ -954,12 +1373,15 @@ class StampService
                     'x_pct' => $validated['x_pct'] ?? null,
                     'y_pct' => $validated['y_pct'] ?? null,
                     'page_positions' => $validated['page_positions'] ?? [],
+                    'stamp_width_mm' => isset($validated['stamp_width_mm']) ? (float) $validated['stamp_width_mm'] : null,
+                    'stamp_height_mm' => isset($validated['stamp_height_mm']) ? (float) $validated['stamp_height_mm'] : null,
                 ]
             );
 
             $filename = $this->referenceScanDownloadFilename(
                 (string) $request->input('scan_name', ''),
-                $validated['file_path']
+                $validated['file_path'],
+                $this->stampLabelFor((string) $validated['stamp_type'])
             );
 
             return response()
@@ -1016,7 +1438,7 @@ class StampService
         return response()->json([
             'stamped'    => true,
             'stamp_type' => $stamp->stamp_type,
-            'label'      => self::STAMP_LABELS[$stamp->stamp_type] ?? self::STAMPS[$stamp->stamp_type]['label'] ?? $stamp->stamp_type,
+            'label'      => $this->stampLabelFor((string) $stamp->stamp_type),
             'stamped_at' => \Carbon\Carbon::parse($stamp->stamped_at)->format('M d, Y h:i A'),
             'stamped_by' => $stampedBy ?: 'Unknown',
         ]);
@@ -1455,7 +1877,7 @@ class StampService
      * Download name matching masterlist scan convention:
      * REFERENCE (YYYY-MM-DD_DOC_…_RevN).pdf
      */
-    private function referenceScanDownloadFilename(string $scanName, string $fallbackPath): string
+    private function referenceScanDownloadFilename(string $scanName, string $fallbackPath, string $stampLabel = 'REFERENCE'): string
     {
         $base = trim($scanName);
         if ($base === '') {
@@ -1468,11 +1890,15 @@ class StampService
             $base = 'document';
         }
 
-        // Avoid REFERENCE (REFERENCE (...))
-        if (preg_match('/^REFERENCE\s*\(/i', $base)) {
+        $prefix = mb_strtoupper(trim($stampLabel));
+        $prefix = preg_replace('/[\\\\\/:\*\?"<>\|]+/', '-', $prefix) ?? $prefix;
+        $prefix = $prefix !== '' ? $prefix : 'REFERENCE';
+
+        // Avoid PREFIX (PREFIX (...))
+        if (preg_match('/^' . preg_quote($prefix, '/') . '\s*\(/i', $base)) {
             $name = $base;
         } else {
-            $name = 'REFERENCE (' . $base . ')';
+            $name = $prefix . ' (' . $base . ')';
         }
 
         return mb_substr($name, 0, 180) . '.pdf';
@@ -1496,7 +1922,11 @@ class StampService
      */
     private function renderStamp($pdf, string $type, string $position, float $pageW, float $pageH, array $options, string $pdfPath, int $pageNum): void
     {
-        $config = self::STAMPS[$type] ?? null;
+        $config = $this->resolveStampConfig(
+            $type,
+            isset($options['stamp_width_mm']) ? (float) $options['stamp_width_mm'] : null,
+            isset($options['stamp_height_mm']) ? (float) $options['stamp_height_mm'] : null
+        );
         if (!$config) {
             throw new \RuntimeException('Unsupported stamp type: ' . $type);
         }
@@ -1553,7 +1983,18 @@ class StampService
         $w = $cfg['width'];
         $h = $cfg['height'];
 
-        // Prefer stamp artwork: red REFERENCE box + blue signature at bottom-right.
+        // Custom imported stamp image (stored in private storage).
+        $absImagePath = (string) ($cfg['absolute_image_path'] ?? '');
+        if ($absImagePath !== '' && is_file($absImagePath) && is_readable($absImagePath)) {
+            $fpdiType = strtoupper((string) ($cfg['fpdi_type'] ?? 'PNG'));
+            if (! in_array($fpdiType, ['PNG', 'JPEG', 'JPG'], true)) {
+                $fpdiType = 'PNG';
+            }
+            $pdf->Image($absImagePath, $x, $y, $w, $h, $fpdiType);
+            return;
+        }
+
+        // Prefer built-in stamp artwork: red REFERENCE box + blue signature at bottom-right.
         $imageRel = (string) ($cfg['image'] ?? '');
         if ($imageRel !== '') {
             $imagePath = public_path($imageRel);

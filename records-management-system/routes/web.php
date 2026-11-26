@@ -1496,6 +1496,10 @@ Route::middleware(['auth'])
 
                 Route::middleware(['dcs.module:stamping'])->group(function () {
                     Volt::route('/stamping', 'pages.dcs.stamping.index')->name('stamping.index');
+                    Route::get('/stamp/custom', fn () => app(StampService::class)->listCustomStamps())->name('stamp.custom.index');
+                    Route::post('/stamp/custom', fn (Request $request) => app(StampService::class)->uploadCustomStamp($request))->name('stamp.custom.store');
+                    Route::delete('/stamp/custom/{id}', fn (string $id) => app(StampService::class)->deleteCustomStamp($id))->name('stamp.custom.destroy');
+                    Route::get('/stamp/custom/{id}/image', fn (string $id) => app(StampService::class)->serveCustomStampImage($id))->name('stamp.custom.image');
                     Route::post('/stamp/apply', fn (Request $request) => app(StampService::class)->apply($request))->name('stamp.apply');
                     Route::post('/stamp/remove', fn (Request $request) => app(StampService::class)->remove($request))->name('stamp.remove');
                     Route::post('/stamp/download', fn (Request $request) => app(StampService::class)->download($request))->name('stamp.download');

@@ -131,7 +131,26 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
                 </div>
             @else
                 <div class="ofi-table-wrap ofi-list-table-wrap">
-                    <table class="ofi-table">
+                    <table class="ofi-table ofi-drf-fixed-table{{ ($isReviewer ?? false) ? ' is-reviewer' : '' }}">
+                        <colgroup>
+                            @if($isReviewer ?? false)
+                                <col style="width: 24%;">
+                                <col style="width: 15%;">
+                                <col style="width: 12%;">
+                                <col style="width: 11%;">
+                                <col style="width: 9%;">
+                                <col style="width: 9%;">
+                                <col style="width: 11%;">
+                                <col style="width: 9%;">
+                            @else
+                                <col style="width: 31%;">
+                                <col style="width: 21%;">
+                                <col style="width: 10%;">
+                                <col style="width: 10%;">
+                                <col style="width: 13%;">
+                                <col style="width: 15%;">
+                            @endif
+                        </colgroup>
                         <thead>
                             <tr>
                                 <th>Title</th>
@@ -154,7 +173,7 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
                                             {{ $row->doc_title ?: 'Untitled DRF' }}
                                         </a>
                                     </td>
-                                    <td class="ofi-nowrap"><x-dcs.originator-lines :name="data_get($row, 'originator_name', '')" /></td>
+                                    <td class="ofi-originator-cell"><x-dcs.originator-lines :name="data_get($row, 'originator_name', '')" /></td>
                                     @if($isReviewer ?? false)
                                         <td>{{ $row->submitting_office ?? '—' }}</td>
                                         <td>{{ $row->submitter_name ?? '—' }}</td>
@@ -187,6 +206,34 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
                         </tbody>
                     </table>
                 </div>
+                <style>
+                    .ofi-list-table-wrap .ofi-drf-fixed-table {
+                        table-layout: fixed;
+                        width: 100%;
+                        min-width: 860px;
+                    }
+                    .ofi-list-table-wrap .ofi-drf-fixed-table th,
+                    .ofi-list-table-wrap .ofi-drf-fixed-table td {
+                        overflow: hidden;
+                        text-overflow: ellipsis;
+                        vertical-align: middle;
+                    }
+                    .ofi-list-table-wrap .ofi-drf-fixed-table .ofi-title-cell {
+                        max-width: none;
+                        white-space: normal;
+                        word-break: break-word;
+                    }
+                    .ofi-list-table-wrap .ofi-drf-fixed-table .ofi-originator-cell {
+                        white-space: normal;
+                        word-break: break-word;
+                        line-height: 1.35;
+                    }
+                    .ofi-list-table-wrap .ofi-drf-fixed-table .ofi-actions-col,
+                    .ofi-list-table-wrap .ofi-drf-fixed-table td.ofi-actions {
+                        width: auto;
+                        overflow: visible;
+                    }
+                </style>
 
                 @include('pages.dcs.partials.list-pagination', [
                     'from' => (int) $rows->firstItem(),

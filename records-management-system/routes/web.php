@@ -1341,7 +1341,7 @@ Route::middleware(['auth'])
                     ]);
                 }
 
-                return response($renderSingle($drf, false, $viewerMode, $viewerMode));
+                return response($renderSingle($drf, false, true, false));
             })->name('office.drf.print');
             Route::match(['put', 'patch', 'post'], '/office/drf/{id}', function (Request $request, int $id) {
                 return OfficeIntakeHelper::updateDrf($request, $id);

@@ -882,6 +882,15 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
      */
     public function openProgramCourse(?int $id = null): void
     {
+        if ($id !== null) {
+            $selected = array_values(array_unique(array_filter(array_map('intval', $this->selectedCourseIds))));
+            if (count($selected) > 1 && in_array($id, $selected, true)) {
+                $this->openSelectedCoursesBulk();
+
+                return;
+            }
+        }
+
         $this->resetFormFor('programCourse', $id);
         $this->courseRows = [['type' => '', 'year_level' => '', 'code' => '', 'name' => '']];
         $this->courseName = '';

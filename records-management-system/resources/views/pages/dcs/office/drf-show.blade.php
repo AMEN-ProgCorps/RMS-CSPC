@@ -221,29 +221,30 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
                 <span class="ofi-form-code-badge">{{ \App\Helpers\DcsPrintTemplateHelper::get('office_drf')->form_code ?? 'CSPC-F-DCC-06' }}</span>
             </div>
             <div class="reg-card-body ofi-drf-form ofi-show-form">
-                @unless($isBatchShow)
                 <div class="reg-field">
-                    <label>Originator</label>
-                    <div class="ofi-show-value"><x-dcs.originator-lines :name="$originator" /></div>
-                </div>
-                @endunless
-                <div class="reg-grid-2-1">
-                    <div class="reg-field">
-                        <label>Source unit</label>
-                        <div class="ofi-show-value">{{ $departmentLabel ?: '—' }}</div>
+                    <label>Type of document</label>
+                    <div class="ofi-doc-type-badges" aria-label="Type of document">
+                        @foreach($docTypeBadges as $badge)
+                            <span class="ofi-doc-type-badge @if(!empty($badge['active'])) is-active @endif">{{ $badge['label'] }}</span>
+                        @endforeach
                     </div>
-                    <div class="reg-field">
-                        <label>Date</label>
-                        <div class="ofi-show-value">{{ $drfDate }}</div>
-                    </div>
+                    @if($showCatalogTypes)
+                        <div class="ofi-readonly-type-meta" aria-label="Document type and sub-type">
+                            @if($docTypeName !== '')
+                                <div class="ofi-readonly-type-card">
+                                    <span class="ofi-readonly-type-label">Document type</span>
+                                    <div class="ofi-readonly-type-value">{{ $docTypeName }}</div>
+                                </div>
+                            @endif
+                            @if($subTypeName !== '')
+                                <div class="ofi-readonly-type-card">
+                                    <span class="ofi-readonly-type-label">Sub-type</span>
+                                    <div class="ofi-readonly-type-value">{{ $subTypeName }}</div>
+                                </div>
+                            @endif
+                        </div>
+                    @endif
                 </div>
-
-                @unless($isBatchShow)
-                <div class="reg-field">
-                    <label>Document Title</label>
-                    <div class="ofi-show-value">{{ $drf->doc_title ?: '—' }}</div>
-                </div>
-                @endunless
 
                 @php
                     $syllabiCtx = \App\Helpers\OfficeIntakeHelper::officeDrfSyllabiContextFromRow($drf);
@@ -285,41 +286,6 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
                     </div>
                 @endif
 
-                @if($isBatchShow)
-                    <div class="reg-field" style="margin-top:12px;">
-                        <label>Individual DRFs in this batch ({{ count($batchItems) }} courses)</label>
-                        <div style="display:flex;flex-direction:column;gap:12px;margin-top:6px;">
-                            @foreach($batchItems as $bIdx => $bItem)
-                                <div style="border:1.5px solid #dbe6f7;border-radius:10px;background:#f8fbff;padding:12px 14px;">
-                                    <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-bottom:10px;padding-bottom:8px;border-bottom:1px solid #e2ecf8;">
-                                        <span style="padding:2px 9px;border-radius:999px;background:#0d2a7a;color:#fff;font-size:11px;font-weight:700;">DRF #{{ $bIdx + 1 }}</span>
-                                        <strong style="font-size:0.9rem;color:#0f172a;">
-                                            @if(!empty($bItem['course_code'])){{ $bItem['course_code'] }} — @endif{{ $bItem['course_name'] ?: ('Course #' . ($bItem['course_id'] ?? '')) }}
-                                        </strong>
-                                        @if(!empty($bItem['year_level']))
-                                            <span style="margin-left:auto;padding:2px 8px;border-radius:999px;background:#e2e8f0;color:#334155;font-size:11px;font-weight:600;">{{ $bItem['year_level'] }}</span>
-                                        @endif
-                                    </div>
-                                    <div style="display:flex;flex-direction:column;gap:8px;">
-                                        <div class="reg-field" style="margin:0;">
-                                            <label>Document Title</label>
-                                            <div class="ofi-show-value" style="background:#fff;">{{ ($bItem['drfTitle'] ?? '') !== '' ? $bItem['drfTitle'] : '—' }}</div>
-                                        </div>
-                                        <div class="reg-field" style="margin:0;">
-                                            <label>Originator</label>
-                                            <div class="ofi-show-value" style="background:#fff;"><x-dcs.originator-lines :name="$bItem['originatorName'] ?? ''" /></div>
-                                        </div>
-                                        <div class="reg-field" style="margin:0;">
-                                            <label>Description/reason for request</label>
-                                            <div class="ofi-show-value is-multiline" style="background:#fff;">{{ ($bItem['descriptionReason'] ?? '') !== '' ? $bItem['descriptionReason'] : '—' }}</div>
-                                        </div>
-                                    </div>
-                                </div>
-                            @endforeach
-                        </div>
-                    </div>
-                @endif
-
                 @php
                     $previousDocNo = trim((string) ($drf->previous_document_no ?? ''));
                     $previousTitle = trim((string) ($drf->previous_document_title ?? ''));
@@ -351,29 +317,61 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
                     </div>
                 @endif
 
-                <div class="reg-field">
-                    <label>Type of document</label>
-                    <div class="ofi-doc-type-badges" aria-label="Type of document">
-                        @foreach($docTypeBadges as $badge)
-                            <span class="ofi-doc-type-badge @if(!empty($badge['active'])) is-active @endif">{{ $badge['label'] }}</span>
-                        @endforeach
-                    </div>
-                    @if($showCatalogTypes)
-                        <div class="ofi-readonly-type-meta" aria-label="Document type and sub-type">
-                            @if($docTypeName !== '')
-                                <div class="ofi-readonly-type-card">
-                                    <span class="ofi-readonly-type-label">Document type</span>
-                                    <div class="ofi-readonly-type-value">{{ $docTypeName }}</div>
+                @if($isBatchShow)
+                    <div class="reg-field" style="margin-top:12px;">
+                        <label>Individual DRFs in this batch ({{ count($batchItems) }} {{ !empty($syllabiCtx['is_syllabi']) ? 'courses' : 'DRFs' }})</label>
+                        <div style="display:flex;flex-direction:column;gap:12px;margin-top:6px;">
+                            @foreach($batchItems as $bIdx => $bItem)
+                                <div style="border:1.5px solid #dbe6f7;border-radius:10px;background:#f8fbff;padding:12px 14px;">
+                                    <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-bottom:10px;padding-bottom:8px;border-bottom:1px solid #e2ecf8;">
+                                        <span style="padding:2px 9px;border-radius:999px;background:#0d2a7a;color:#fff;font-size:11px;font-weight:700;">DRF #{{ $bIdx + 1 }}</span>
+                                        @if(!empty($bItem['course_code']) || !empty($bItem['course_name']))
+                                            <strong style="font-size:0.9rem;color:#0f172a;">
+                                                @if(!empty($bItem['course_code'])){{ $bItem['course_code'] }} — @endif{{ $bItem['course_name'] }}
+                                            </strong>
+                                        @endif
+                                        @if(!empty($bItem['year_level']))
+                                            <span style="margin-left:auto;padding:2px 8px;border-radius:999px;background:#e2e8f0;color:#334155;font-size:11px;font-weight:600;">{{ $bItem['year_level'] }}</span>
+                                        @endif
+                                    </div>
+                                    <div style="display:flex;flex-direction:column;gap:8px;">
+                                        <div class="reg-field" style="margin:0;">
+                                            <label>Document Title</label>
+                                            <div class="ofi-show-value" style="background:#fff;">{{ ($bItem['drfTitle'] ?? '') !== '' ? $bItem['drfTitle'] : '—' }}</div>
+                                        </div>
+                                        <div class="reg-field" style="margin:0;">
+                                            <label>Originator</label>
+                                            <div class="ofi-show-value" style="background:#fff;"><x-dcs.originator-lines :name="$bItem['originatorName'] ?? ''" /></div>
+                                        </div>
+                                        <div class="reg-field" style="margin:0;">
+                                            <label>Description/reason for request</label>
+                                            <div class="ofi-show-value is-multiline" style="background:#fff;">{{ ($bItem['descriptionReason'] ?? '') !== '' ? $bItem['descriptionReason'] : '—' }}</div>
+                                        </div>
+                                    </div>
                                 </div>
-                            @endif
-                            @if($subTypeName !== '')
-                                <div class="ofi-readonly-type-card">
-                                    <span class="ofi-readonly-type-label">Sub-type</span>
-                                    <div class="ofi-readonly-type-value">{{ $subTypeName }}</div>
-                                </div>
-                            @endif
+                            @endforeach
                         </div>
-                    @endif
+                    </div>
+                @else
+                    <div class="reg-field">
+                        <label>Document Title</label>
+                        <div class="ofi-show-value">{{ $drf->doc_title ?: '—' }}</div>
+                    </div>
+                    <div class="reg-field">
+                        <label>Originator</label>
+                        <div class="ofi-show-value"><x-dcs.originator-lines :name="$originator" /></div>
+                    </div>
+                @endif
+
+                <div class="reg-grid-2-1">
+                    <div class="reg-field">
+                        <label>Source unit</label>
+                        <div class="ofi-show-value">{{ $departmentLabel ?: '—' }}</div>
+                    </div>
+                    <div class="reg-field">
+                        <label>Date</label>
+                        <div class="ofi-show-value">{{ $drfDate }}</div>
+                    </div>
                 </div>
 
                 @unless($isBatchShow)

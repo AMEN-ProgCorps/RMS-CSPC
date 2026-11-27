@@ -797,9 +797,21 @@ document.addEventListener('keydown', function (e) {
                     @php
                         $gCols = max(1, min(6, (int) ($block['grid_cols'] ?? 4)));
                         $gRows = max(1, min(10, (int) ($block['grid_rows'] ?? ($isDrfTheme ? 6 : 5))));
-                        $rawCells = $gridOfficeRows !== []
-                            ? $gridOfficeRows
-                            : array_values(array_filter(array_map('trim', preg_split('/\s*,\s*/', $displayText) ?: [])));
+                        $itemDistList = isset($values['_distribute_offices']) && is_array($values['_distribute_offices'])
+                            ? $values['_distribute_offices']
+                            : null;
+                        if ($itemDistList !== null) {
+                            $rawCells = [];
+                            foreach ($itemDistList as $oRow) {
+                                if (! is_array($oRow)) continue;
+                                $lbl = trim((string) ($oRow['code'] ?? '')) ?: trim((string) ($oRow['name'] ?? ''));
+                                if ($lbl !== '') $rawCells[] = $lbl;
+                            }
+                        } else {
+                            $rawCells = $gridOfficeRows !== []
+                                ? $gridOfficeRows
+                                : array_values(array_filter(array_map('trim', preg_split('/\s*,\s*/', $displayText) ?: [])));
+                        }
                         $total = $gCols * $gRows;
                         $packedBlock = \App\Helpers\OfficeIntakeHelper::packDistributeGridCells($rawCells, $total);
                         $cells = $packedBlock['cells'];
@@ -948,9 +960,25 @@ document.addEventListener('keydown', function (e) {
 @if($isBatchRender)</div>@endif
 @endforeach
 
-@if($distributeOverflow)
 @foreach($renderItems as $attachItemValues)
-@foreach($attachPages as $pageIndex => $pageOffices)
+@php
+    $itemAttachRows = [];
+    if (isset($attachItemValues['_distribute_offices']) && is_array($attachItemValues['_distribute_offices'])) {
+        $itemGridRows = [];
+        foreach ($attachItemValues['_distribute_offices'] as $oRow) {
+            if (! is_array($oRow)) continue;
+            $gLbl = trim((string) ($oRow['code'] ?? '')) ?: trim((string) ($oRow['name'] ?? ''));
+            $aLbl = trim((string) ($oRow['name'] ?? '')) ?: trim((string) ($oRow['code'] ?? ''));
+            if ($gLbl !== '') $itemGridRows[] = $gLbl;
+            if ($aLbl !== '') $itemAttachRows[] = $aLbl;
+        }
+        $itemPacked = \App\Helpers\OfficeIntakeHelper::packDistributeGridCells($itemGridRows, $distCapacity);
+        $itemAttachPages = $itemPacked['overflow'] ? array_chunk($itemAttachRows, $attachPerPage) : [];
+    } else {
+        $itemAttachPages = $distributeOverflow ? $attachPages : [];
+    }
+@endphp
+@foreach($itemAttachPages as $pageIndex => $pageOffices)
 @php
     $rowOffset = $pageIndex * $attachPerPage;
     $attachDocTitle = trim((string) ($attachItemValues['doc_title'] ?? ''));
@@ -987,7 +1015,6 @@ document.addEventListener('keydown', function (e) {
 </div>
 @endforeach
 @endforeach
-@endif
 <script>
 (function () {
     function measureTextWidth(el) {

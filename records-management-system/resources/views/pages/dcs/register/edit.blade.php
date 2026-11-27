@@ -9307,15 +9307,57 @@ function applyOfficeIntakeSyllabiDrfDefaults(prefill) {
     const drfDate = String(syl.drf_date || prefill?.drfDate || '').trim();
     const originators = officeIntakeSyllabiOriginatorNames(prefill);
     seedOfficeIntakePeerIds(prefill);
-    const tr = ensureSyllabiRowForIntakeCourse(prefill) || findSyllabiRowForIntakeCourse(prefill);
-    if (!tr) return;
+
+    // Ensure all incoming DRF year levels are enabled in the existing registration so new year-level rows appear.
+    const reqYears = Array.isArray(syl.year_levels) && syl.year_levels.length
+        ? syl.year_levels.map((y) => String(y).trim()).filter(Boolean)
+        : (syl.year_level ? [String(syl.year_level).trim()] : []);
+    if (reqYears.length) {
+        let yearChanged = false;
+        document.querySelectorAll('#syllabiYearLevelPicker input[type="checkbox"]').forEach((cb) => {
+            const val = String(cb.value || '').trim();
+            if (reqYears.includes(val) && !cb.checked) {
+                cb.checked = true;
+                cb.dispatchEvent(new Event('change', { bubbles: true }));
+                yearChanged = true;
+            }
+        });
+        if (yearChanged && typeof syncSyllabiYearLevelHiddens === 'function') {
+            syncSyllabiYearLevelHiddens();
+        }
+    }
+
+    const requestedCourseIds = Array.isArray(syl.course_ids) && syl.course_ids.length
+        ? syl.course_ids.map((id) => String(id)).filter(Boolean)
+        : (syl.course_id ? [String(syl.course_id)] : []);
+
+    const matchedEntries = [];
+    const seenTr = new Set();
+    if (requestedCourseIds.length > 0) {
+        requestedCourseIds.forEach((cid) => {
+            const subPrefill = { ...prefill, syllabi: { ...syl, course_id: cid } };
+            const r = ensureSyllabiRowForIntakeCourse(subPrefill) || findSyllabiRowForIntakeCourse(subPrefill);
+            if (r && !seenTr.has(r)) {
+                seenTr.add(r);
+                matchedEntries.push({ tr: r, courseId: cid });
+            }
+        });
+    } else {
+        const single = ensureSyllabiRowForIntakeCourse(prefill) || findSyllabiRowForIntakeCourse(prefill);
+        if (single) matchedEntries.push({ tr: single, courseId: syl.course_id ? String(syl.course_id) : '' });
+    }
+    if (!matchedEntries.length) return;
+
+    const perCourseOriginators = (syl.course_originators && typeof syl.course_originators === 'object')
+        ? syl.course_originators
+        : null;
 
     window.__syllabiIntakeStampLock = true;
     try {
-        tr.dataset.intakeCourse = '1';
+        matchedEntries.forEach(({ tr }) => { tr.dataset.intakeCourse = '1'; });
 
         document.querySelectorAll('#syllabiTableBody tr[data-is-first="true"]').forEach((other) => {
-            if (other === tr) return;
+            if (seenTr.has(other)) return;
             const cb = other.querySelector('.syllabi-drf-availability');
             if (!cb || !cb.checked) return;
             const date = String(other.querySelector('input[name="syllabiDrfDate[]"]')?.value || '').trim();
@@ -9325,34 +9367,39 @@ function applyOfficeIntakeSyllabiDrfDefaults(prefill) {
             if (typeof window.syncSyllabiDrfRow === 'function') window.syncSyllabiDrfRow(other);
         });
 
-        const availCb = tr.querySelector('.syllabi-merged-availability');
-        if (availCb && !availCb.checked) {
-            availCb.checked = true;
-            if (typeof window.syncSyllabiMergedFields === 'function') {
-                window.syncSyllabiMergedFields(tr.dataset.group);
+        matchedEntries.forEach(({ tr, courseId }) => {
+            const availCb = tr.querySelector('.syllabi-merged-availability');
+            if (availCb && !availCb.checked) {
+                availCb.checked = true;
+                if (typeof window.syncSyllabiMergedFields === 'function') {
+                    window.syncSyllabiMergedFields(tr.dataset.group);
+                }
+                if (typeof window.syncSyllabiAvailability === 'function') {
+                    window.syncSyllabiAvailability(tr.dataset.group);
+                }
             }
-            if (typeof window.syncSyllabiAvailability === 'function') {
-                window.syncSyllabiAvailability(tr.dataset.group);
-            }
-        }
 
-        const checkbox = tr.querySelector('.syllabi-drf-availability');
-        if (checkbox) {
-            checkbox.checked = true;
-            if (typeof window.syncSyllabiDrfRow === 'function') {
-                window.syncSyllabiDrfRow(tr);
+            const checkbox = tr.querySelector('.syllabi-drf-availability');
+            if (checkbox) {
+                checkbox.checked = true;
+                if (typeof window.syncSyllabiDrfRow === 'function') {
+                    window.syncSyllabiDrfRow(tr);
+                }
             }
-        }
-        if (drfDate) {
-            const dateInput = tr.querySelector('input[name="syllabiDrfDate[]"]');
-            if (dateInput) {
-                dateInput.disabled = false;
-                dateInput.readOnly = false;
-                dateInput.classList.remove('is-locked');
-                dateInput.value = drfDate;
+            if (drfDate) {
+                const dateInput = tr.querySelector('input[name="syllabiDrfDate[]"]');
+                if (dateInput) {
+                    dateInput.disabled = false;
+                    dateInput.readOnly = false;
+                    dateInput.classList.remove('is-locked');
+                    dateInput.value = drfDate;
+                }
             }
-        }
-        originators.forEach((name) => seedSyllabiFacultyFromOriginator(name, tr));
+            const rowOriginators = (perCourseOriginators && courseId && Array.isArray(perCourseOriginators[courseId]) && perCourseOriginators[courseId].length)
+                ? perCourseOriginators[courseId]
+                : originators;
+            rowOriginators.forEach((name) => seedSyllabiFacultyFromOriginator(name, tr));
+        });
     } finally {
         window.__syllabiIntakeStampLock = false;
     }

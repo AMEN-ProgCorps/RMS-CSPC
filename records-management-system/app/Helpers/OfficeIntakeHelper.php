@@ -3034,12 +3034,14 @@ class OfficeIntakeHelper
             'subTypeId' => 'nullable|integer',
             'collegeId' => 'nullable|integer',
             'programId' => 'nullable|integer',
+            'programIds' => 'nullable|array',
+            'programIds.*' => 'integer',
             'courseId' => 'nullable|integer',
             'courseIds' => 'nullable|array',
             'courseIds.*' => 'integer',
             'syllabiMode' => 'nullable|in:single,batch',
             'batchItems' => $isBatchRequest ? 'required|array|min:1' : 'nullable|array',
-            'batchItems.*.course_id' => $isBatchRequest ? 'required|integer|min:1' : 'nullable|integer',
+            'batchItems.*.course_id' => $isBatchRequest ? 'required|integer' : 'nullable|integer',
             'batchItems.*.drfTitle' => $isBatchRequest ? 'required|string|max:500' : 'nullable|string',
             'batchItems.*.originatorName' => $isBatchRequest ? 'required|string|max:500' : 'nullable|string',
             'batchItems.*.descriptionReason' => $isBatchRequest ? 'required|string|max:5000' : 'nullable|string',
@@ -3179,10 +3181,9 @@ class OfficeIntakeHelper
             }
         }
 
-        // Batch mode (Syllabi / TOS-Rubrics): create 1 single DRF request record carrying all selected
-        // courses (and each course's individual Document Title, Originator, and Description) so Admin
-        // sees 1 request and can register the whole batch at once, while printing/previewing renders
-        // each course as its own separate DRF form.
+        // Syllabi/TOS batch mode: create 1 single DRF request record carrying all selected courses
+        // (each with its own Document Title, Originator, and Description) so Admin sees 1 request
+        // while printing/previewing renders each course as its own DRF (2-up per long bond).
         if ($isBatchRequest && ! empty($syllabiCtx['is_syllabi']) && ! empty($data['batchItems']) && is_array($data['batchItems'])) {
             $batchItems = array_values($data['batchItems']);
             foreach ($batchItems as $bItem) {
@@ -3219,10 +3220,12 @@ class OfficeIntakeHelper
                 array_map(fn ($i) => (int) ($i['course_id'] ?? 0), $batchItems),
                 fn ($v) => $v > 0
             )));
-            $batchSyllabiCtx = array_merge($syllabiCtx, [
-                'course_id' => $batchCourseIds[0] ?? (int) ($syllabiCtx['course_id'] ?? 0),
-                'course_ids' => $batchCourseIds,
-            ]);
+            $batchSyllabiCtx = ! empty($syllabiCtx['is_syllabi'])
+                ? array_merge($syllabiCtx, [
+                    'course_id' => $batchCourseIds[0] ?? (int) ($syllabiCtx['course_id'] ?? 0),
+                    'course_ids' => $batchCourseIds,
+                ])
+                : $syllabiCtx;
 
             $drfId = DB::transaction(function () use (
                 $batchItems,
@@ -3887,6 +3890,8 @@ class OfficeIntakeHelper
             'subTypeId' => 'nullable|integer',
             'collegeId' => 'nullable|integer',
             'programId' => 'nullable|integer',
+            'programIds' => 'nullable|array',
+            'programIds.*' => 'integer',
             'courseId' => 'nullable|integer',
             'courseIds' => 'nullable|array',
             'courseIds.*' => 'integer',
@@ -6255,6 +6260,19 @@ class OfficeIntakeHelper
 
         $collegeId = (int) ($data['collegeId'] ?? $data['college_id'] ?? 0);
         $programId = (int) ($data['programId'] ?? $data['program_id'] ?? 0);
+        $programIds = [];
+        if (! empty($data['programIds']) && is_array($data['programIds'])) {
+            $programIds = array_values(array_unique(array_filter(
+                array_map('intval', $data['programIds']),
+                fn ($id) => $id > 0
+            )));
+        }
+        if ($programIds === [] && $programId > 0) {
+            $programIds = [$programId];
+        }
+        if ($programId < 1 && $programIds !== []) {
+            $programId = $programIds[0];
+        }
         $semesterId = (int) ($data['semesterId'] ?? $data['semester_id'] ?? 0);
         $schoolYearId = (int) ($data['schoolYearId'] ?? $data['school_year_id'] ?? 0);
         $mode = strtolower(trim((string) ($data['syllabiMode'] ?? 'single')));
@@ -6300,9 +6318,15 @@ class OfficeIntakeHelper
             throw ValidationException::withMessages($errors);
         }
 
-        $program = DB::table('dcs_programs')->where('id', $programId)->first(['id', 'college_id']);
-        if (! $program || (int) ($program->college_id ?? 0) !== $collegeId) {
-            throw ValidationException::withMessages(['programId' => 'Selected program does not belong to that college.']);
+        $matchedPrograms = DB::table('dcs_programs')
+            ->whereIn('id', $programIds)
+            ->get(['id', 'college_id'])
+            ->keyBy(fn ($r) => (int) $r->id);
+        foreach ($programIds as $pid) {
+            $pRow = $matchedPrograms->get($pid);
+            if (! $pRow || (int) ($pRow->college_id ?? 0) !== $collegeId) {
+                throw ValidationException::withMessages(['programId' => 'Selected program(s) do not belong to that college.']);
+            }
         }
 
         $matchedCourses = DB::table('dcs_program_courses')
@@ -6313,10 +6337,10 @@ class OfficeIntakeHelper
         foreach ($courseIds as $cid) {
             $course = $matchedCourses->get($cid);
             if (! $course
-                || (int) ($course->program_id ?? 0) !== $programId
+                || ! in_array((int) ($course->program_id ?? 0), $programIds, true)
                 || (int) ($course->semester_id ?? 0) !== $semesterId
             ) {
-                throw ValidationException::withMessages(['courseId' => 'One or more selected courses do not match the program and semester.']);
+                throw ValidationException::withMessages(['courseId' => 'One or more selected courses do not match the selected program(s) and semester.']);
             }
         }
 
@@ -6325,9 +6349,10 @@ class OfficeIntakeHelper
         }
 
         foreach ($courseIds as $cid) {
+            $courseProgramId = (int) ($matchedCourses->get($cid)->program_id ?? $programId);
             if (self::officeDrfSyllabiCourseSchoolYearTaken(
                 $collegeId,
-                $programId,
+                $courseProgramId,
                 $semesterId,
                 $cid,
                 $schoolYearId,
@@ -6348,6 +6373,7 @@ class OfficeIntakeHelper
         return [
             'college_id' => $collegeId,
             'program_id' => $programId,
+            'program_ids' => $programIds,
             'course_id' => $courseId,
             'course_ids' => $courseIds,
             'semester_id' => $semesterId,
@@ -9321,12 +9347,22 @@ class OfficeIntakeHelper
                     $batchIds = [(int) $syllabi['course_id']];
                 }
                 $yearLevels = [];
-                if ($batchIds !== [] && Schema::hasTable('dcs_program_courses') && Schema::hasColumn('dcs_program_courses', 'year_level')) {
-                    $yearLevels = DB::table('dcs_program_courses')
+                $batchProgramIds = [];
+                if ($batchIds !== [] && Schema::hasTable('dcs_program_courses')) {
+                    $courseRows = DB::table('dcs_program_courses')
                         ->whereIn('id', $batchIds)
+                        ->get(['id', 'program_id', 'year_level']);
+                    $yearLevels = $courseRows
                         ->pluck('year_level')
                         ->map(fn ($y) => trim((string) $y))
                         ->filter()
+                        ->unique()
+                        ->values()
+                        ->all();
+                    $batchProgramIds = $courseRows
+                        ->pluck('program_id')
+                        ->map(fn ($p) => (int) $p)
+                        ->filter(fn ($p) => $p > 0)
                         ->unique()
                         ->values()
                         ->all();
@@ -9334,10 +9370,14 @@ class OfficeIntakeHelper
                 if ($yearLevels === [] && ! empty($syllabi['year_level'])) {
                     $yearLevels = [(string) $syllabi['year_level']];
                 }
+                if ($batchProgramIds === [] && ! empty($syllabi['program_id'])) {
+                    $batchProgramIds = [(int) $syllabi['program_id']];
+                }
 
                 return [
                     'college_id' => $syllabi['college_id'],
                     'program_id' => $syllabi['program_id'],
+                    'program_ids' => $batchProgramIds,
                     'course_id' => $syllabi['course_id'],
                     'course_ids' => $batchIds,
                     'course_originators' => $courseOriginators,

@@ -3383,8 +3383,11 @@ async function applyOfficeIntakeSyllabiPrefill(prefill) {
         fireChange(courseTypeSel);
         await wait(40);
     }
-    if (syl.college_id && syl.program_id) {
-        refreshSyllabiProgramPicker(String(syl.college_id), [String(syl.program_id)]);
+    const targetProgIds = Array.isArray(syl.program_ids) && syl.program_ids.length
+        ? syl.program_ids.map((id) => String(id)).filter(Boolean)
+        : (syl.program_id ? [String(syl.program_id)] : []);
+    if (syl.college_id && targetProgIds.length) {
+        refreshSyllabiProgramPicker(String(syl.college_id), targetProgIds);
         syncSyllabiProgramIdsHiddens();
         syncSyllabiProgramIdMirror();
         await wait(40);
@@ -4649,6 +4652,11 @@ async function runRevNoCheck(seq) {
             revNoDuplicate = false;
             revField.style.borderColor = '';
             revField.classList.remove('reg-input-invalid');
+            if (hint) {
+                hint.innerHTML = '';
+                hint.style.color = '';
+                hint.dataset.valid = 'true';
+            }
             setSaveEnabled(true);
             return;
         }
@@ -4666,11 +4674,11 @@ async function runRevNoCheck(seq) {
             revField.style.background = '';
             revField.style.borderColor = '';
             revField.classList.remove('reg-input-invalid');
-            if (hint && !docNoDuplicate) {
+            if (hint) {
                 // No Rev-0 stacking hint — keep the field quiet for syllabi/TOS-like types.
                 hint.innerHTML = '';
                 hint.style.color = '';
-                hint.dataset.valid = 'stackable';
+                hint.dataset.valid = docNoDuplicate ? '' : 'stackable';
             }
             if (!docNoDuplicate) setSaveEnabled(true);
             return;

@@ -18,12 +18,25 @@ All course types use college + program (per-program catalog).
     const collegeSel = document.getElementById('ofiDrfCollegeId');
     const programSel = document.getElementById('ofiDrfProgramId');
     const programWrap = document.getElementById('ofiDrfProgramWrap');
+    const programPlural = document.getElementById('ofiDrfProgramPlural');
+    const mpPicker = document.getElementById('ofiDrfMultiProgramPicker');
+    const mpTrigger = document.getElementById('ofiDrfMultiProgramTrigger');
+    const mpLabel = document.getElementById('ofiDrfMultiProgramLabel');
+    const mpPanel = document.getElementById('ofiDrfMultiProgramPanel');
+    const mpList = document.getElementById('ofiDrfMultiProgramList');
+    const mpSelectAllBtn = document.getElementById('ofiDrfMpSelectAll');
+    const mpClearBtn = document.getElementById('ofiDrfMpClear');
+    const mpHiddens = document.getElementById('ofiDrfProgramIdsHiddens');
     const semesterSel = document.getElementById('ofiDrfSemesterId');
     const singleCourseWrap = document.getElementById('ofiDrfSingleCourseWrap');
     const courseSel = document.getElementById('ofiDrfCourseId');
     const schoolYearSel = document.getElementById('ofiDrfSchoolYearId');
+    const yearLevelWrap = document.getElementById('ofiDrfYearLevelWrap');
+    const yearLevelPicker = document.getElementById('ofiDrfYearLevelPicker');
     const batchWrap = document.getElementById('ofiDrfBatchCoursesWrap');
+    const batchProgramTabs = document.getElementById('ofiDrfBatchProgramTabs');
     const batchList = document.getElementById('ofiDrfBatchCoursesList');
+    const syllabiHeading = document.getElementById('ofiDrfSyllabiHeading');
     const batchCountEl = document.getElementById('ofiDrfBatchCount');
     const batchSearchEl = document.getElementById('ofiDrfBatchSearch');
     const batchSelectAllBtn = document.getElementById('ofiDrfBatchSelectAll');
@@ -46,7 +59,13 @@ All course types use college + program (per-program catalog).
     let lastAutoTitle = '';
     let seeding = false;
     let currentCourses = [];
+    let allContextCourses = [];
+    let currentCollegePrograms = [];
+    let selectedProgramIds = new Set();
+    let activeBatchProgramTab = '';
+    let selectedYearLevels = new Set();
     let selectedBatchIds = new Set();
+    let usedSelectAll = false;
     /** @type {Object<string, {title: string, titleManual: boolean, originator: string, description: string}>} */
     const batchItemState = {};
 
@@ -74,6 +93,16 @@ All course types use college + program (per-program catalog).
         const n = selectedSubName().toLowerCase();
         if (n.indexOf('tos') !== -1 || n.indexOf('rubric') !== -1) return 'TOS/Rubrics';
         return 'Syllabus';
+    }
+
+    function syncSyllabiHeading() {
+        if (!syllabiHeading) return;
+        const n = selectedSubName().toLowerCase();
+        if (n.indexOf('tos') !== -1 || n.indexOf('rubric') !== -1) {
+            syllabiHeading.textContent = 'TOS / Rubrics Course Details';
+        } else {
+            syllabiHeading.textContent = 'Syllabi Course Details';
+        }
     }
 
     function selectedCourseType() {
@@ -156,9 +185,21 @@ All course types use college + program (per-program catalog).
         return opt && opt.value ? String(opt.textContent || '').trim() : '';
     }
 
-    function buildTitleForCourseName(courseName) {
+    function activeProgramIds() {
+        if (currentMode() === 'batch') {
+            return [...selectedProgramIds].filter(Boolean);
+        }
+        return programSel && programSel.value ? [String(programSel.value)] : [];
+    }
+
+    function programMetaById(pid) {
+        const key = String(pid || '');
+        return currentCollegePrograms.find(function (p) { return String(p.program_id) === key; }) || null;
+    }
+
+    function buildTitleForCourseName(courseName, programNameOverride) {
         const college = selectText(collegeSel);
-        const program = selectText(programSel);
+        const program = String(programNameOverride || '').trim() || selectText(programSel);
         const semester = selectText(semesterSel);
         let schoolYear = selectText(schoolYearSel);
         const course = String(courseName || '').trim();
@@ -172,9 +213,9 @@ All course types use college + program (per-program catalog).
         return buildTitleForCourseName(selectText(courseSel));
     }
 
-    function takenSchoolYearIdsForCourseId(courseId) {
+    function takenSchoolYearIdsForCourseId(courseId, programIdOverride) {
         const collegeId = collegeSel ? String(collegeSel.value || '') : '';
-        const programId = programSel ? String(programSel.value || '') : '';
+        const programId = String(programIdOverride || (programSel ? programSel.value : '') || '');
         const semesterId = semesterSel ? String(semesterSel.value || '') : '';
         const subTypeId = selectedSubTypeId();
         if (!collegeId || !programId || !semesterId || !courseId || !subTypeId) return [];
@@ -183,10 +224,10 @@ All course types use college + program (per-program catalog).
         return raw.map(function (id) { return String(id); });
     }
 
-    function isCourseTakenForSelectedYear(courseId) {
+    function isCourseTakenForSelectedYear(courseId, programIdOverride) {
         const syId = schoolYearSel ? String(schoolYearSel.value || '') : '';
         if (!syId) return false;
-        return takenSchoolYearIdsForCourseId(courseId).indexOf(syId) !== -1;
+        return takenSchoolYearIdsForCourseId(courseId, programIdOverride).indexOf(syId) !== -1;
     }
 
     function updateBatchCount() {
@@ -224,12 +265,27 @@ All course types use college + program (per-program catalog).
             return;
         }
 
+        const showDrfProgramHeaders = selectedProgramIds.size > 1
+            || new Set(picked.map(function (c) { return String(c._program_id || ''); }).filter(Boolean)).size > 1;
+        let lastDrfProgId = null;
+
         picked.forEach(function (course, idx) {
             const cid = String(course.id);
+            const pid = String(course._program_id || '');
             const code = String(course.course_code || '').trim();
             const cname = String(course.course_name || '').trim();
             const year = String(course.year_level || '').trim();
-            const autoTitle = buildTitleForCourseName(cname);
+            const pName = String(course._program_name || '').trim();
+            const pCode = String(course._program_code || '').trim();
+            const autoTitle = buildTitleForCourseName(cname, pName);
+
+            if (showDrfProgramHeaders && pid && pid !== lastDrfProgId) {
+                lastDrfProgId = pid;
+                const pHdr = document.createElement('div');
+                pHdr.className = 'ofi-batch-program-head';
+                pHdr.textContent = 'Program · ' + (pName || ('Program #' + pid)) + (pCode ? (' (' + pCode + ')') : '');
+                batchDrfCards.appendChild(pHdr);
+            }
 
             if (!batchItemState[cid]) {
                 batchItemState[cid] = {
@@ -255,17 +311,18 @@ All course types use college + program (per-program catalog).
             badge.textContent = 'DRF #' + (idx + 1);
             head.appendChild(badge);
 
+            if (year) {
+                const yr = document.createElement('span');
+                yr.className = 'ofi-batch-year';
+                yr.style.marginLeft = '0';
+                yr.textContent = year;
+                head.appendChild(yr);
+            }
+
             const courseTitle = document.createElement('span');
             courseTitle.className = 'ofi-batch-drf-course';
             courseTitle.textContent = (code ? (code + ' — ') : '') + cname;
             head.appendChild(courseTitle);
-
-            if (year) {
-                const yr = document.createElement('span');
-                yr.className = 'ofi-batch-year';
-                yr.textContent = year;
-                head.appendChild(yr);
-            }
             card.appendChild(head);
 
             const hiddenCid = document.createElement('input');
@@ -273,6 +330,12 @@ All course types use college + program (per-program catalog).
             hiddenCid.name = 'batchItems[' + idx + '][course_id]';
             hiddenCid.value = cid;
             card.appendChild(hiddenCid);
+
+            const hiddenCourseId = document.createElement('input');
+            hiddenCourseId.type = 'hidden';
+            hiddenCourseId.name = 'courseIds[]';
+            hiddenCourseId.value = cid;
+            card.appendChild(hiddenCourseId);
 
             const fields = document.createElement('div');
             fields.className = 'ofi-batch-drf-fields';
@@ -290,7 +353,7 @@ All course types use college + program (per-program catalog).
             titleIn.value = st.title || autoTitle || '';
             titleIn.addEventListener('input', function () {
                 st.title = this.value;
-                st.titleManual = this.value.trim() !== '' && this.value.trim() !== buildTitleForCourseName(cname);
+                st.titleManual = this.value.trim() !== '' && this.value.trim() !== buildTitleForCourseName(cname, pName);
             });
             titleWrap.appendChild(titleLbl);
             titleWrap.appendChild(titleIn);
@@ -352,7 +415,7 @@ All course types use college + program (per-program catalog).
         currentCourses.forEach(function (c) {
             const cid = String(c.id);
             if (!selectedBatchIds.has(cid)) return;
-            const auto = buildTitleForCourseName(c.course_name);
+            const auto = buildTitleForCourseName(c.course_name, c._program_name);
             if (!batchItemState[cid]) {
                 batchItemState[cid] = { title: auto, titleManual: false, originator: '', description: '' };
             } else if (!batchItemState[cid].titleManual) {
@@ -368,46 +431,138 @@ All course types use college + program (per-program catalog).
 
     function renderBatchCourses() {
         if (!batchList) return;
-        const programId = programSel ? String(programSel.value || '') : '';
+        const progIds = activeProgramIds();
         const semesterId = semesterSel ? String(semesterSel.value || '') : '';
         const schoolYearId = schoolYearSel ? String(schoolYearSel.value || '') : '';
-        if (!programId || !semesterId || !schoolYearId) {
+        if (!progIds.length || !semesterId || !schoolYearId) {
             selectedBatchIds.clear();
+            activeBatchProgramTab = '';
+            if (batchProgramTabs) {
+                batchProgramTabs.hidden = true;
+                batchProgramTabs.classList.add('is-ofi-hidden');
+                batchProgramTabs.innerHTML = '';
+            }
             updateBatchCount();
-            batchList.innerHTML = '<div class="ofi-batch-empty">Select course type, college, program, semester, and school year to load courses.</div>';
+            batchList.innerHTML = '<div class="ofi-batch-empty">Select course type, college, program(s), semester, and school year to load courses.</div>';
             renderBatchDrfCards();
             return;
         }
         if (!currentCourses.length) {
             selectedBatchIds.clear();
+            if (batchProgramTabs) {
+                batchProgramTabs.hidden = true;
+                batchProgramTabs.classList.add('is-ofi-hidden');
+                batchProgramTabs.innerHTML = '';
+            }
             updateBatchCount();
-            batchList.innerHTML = '<div class="ofi-batch-empty">No courses in Settings for this program, course type, semester, and school year.</div>';
+            batchList.innerHTML = '<div class="ofi-batch-empty">No courses in Settings for the selected program(s), course type, semester, school year, and year level.</div>';
             renderBatchDrfCards();
             return;
         }
 
         const validIds = new Set(currentCourses.map(function (c) { return String(c.id); }));
+        const courseById = {};
+        currentCourses.forEach(function (c) { courseById[String(c.id)] = c; });
         [...selectedBatchIds].forEach(function (id) {
-            if (!validIds.has(id) || isCourseTakenForSelectedYear(id)) {
+            const cObj = courseById[id];
+            if (!validIds.has(id) || isCourseTakenForSelectedYear(id, cObj && cObj._program_id)) {
                 selectedBatchIds.delete(id);
             }
         });
 
         const query = batchSearchEl ? String(batchSearchEl.value || '').trim().toLowerCase() : '';
+        function courseMatchesQuery(course) {
+            if (!query) return true;
+            const hay = (
+                String(course.course_code || '') + ' ' +
+                String(course.course_name || '') + ' ' +
+                String(course.year_level || '') + ' ' +
+                String(course._program_code || '') + ' ' +
+                String(course._program_name || '')
+            ).toLowerCase();
+            return hay.indexOf(query) !== -1;
+        }
+
+        // Program tabs when 2+ programs are selected — keep ALL program tabs visible while searching.
+        const useTabs = progIds.length > 1;
+        if (useTabs) {
+            if (!activeBatchProgramTab || progIds.indexOf(activeBatchProgramTab) === -1) {
+                activeBatchProgramTab = progIds[0];
+            }
+        } else {
+            activeBatchProgramTab = progIds[0] || '';
+        }
+
+        if (batchProgramTabs) {
+            if (useTabs) {
+                batchProgramTabs.hidden = false;
+                batchProgramTabs.classList.remove('is-ofi-hidden');
+                batchProgramTabs.innerHTML = '';
+                progIds.forEach(function (pid) {
+                    const pMeta = programMetaById(pid);
+                    const pLabel = pMeta
+                        ? (String(pMeta.program_code || '').trim() || String(pMeta.program_name || '').trim())
+                        : ('Program #' + pid);
+                    const pCourses = currentCourses.filter(function (c) {
+                        return String(c._program_id || '') === pid && courseMatchesQuery(c);
+                    });
+                    const pPicked = pCourses.filter(function (c) { return selectedBatchIds.has(String(c.id)); }).length;
+                    const tabBtn = document.createElement('button');
+                    tabBtn.type = 'button';
+                    tabBtn.role = 'tab';
+                    tabBtn.className = 'ofi-batch-prog-tab' + (pid === activeBatchProgramTab ? ' is-active' : '');
+                    tabBtn.setAttribute('aria-selected', pid === activeBatchProgramTab ? 'true' : 'false');
+                    tabBtn.title = pMeta ? String(pMeta.program_name || pLabel) : pLabel;
+                    tabBtn.innerHTML = '<span>' + pLabel + '</span><span class="ofi-batch-prog-tab-count">' + pPicked + '/' + pCourses.length + '</span>';
+                    tabBtn.addEventListener('click', function () {
+                        activeBatchProgramTab = pid;
+                        renderBatchCourses();
+                    });
+                    batchProgramTabs.appendChild(tabBtn);
+                });
+            } else {
+                batchProgramTabs.hidden = true;
+                batchProgramTabs.classList.add('is-ofi-hidden');
+                batchProgramTabs.innerHTML = '';
+            }
+        }
+
         batchList.innerHTML = '';
         let visibleCount = 0;
         const isBatch = currentMode() === 'batch';
 
-        currentCourses.forEach(function (course) {
+        // Always filter strictly to the active program tab (and search query), sorted by Year Level then Course Code.
+        const tabCourses = currentCourses
+            .filter(function (c) {
+                if (useTabs && String(c._program_id || '') !== activeBatchProgramTab) return false;
+                return courseMatchesQuery(c);
+            })
+            .sort(function (a, b) {
+                const ya = String(a.year_level || '').trim();
+                const yb = String(b.year_level || '').trim();
+                const yCmp = ya.localeCompare(yb, undefined, { numeric: true, sensitivity: 'base' });
+                if (yCmp !== 0) return yCmp;
+                return String(a.course_code || '').localeCompare(String(b.course_code || ''), undefined, { sensitivity: 'base' });
+            });
+
+        let lastYear = null;
+        tabCourses.forEach(function (course) {
             const id = String(course.id);
+            const pid = String(course._program_id || '');
             const code = String(course.course_code || '').trim();
             const name = String(course.course_name || '').trim();
             const year = String(course.year_level || '').trim();
-            const hay = (code + ' ' + name + ' ' + year).toLowerCase();
-            if (query && hay.indexOf(query) === -1) return;
             visibleCount++;
 
-            const blocked = isCourseTakenForSelectedYear(id);
+            if (year && year !== lastYear) {
+                lastYear = year;
+                const yHead = document.createElement('div');
+                yHead.className = 'ofi-batch-year-head';
+                yHead.textContent = year;
+                batchList.appendChild(yHead);
+            }
+
+            const blocked = isCourseTakenForSelectedYear(id, pid);
             const checked = !blocked && selectedBatchIds.has(id);
 
             const row = document.createElement('label');
@@ -415,7 +570,6 @@ All course types use college + program (per-program catalog).
 
             const cb = document.createElement('input');
             cb.type = 'checkbox';
-            cb.name = 'courseIds[]';
             cb.value = id;
             cb.checked = checked;
             cb.disabled = blocked || !isBatch || block.hidden;
@@ -427,7 +581,12 @@ All course types use college + program (per-program catalog).
                 }
                 row.classList.toggle('is-checked', this.checked);
                 updateBatchCount();
-                renderBatchDrfCards();
+                if (useTabs) {
+                    // Refresh tab badge counts immediately
+                    renderBatchCourses();
+                } else {
+                    renderBatchDrfCards();
+                }
             });
             row.appendChild(cb);
 
@@ -443,13 +602,6 @@ All course types use college + program (per-program catalog).
             nameSpan.textContent = name;
             row.appendChild(nameSpan);
 
-            if (year) {
-                const yearChip = document.createElement('span');
-                yearChip.className = 'ofi-batch-year';
-                yearChip.textContent = year;
-                row.appendChild(yearChip);
-            }
-
             if (blocked) {
                 const takenTag = document.createElement('span');
                 takenTag.className = 'ofi-batch-taken';
@@ -461,10 +613,74 @@ All course types use college + program (per-program catalog).
         });
 
         if (visibleCount === 0) {
-            batchList.innerHTML = '<div class="ofi-batch-empty">No courses match your filter.</div>';
+            batchList.innerHTML = '<div class="ofi-batch-empty">' + (query ? 'No courses match your filter.' : 'No available courses for this program.') + '</div>';
+        }
+        if (batchSelectAllBtn) {
+            const selectableInTab = tabCourses.filter(function (c) {
+                return !isCourseTakenForSelectedYear(String(c.id), c._program_id);
+            });
+            const allSelectedInTab = selectableInTab.length > 0 && selectableInTab.every(function (c) {
+                return selectedBatchIds.has(String(c.id));
+            });
+            batchSelectAllBtn.textContent = allSelectedInTab ? 'Clear' : 'Select all';
+            batchSelectAllBtn.dataset.mode = allSelectedInTab ? 'clear' : 'select';
         }
         updateBatchCount();
         renderBatchDrfCards();
+    }
+
+    function syncMultiProgramUI() {
+        const isBatch = !block.hidden && currentMode() === 'batch';
+        const collegeId = collegeSel ? String(collegeSel.value || '') : '';
+        if (programPlural) programPlural.textContent = isBatch ? '(s)' : '';
+        if (programSel) {
+            programSel.hidden = isBatch;
+            programSel.classList.toggle('is-ofi-hidden', isBatch);
+            programSel.required = !block.hidden && !isBatch && !!selectedCourseType();
+            if (isBatch) {
+                // Keep programId mirror synced to first selected program for backward compatibility
+                const firstPid = [...selectedProgramIds][0] || '';
+                programSel.disabled = false;
+                if (firstPid && [...programSel.options].some(function (o) { return o.value === firstPid; })) {
+                    programSel.value = firstPid;
+                } else {
+                    programSel.value = '';
+                }
+            } else {
+                programSel.disabled = block.hidden || !collegeId;
+            }
+        }
+        if (mpPicker) {
+            mpPicker.hidden = !isBatch;
+            mpPicker.classList.toggle('is-ofi-hidden', !isBatch);
+        }
+        if (mpTrigger) {
+            mpTrigger.disabled = !isBatch || !collegeId || !currentCollegePrograms.length;
+        }
+        if (mpHiddens) {
+            mpHiddens.innerHTML = isBatch
+                ? [...selectedProgramIds].map(function (pid) {
+                    return '<input type="hidden" name="programIds[]" value="' + pid + '">';
+                }).join('')
+                : '';
+        }
+        if (mpLabel) {
+            if (!collegeId) {
+                mpLabel.textContent = 'Select college first…';
+            } else if (!currentCollegePrograms.length) {
+                mpLabel.textContent = 'No programs for this college';
+            } else if (selectedProgramIds.size === 0) {
+                mpLabel.textContent = 'Select program(s)…';
+            } else if (selectedProgramIds.size === 1) {
+                const only = programMetaById([...selectedProgramIds][0]);
+                mpLabel.textContent = only ? (only.program_name || only.program_code || 'Program') : '1 program selected';
+            } else {
+                mpLabel.textContent = [...selectedProgramIds].map(function (pid) {
+                    const m = programMetaById(pid);
+                    return m ? (String(m.program_code || '').trim() || String(m.program_name || '').trim()) : pid;
+                }).join(', ');
+            }
+        }
     }
 
     function applyModeUI(mode) {
@@ -478,6 +694,12 @@ All course types use college + program (per-program catalog).
             });
         }
         const isBatch = !block.hidden && next === 'batch';
+        if (isBatch && programSel && programSel.value && selectedProgramIds.size === 0) {
+            selectedProgramIds.add(String(programSel.value));
+            rebuildPrograms(true);
+        } else if (!isBatch && selectedProgramIds.size > 0 && programSel && !programSel.value) {
+            programSel.value = [...selectedProgramIds][0];
+        }
         if (singleCourseWrap) {
             singleCourseWrap.hidden = isBatch;
             singleCourseWrap.classList.toggle('is-ofi-hidden', isBatch);
@@ -487,8 +709,12 @@ All course types use college + program (per-program catalog).
             batchWrap.classList.toggle('is-ofi-hidden', !isBatch);
         }
         toggleSingleOnlyFields(!isBatch);
+        syncMultiProgramUI();
+        rebuildSemesters(true);
+        rebuildSchoolYears(true);
+        rebuildCourses(true);
 
-        const ready = !block.hidden && !!(programSel && programSel.value && semesterSel && semesterSel.value && schoolYearSel && schoolYearSel.value);
+        const ready = !block.hidden && activeProgramIds().length > 0 && !!(semesterSel && semesterSel.value && schoolYearSel && schoolYearSel.value);
         if (isBatch) {
             setEnabled(courseSel, false, false);
             renderBatchCourses();
@@ -504,14 +730,18 @@ All course types use college + program (per-program catalog).
 
     function applyCourseTypeLayout(keep) {
         const type = selectedCourseType();
-        setProgramWrapVisible(!!type);
+        setProgramWrapVisible(true);
         if (!type) {
             setEnabled(collegeSel, false, false);
             setEnabled(programSel, false, false);
             setEnabled(semesterSel, false, false);
             setEnabled(courseSel, false, false);
             setEnabled(schoolYearSel, false, false);
+            currentCollegePrograms = [];
+            selectedProgramIds.clear();
             currentCourses = [];
+            allContextCourses = [];
+            syncMultiProgramUI();
             renderBatchCourses();
             return;
         }
@@ -523,18 +753,62 @@ All course types use college + program (per-program catalog).
     function rebuildPrograms(keep) {
         const collegeId = String(collegeSel.value || '');
         const programs = collegeId ? ((catalog.programsByCollege || {})[collegeId] || []) : [];
+        currentCollegePrograms = programs;
         fillSelect(programSel, programs, 'program_id', 'program_name', 'Select program…', keep);
-        setEnabled(programSel, !!collegeId, true);
+        const validPids = new Set(programs.map(function (p) { return String(p.program_id); }));
+        if (!keep) {
+            selectedProgramIds.clear();
+        } else {
+            selectedProgramIds = new Set([...selectedProgramIds].filter(function (pid) { return validPids.has(pid); }));
+        }
+        if (mpList) {
+            mpList.innerHTML = '';
+            programs.forEach(function (p) {
+                const pid = String(p.program_id);
+                const checked = selectedProgramIds.has(pid);
+                const row = document.createElement('label');
+                row.className = 'ofi-mp-item' + (checked ? ' is-checked' : '');
+                const cb = document.createElement('input');
+                cb.type = 'checkbox';
+                cb.value = pid;
+                cb.checked = checked;
+                cb.addEventListener('change', function () {
+                    if (this.checked) {
+                        selectedProgramIds.add(pid);
+                    } else {
+                        selectedProgramIds.delete(pid);
+                    }
+                    row.classList.toggle('is-checked', this.checked);
+                    syncMultiProgramUI();
+                    rebuildSemesters(true);
+                    rebuildSchoolYears(true);
+                    rebuildCourses(true);
+                    syncTitle();
+                });
+                const nameEl = document.createElement('span');
+                nameEl.textContent = String(p.program_name || ('Program #' + pid));
+                row.appendChild(cb);
+                row.appendChild(nameEl);
+                if (p.program_code) {
+                    const codeEl = document.createElement('span');
+                    codeEl.className = 'ofi-mp-code';
+                    codeEl.textContent = String(p.program_code);
+                    row.appendChild(codeEl);
+                }
+                mpList.appendChild(row);
+            });
+        }
+        syncMultiProgramUI();
     }
 
     function rebuildSemesters(keep) {
-        const ready = !!(programSel && programSel.value);
+        const ready = activeProgramIds().length > 0;
         fillSelect(semesterSel, catalog.semesters || [], 'semester_id', 'semester_name', 'Select semester…', keep);
         setEnabled(semesterSel, ready, true);
     }
 
     function rebuildSchoolYears(keep) {
-        const semReady = !!(programSel && programSel.value && semesterSel && semesterSel.value);
+        const semReady = activeProgramIds().length > 0 && !!(semesterSel && semesterSel.value);
         const available = catalog.schoolYears || [];
         let placeholder = 'Select school year…';
         if (!semReady) {
@@ -546,26 +820,67 @@ All course types use college + program (per-program catalog).
         setEnabled(schoolYearSel, semReady && available.length > 0, true);
     }
 
-    function rebuildCourses(keep) {
-        const type = selectedCourseType();
-        const programId = programSel ? String(programSel.value || '') : '';
+    function renderYearLevelPills(courses, keepSelection) {
+        if (!yearLevelWrap || !yearLevelPicker) return;
+        const years = [...new Set((courses || []).map(function (c) { return String(c.year_level || '').trim(); }).filter(Boolean))]
+            .sort(function (a, b) { return a.localeCompare(b, undefined, { numeric: true, sensitivity: 'base' }); });
+        if (!years.length) {
+            selectedYearLevels.clear();
+            yearLevelPicker.innerHTML = '';
+            yearLevelWrap.hidden = true;
+            yearLevelWrap.classList.add('is-ofi-hidden');
+            return;
+        }
+        if (!keepSelection || selectedYearLevels.size === 0) {
+            selectedYearLevels = new Set(years);
+        } else {
+            const valid = new Set(years);
+            const next = new Set([...selectedYearLevels].filter(function (y) { return valid.has(y); }));
+            selectedYearLevels = next.size > 0 ? next : new Set(years);
+        }
+        yearLevelWrap.hidden = false;
+        yearLevelWrap.classList.remove('is-ofi-hidden');
+        yearLevelPicker.innerHTML = '';
+        years.forEach(function (yr) {
+            const checked = selectedYearLevels.has(yr);
+            const lbl = document.createElement('label');
+            lbl.className = 'ofi-year-pill' + (checked ? ' is-checked' : '');
+            const cb = document.createElement('input');
+            cb.type = 'checkbox';
+            cb.value = yr;
+            cb.checked = checked;
+            cb.addEventListener('change', function () {
+                if (this.checked) {
+                    selectedYearLevels.add(yr);
+                } else {
+                    selectedYearLevels.delete(yr);
+                }
+                lbl.classList.toggle('is-checked', this.checked);
+                applyYearLevelCourseFilter(true);
+            });
+            const txt = document.createElement('span');
+            txt.textContent = yr;
+            lbl.appendChild(cb);
+            lbl.appendChild(txt);
+            yearLevelPicker.appendChild(lbl);
+        });
+    }
+
+    function applyYearLevelCourseFilter(keep) {
+        const progIds = activeProgramIds();
         const semesterId = semesterSel ? String(semesterSel.value || '') : '';
         const schoolYearId = schoolYearSel ? String(schoolYearSel.value || '') : '';
         let placeholder = 'Select course…';
-        const key = programId && semesterId ? (programId + ':' + semesterId) : '';
-        const raw = (key && schoolYearId) ? ((catalog.coursesByProgramSemester || {})[key] || []) : [];
-        currentCourses = sortCoursesByCode(raw.filter(function (c) {
-            const year = String(c.year_level || '').trim();
-            const ct = String(c.course_type || '').trim();
-            if (year === '' || ct === '' || (type && ct !== type)) return false;
-            const cSy = c.school_year_id !== undefined && c.school_year_id !== null ? String(c.school_year_id) : '';
-            if (cSy && cSy !== '0' && cSy !== schoolYearId) return false;
-            return true;
-        }));
-        if (!programId || !semesterId || !schoolYearId) {
+        currentCourses = allContextCourses.filter(function (c) {
+            if (!selectedYearLevels.size) return false;
+            return selectedYearLevels.has(String(c.year_level || '').trim());
+        });
+        if (!progIds.length || !semesterId || !schoolYearId) {
             placeholder = 'Select semester and school year first…';
+        } else if (!allContextCourses.length) {
+            placeholder = 'No courses in Settings for the selected program(s), type, semester, and school year…';
         } else if (!currentCourses.length) {
-            placeholder = 'No courses in Settings for this program, type, semester, and school year…';
+            placeholder = 'Select at least 1 year level above…';
         }
         fillSelect(courseSel, currentCourses, 'id', 'course_name', placeholder, keep);
         if (courseSel && schoolYearId) {
@@ -579,10 +894,46 @@ All course types use college + program (per-program catalog).
             });
         }
         const isBatch = currentMode() === 'batch';
-        setEnabled(courseSel, !isBatch && !!(programId && semesterId && schoolYearId && currentCourses.length > 0), !isBatch);
+        setEnabled(courseSel, !isBatch && !!(progIds.length && semesterId && schoolYearId && currentCourses.length > 0), !isBatch);
         if (!keep) selectedBatchIds.clear();
         renderBatchCourses();
         syncBatchTitles();
+        syncTitle();
+    }
+
+    function rebuildCourses(keep) {
+        const type = selectedCourseType();
+        const progIds = activeProgramIds();
+        const semesterId = semesterSel ? String(semesterSel.value || '') : '';
+        const schoolYearId = schoolYearSel ? String(schoolYearSel.value || '') : '';
+        const combined = [];
+        if (progIds.length && semesterId && schoolYearId) {
+            progIds.forEach(function (pid) {
+                const pMeta = programMetaById(pid);
+                const pName = pMeta ? String(pMeta.program_name || '') : '';
+                const pCode = pMeta ? String(pMeta.program_code || '') : '';
+                const key = pid + ':' + semesterId;
+                const raw = (catalog.coursesByProgramSemester || {})[key] || [];
+                const filtered = sortCoursesByCode(raw.filter(function (c) {
+                    const year = String(c.year_level || '').trim();
+                    const ct = String(c.course_type || '').trim();
+                    if (year === '' || ct === '' || (type && ct !== type)) return false;
+                    const cSy = c.school_year_id !== undefined && c.school_year_id !== null ? String(c.school_year_id) : '';
+                    if (cSy && cSy !== '0' && cSy !== schoolYearId) return false;
+                    return true;
+                }));
+                filtered.forEach(function (c) {
+                    combined.push(Object.assign({}, c, {
+                        _program_id: pid,
+                        _program_name: pName,
+                        _program_code: pCode,
+                    }));
+                });
+            });
+        }
+        allContextCourses = combined;
+        renderYearLevelPills(allContextCourses, keep);
+        applyYearLevelCourseFilter(keep);
     }
 
     function syncTitle() {
@@ -652,6 +1003,7 @@ All course types use college + program (per-program catalog).
         const show = kind === 'internal' && isSyllabiLikeName(selectedSubName());
         showContext(show);
         if (show) {
+            syncSyllabiHeading();
             rebuildSchoolYears(true);
             rebuildCourses(true);
             syncTitle();
@@ -660,6 +1012,7 @@ All course types use college + program (per-program catalog).
 
     function applySeed() {
         const seedEl = document.getElementById('ofiDrfSyllabiSeed');
+        const progIdsSeedEl = document.getElementById('ofiDrfProgramIdsSeed');
         const batchSeedEl = document.getElementById('ofiDrfBatchCoursesSeed');
         const batchItemsSeedEl = document.getElementById('ofiDrfBatchItemsSeed');
         if (batchItemsSeedEl) {
@@ -713,8 +1066,14 @@ All course types use college + program (per-program catalog).
         if (courseTypeSel && courseType) courseTypeSel.value = courseType;
         applyCourseTypeLayout(false);
         if (collegeId) collegeSel.value = collegeId;
-        rebuildPrograms(false);
-        if (programSel) programSel.value = programId;
+        const seedProgIds = progIdsSeedEl
+            ? String(progIdsSeedEl.value || '').split(',').map(function (s) { return s.trim(); }).filter(Boolean)
+            : [];
+        seedProgIds.forEach(function (pid) { selectedProgramIds.add(pid); });
+        if (programId && selectedProgramIds.size === 0) selectedProgramIds.add(programId);
+        rebuildPrograms(true);
+        if (programSel && programId) programSel.value = programId;
+        syncMultiProgramUI();
         rebuildSemesters(false);
         if (semesterSel) semesterSel.value = semesterId;
         rebuildSchoolYears(false);
@@ -749,21 +1108,57 @@ All course types use college + program (per-program catalog).
         batchSearchEl.addEventListener('input', renderBatchCourses);
     }
 
-    if (batchSelectAllBtn) {
-        batchSelectAllBtn.addEventListener('click', function () {
-            currentCourses.forEach(function (c) {
-                const id = String(c.id);
-                if (!isCourseTakenForSelectedYear(id)) {
-                    selectedBatchIds.add(id);
-                }
-            });
-            renderBatchCourses();
+    if (mpTrigger && mpPanel) {
+        mpTrigger.addEventListener('click', function (e) {
+            e.preventDefault();
+            e.stopPropagation();
+            if (mpTrigger.disabled) return;
+            const open = mpPanel.hidden;
+            mpPanel.hidden = !open;
+            mpTrigger.setAttribute('aria-expanded', open ? 'true' : 'false');
+        });
+        document.addEventListener('click', function (e) {
+            if (mpPicker && !mpPicker.contains(e.target)) {
+                mpPanel.hidden = true;
+                mpTrigger.setAttribute('aria-expanded', 'false');
+            }
+        });
+    }
+    if (mpSelectAllBtn) {
+        mpSelectAllBtn.addEventListener('click', function () {
+            currentCollegePrograms.forEach(function (p) { selectedProgramIds.add(String(p.program_id)); });
+            rebuildPrograms(true);
+            rebuildSemesters(true);
+            rebuildSchoolYears(true);
+            rebuildCourses(true);
+            syncTitle();
+        });
+    }
+    if (mpClearBtn) {
+        mpClearBtn.addEventListener('click', function () {
+            selectedProgramIds.clear();
+            rebuildPrograms(true);
+            rebuildSemesters(false);
+            rebuildSchoolYears(false);
+            rebuildCourses(false);
+            syncTitle();
         });
     }
 
-    if (batchClearBtn) {
-        batchClearBtn.addEventListener('click', function () {
-            selectedBatchIds.clear();
+    if (batchSelectAllBtn) {
+        batchSelectAllBtn.addEventListener('click', function () {
+            const progIds = activeProgramIds();
+            const useTabs = progIds.length > 1 && activeBatchProgramTab;
+            const isClear = batchSelectAllBtn.dataset.mode === 'clear';
+            currentCourses.forEach(function (c) {
+                if (useTabs && String(c._program_id || '') !== activeBatchProgramTab) return;
+                const id = String(c.id);
+                if (isClear) {
+                    selectedBatchIds.delete(id);
+                } else if (!isCourseTakenForSelectedYear(id, c._program_id)) {
+                    selectedBatchIds.add(id);
+                }
+            });
             renderBatchCourses();
         });
     }

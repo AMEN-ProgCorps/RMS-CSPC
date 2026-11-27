@@ -10,6 +10,7 @@ All course types require college + program (catalog is per program).
 @php
     $sylOldCollege = (string) old('collegeId', (string) ($oldCollegeId ?? ''));
     $sylOldProgram = (string) old('programId', (string) ($oldProgramId ?? ''));
+    $sylOldProgramIds = array_values(array_unique(array_filter(array_map('strval', (array) old('programIds', $oldProgramIds ?? [])))));
     $sylOldSemester = (string) old('semesterId', (string) ($oldSemesterId ?? ''));
     $sylOldCourse = (string) old('courseId', (string) ($oldCourseId ?? ''));
     $sylOldCourseIds = array_values(array_unique(array_filter(array_map('strval', (array) old('courseIds', $oldCourseIds ?? [])))));
@@ -35,7 +36,7 @@ All course types require college + program (catalog is per program).
         <div class="ofi-syllabi-head-title">
             <span class="ofi-syllabi-head-icon"><i class="fa-solid fa-book-open"></i></span>
             <div>
-                <strong>Syllabi / TOS Course Details</strong>
+                <strong id="ofiDrfSyllabiHeading">Syllabi Course Details</strong>
                 <span class="ofi-syllabi-head-sub">
                     @if($sylAllowBatch)
                         Single creates 1 DRF; Batch creates a separate DRF per selected course (with its own title, originator, and description).
@@ -74,11 +75,28 @@ All course types require college + program (catalog is per program).
                 <option value="" disabled selected hidden>Select college…</option>
             </select>
         </div>
-        <div class="reg-field{{ $sylOldCourseType === '' ? ' is-ofi-hidden' : '' }}" style="margin:0;" id="ofiDrfProgramWrap" @if($sylOldCourseType === '') hidden @endif>
-            <label for="ofiDrfProgramId">Program <span class="ofi-req">*</span></label>
-            <select id="ofiDrfProgramId" name="programId" @disabled(! $sylVisible || $sylOldCollege === '') @required($sylVisible && $sylOldCourseType !== '')>
+        <div class="reg-field" style="margin:0;" id="ofiDrfProgramWrap">
+            <label for="ofiDrfProgramId">Program<span id="ofiDrfProgramPlural">{{ $sylOldMode === 'batch' ? '(s)' : '' }}</span> <span class="ofi-req">*</span></label>
+            <select id="ofiDrfProgramId" name="programId" class="{{ $sylOldMode === 'batch' ? 'is-ofi-hidden' : '' }}" @if($sylOldMode === 'batch') hidden @endif @disabled(! $sylVisible || $sylOldCollege === '') @required($sylVisible && $sylOldMode !== 'batch')>
                 <option value="" disabled selected hidden>Select program…</option>
             </select>
+            <div class="ofi-mp-picker{{ $sylOldMode === 'batch' ? '' : ' is-ofi-hidden' }}" id="ofiDrfMultiProgramPicker" @if($sylOldMode !== 'batch') hidden @endif>
+                <button type="button" class="ofi-mp-trigger" id="ofiDrfMultiProgramTrigger" disabled aria-expanded="false">
+                    <span class="ofi-mp-label" id="ofiDrfMultiProgramLabel">Select college first…</span>
+                    <i class="fa-solid fa-chevron-down" aria-hidden="true"></i>
+                </button>
+                <div class="ofi-mp-panel" id="ofiDrfMultiProgramPanel" hidden>
+                    <div class="ofi-mp-panel-head">
+                        <span>Select one or more programs</span>
+                        <div class="ofi-mp-panel-actions">
+                            <button type="button" id="ofiDrfMpSelectAll">All</button>
+                            <button type="button" id="ofiDrfMpClear">Clear</button>
+                        </div>
+                    </div>
+                    <div class="ofi-mp-list" id="ofiDrfMultiProgramList"></div>
+                </div>
+                <div id="ofiDrfProgramIdsHiddens"></div>
+            </div>
         </div>
         <div class="reg-field" style="margin:0;">
             <label for="ofiDrfSemesterId">Semester <span class="ofi-req">*</span></label>
@@ -100,20 +118,31 @@ All course types require college + program (catalog is per program).
         </div>
     </div>
 
+    <div class="ofi-year-level-bar is-ofi-hidden" id="ofiDrfYearLevelWrap" hidden>
+        <div class="ofi-year-level-head">
+            <label style="margin:0;">Year level</label>
+            <span class="ofi-year-level-hint">Filter courses by year level (e.g. select 1st &amp; 2nd Year now, then request 3rd &amp; 4th Year later)</span>
+        </div>
+        <div class="ofi-year-level-pills" id="ofiDrfYearLevelPicker"></div>
+    </div>
+
     <div class="ofi-batch-courses{{ $sylOldMode === 'batch' ? '' : ' is-ofi-hidden' }}" id="ofiDrfBatchCoursesWrap" @if($sylOldMode !== 'batch') hidden @endif>
         <div class="ofi-batch-courses-bar">
             <div class="ofi-batch-courses-title">
-                <label style="margin:0;">Courses in this batch <span class="ofi-req">*</span></label>
+                <label class="ofi-batch-section-label" style="margin:0;">Courses in this batch <span class="ofi-req">*</span></label>
                 <span class="ofi-batch-count" id="ofiDrfBatchCount">0 selected</span>
             </div>
             <div class="ofi-batch-courses-actions">
-                <input type="search" id="ofiDrfBatchSearch" class="ofi-batch-search" placeholder="Filter courses…" autocomplete="off">
+                <span class="ofi-batch-search-wrap">
+                    <i class="fa-solid fa-magnifying-glass ofi-batch-search-icon" aria-hidden="true"></i>
+                    <input type="search" id="ofiDrfBatchSearch" class="ofi-batch-search" placeholder="Search course code or name…" autocomplete="off">
+                </span>
                 <button type="button" class="ofi-batch-action-btn" id="ofiDrfBatchSelectAll">Select all</button>
-                <button type="button" class="ofi-batch-action-btn" id="ofiDrfBatchClear">Clear</button>
             </div>
         </div>
+        <div class="ofi-batch-program-tabs is-ofi-hidden" id="ofiDrfBatchProgramTabs" role="tablist" aria-label="Selected programs" hidden></div>
         <div class="ofi-batch-courses-list" id="ofiDrfBatchCoursesList">
-            <div class="ofi-batch-empty">Select course type, college, program, semester, and school year to load courses.</div>
+            <div class="ofi-batch-empty">Select course type, college, program(s), semester, and school year to load courses.</div>
         </div>
     </div>
 
@@ -131,6 +160,7 @@ All course types require college + program (catalog is per program).
     </div>
 
     <input type="hidden" id="ofiDrfSyllabiSeed" value="{{ $sylOldCourseType }},{{ $sylOldCollege }},{{ $sylOldProgram }},{{ $sylOldSemester }},{{ $sylOldCourse }},{{ $sylOldSchoolYear }}">
+    <input type="hidden" id="ofiDrfProgramIdsSeed" value="{{ implode(',', $sylOldProgramIds) }}">
     <input type="hidden" id="ofiDrfBatchCoursesSeed" value="{{ implode(',', $sylOldCourseIds) }}">
     <script type="application/json" id="ofiDrfBatchItemsSeed">@json($sylOldBatchItems)</script>
 </div>
@@ -147,6 +177,288 @@ All course types require college + program (catalog is per program).
 #ofiDrfSyllabiContext [hidden],
 #ofiDrfSyllabiContext .is-ofi-hidden {
     display: none !important;
+}
+#ofiDrfSyllabiContext .ofi-mp-picker {
+    position: relative;
+}
+#ofiDrfSyllabiContext .ofi-mp-trigger {
+    width: 100%;
+    min-height: 38px;
+    padding: 7px 11px;
+    border: 1.5px solid #cbd5e1;
+    border-radius: 8px;
+    background: #ffffff;
+    color: #0f172a;
+    font-size: 0.85rem;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+    cursor: pointer;
+    text-align: left;
+}
+#ofiDrfSyllabiContext .ofi-mp-trigger:disabled {
+    background: #f1f5f9;
+    color: #94a3b8;
+    cursor: not-allowed;
+}
+#ofiDrfSyllabiContext .ofi-mp-label {
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    min-width: 0;
+    flex: 1 1 auto;
+}
+#ofiDrfSyllabiContext .ofi-mp-panel {
+    position: absolute;
+    left: 0;
+    right: 0;
+    top: calc(100% + 4px);
+    z-index: 40;
+    background: #ffffff;
+    border: 1.5px solid #cbd5e1;
+    border-radius: 10px;
+    box-shadow: 0 10px 28px rgba(15, 23, 42, 0.14);
+    overflow: hidden;
+}
+#ofiDrfSyllabiContext .ofi-mp-panel-head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+    padding: 8px 11px;
+    background: #f8fafc;
+    border-bottom: 1px solid #e2e8f0;
+    font-size: 0.72rem;
+    font-weight: 700;
+    color: #475569;
+    text-transform: uppercase;
+}
+#ofiDrfSyllabiContext .ofi-mp-panel-actions {
+    display: flex;
+    gap: 6px;
+}
+#ofiDrfSyllabiContext .ofi-mp-panel-actions button {
+    border: 1px solid #cbd5e1;
+    background: #fff;
+    color: #0d2a7a;
+    border-radius: 6px;
+    padding: 2px 8px;
+    font-size: 0.72rem;
+    font-weight: 700;
+    cursor: pointer;
+}
+#ofiDrfSyllabiContext .ofi-mp-list {
+    max-height: 220px;
+    overflow-y: auto;
+    padding: 6px;
+    display: flex;
+    flex-direction: column;
+    gap: 3px;
+}
+#ofiDrfSyllabiContext .ofi-mp-item {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 6px 8px;
+    border-radius: 7px;
+    cursor: pointer;
+    font-size: 0.82rem;
+    color: #0f172a;
+}
+#ofiDrfSyllabiContext .ofi-mp-item:hover {
+    background: #f1f5f9;
+}
+#ofiDrfSyllabiContext .ofi-mp-item.is-checked {
+    background: #eff6ff;
+    color: #0d2a7a;
+    font-weight: 600;
+}
+#ofiDrfSyllabiContext .ofi-mp-item input {
+    margin: 0;
+    accent-color: #0d2a7a;
+}
+#ofiDrfSyllabiContext .ofi-mp-code {
+    margin-left: auto;
+    padding: 1px 7px;
+    border-radius: 999px;
+    background: #e2e8f0;
+    color: #334155;
+    font-size: 0.7rem;
+    font-weight: 700;
+    flex-shrink: 0;
+}
+#ofiDrfSyllabiContext .ofi-batch-section-label {
+    font-size: 0.72rem !important;
+    font-weight: 700 !important;
+    color: #334155 !important;
+    text-transform: uppercase !important;
+    letter-spacing: 0.04em !important;
+}
+#ofiDrfSyllabiContext .ofi-batch-search-wrap {
+    position: relative;
+    display: inline-flex;
+    align-items: center;
+}
+#ofiDrfSyllabiContext .ofi-batch-search-icon {
+    position: absolute;
+    left: 11px;
+    color: #0d2a7a;
+    font-size: 0.78rem;
+    pointer-events: none;
+}
+#ofiDrfSyllabiContext .ofi-batch-search {
+    min-width: 225px;
+    padding: 6px 11px 6px 31px !important;
+    border: 1.5px solid #94a3b8 !important;
+    border-radius: 8px !important;
+    background: #ffffff !important;
+    color: #0f172a !important;
+    font-size: 0.8rem !important;
+    font-weight: 500 !important;
+    box-shadow: 0 1px 2px rgba(15, 23, 42, 0.05) !important;
+    transition: border-color 0.15s ease, box-shadow 0.15s ease;
+}
+#ofiDrfSyllabiContext .ofi-batch-search::placeholder {
+    color: #64748b !important;
+    font-weight: 500;
+}
+#ofiDrfSyllabiContext .ofi-batch-search:focus {
+    outline: none !important;
+    border-color: #0d2a7a !important;
+    box-shadow: 0 0 0 3px rgba(13, 42, 122, 0.12) !important;
+}
+#ofiDrfSyllabiContext .ofi-batch-program-tabs {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+    padding: 8px 10px;
+    background: #f8fafc;
+    border-bottom: 1px solid #e2e8f0;
+}
+#ofiDrfSyllabiContext .ofi-batch-prog-tab {
+    display: inline-flex;
+    align-items: center;
+    gap: 7px;
+    padding: 6px 12px;
+    border-radius: 8px;
+    border: 1px solid #cbd5e1;
+    background: #ffffff;
+    color: #334155;
+    font-size: 0.78rem;
+    font-weight: 700;
+    cursor: pointer;
+    transition: all 0.14s ease;
+}
+#ofiDrfSyllabiContext .ofi-batch-prog-tab:hover {
+    border-color: #93c5fd;
+    color: #0d2a7a;
+}
+#ofiDrfSyllabiContext .ofi-batch-prog-tab.is-active {
+    background: #0d2a7a;
+    border-color: #0d2a7a;
+    color: #ffffff;
+}
+#ofiDrfSyllabiContext .ofi-batch-prog-tab-count {
+    padding: 1px 7px;
+    border-radius: 999px;
+    font-size: 0.69rem;
+    font-weight: 700;
+    background: #e2e8f0;
+    color: #334155;
+}
+#ofiDrfSyllabiContext .ofi-batch-prog-tab.is-active .ofi-batch-prog-tab-count {
+    background: rgba(255, 255, 255, 0.22);
+    color: #ffffff;
+}
+#ofiDrfSyllabiContext .ofi-batch-year-head {
+    padding: 5px 10px;
+    margin-top: 4px;
+    border-left: 3px solid #0d2a7a;
+    background: #f1f5f9;
+    color: #334155;
+    font-size: 0.71rem;
+    font-weight: 800;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    border-radius: 0 6px 6px 0;
+}
+#ofiDrfSyllabiContext .ofi-batch-year-head:first-child {
+    margin-top: 0;
+}
+#ofiDrfSyllabiContext .ofi-batch-program-head {
+    padding: 7px 11px;
+    margin-top: 6px;
+    border-radius: 8px;
+    background: #eff6ff;
+    border: 1px solid #dbeafe;
+    color: #0d2a7a;
+    font-size: 0.76rem;
+    font-weight: 800;
+    letter-spacing: 0.02em;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+}
+#ofiDrfSyllabiContext .ofi-batch-program-head:first-child {
+    margin-top: 0;
+}
+#ofiDrfSyllabiContext .ofi-year-level-bar {
+    margin-top: 12px;
+    padding: 10px 13px;
+    border: 1px solid #dbe6f7;
+    border-radius: 10px;
+    background: #ffffff;
+}
+#ofiDrfSyllabiContext .ofi-year-level-head {
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+    gap: 10px;
+    flex-wrap: wrap;
+    margin-bottom: 8px;
+}
+#ofiDrfSyllabiContext .ofi-year-level-head label {
+    font-size: 0.72rem;
+    font-weight: 700;
+    color: #334155;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+}
+#ofiDrfSyllabiContext .ofi-year-level-hint {
+    font-size: 0.74rem;
+    color: #64748b;
+}
+#ofiDrfSyllabiContext .ofi-year-level-pills {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 7px;
+}
+#ofiDrfSyllabiContext .ofi-year-pill {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 5px 11px;
+    border-radius: 999px;
+    border: 1px solid #cbd5e1;
+    background: #f8fafc;
+    color: #334155;
+    font-size: 0.78rem;
+    font-weight: 600;
+    cursor: pointer;
+    user-select: none;
+    transition: all 0.14s ease;
+}
+#ofiDrfSyllabiContext .ofi-year-pill.is-checked {
+    border-color: #0d2a7a;
+    background: #e8f0fe;
+    color: #0d2a7a;
+}
+#ofiDrfSyllabiContext .ofi-year-pill input {
+    margin: 0;
+    accent-color: #0d2a7a;
+    cursor: pointer;
 }
 #ofiDrfSyllabiContext .ofi-syllabi-head {
     display: flex;

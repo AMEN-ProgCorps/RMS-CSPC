@@ -1409,45 +1409,45 @@ Route::middleware(['auth'])
             Route::get('/api/offices', fn () => response()->json(
                 collect(RegisterQueryHelper::jsCatalog()['offices'] ?? [])->values()
             ));
-            Route::get('/api/office-intake/{type}/{id}', function (string $type, int $id) {
-                OfficeIntakeHelper::assertCanAccessIntake();
-                $payload = OfficeIntakeHelper::modalPayload($type, $id);
-                abort_unless($payload, 404);
-
-                return response()->json($payload);
-            })->whereIn('type', ['drf', 'dcn'])->name('api.office-intake.show');
-
-            Route::post('/api/office-intake/{type}/{id}/received', function (string $type, int $id) {
-                return response()->json(OfficeIntakeHelper::markReceived($type, $id));
-            })->whereIn('type', ['drf', 'dcn'])->name('api.office-intake.received');
-
-            Route::delete('/api/office-intake/{type}/{id}/received', function (string $type, int $id) {
-                return response()->json(OfficeIntakeHelper::clearReceived($type, $id));
-            })->whereIn('type', ['drf', 'dcn'])->name('api.office-intake.received.clear');
-
-            Route::post('/api/office-intake/{type}/{id}/begin-register', function (string $type, int $id) {
-                return response()->json(OfficeIntakeHelper::beginRegister($type, $id));
-            })->whereIn('type', ['drf', 'dcn'])->name('api.office-intake.begin-register');
-
-            Route::post('/api/office-intake/{type}/{id}/unlock-edit', function (string $type, int $id, Request $request) {
-                $reason = (string) $request->input('reason', '');
-
-                return response()->json(OfficeIntakeHelper::unlockForEdit($type, $id, $reason));
-            })->whereIn('type', ['drf', 'dcn'])->name('api.office-intake.unlock-edit');
-
-            Route::post('/api/office-intake/{type}/{id}/notify-print-ready', function (string $type, int $id) {
-                return response()->json(OfficeIntakeHelper::notifyReadyForPrintSign($type, $id));
-            })->whereIn('type', ['drf', 'dcn'])->name('api.office-intake.notify-print-ready');
-
             Route::get('/api/office-intake/{type}/print-ready', function (string $type, Request $request) {
                 $ids = array_filter(array_map('intval', explode(',', (string) $request->query('ids', ''))));
 
                 return response()->json(OfficeIntakeHelper::officeIntakePrintReadyIds($type, $ids));
             })->whereIn('type', ['drf', 'dcn'])->name('api.office-intake.print-ready');
 
+            Route::get('/api/office-intake/{type}/{id}', function (string $type, int $id) {
+                OfficeIntakeHelper::assertCanAccessIntake();
+                $payload = OfficeIntakeHelper::modalPayload($type, $id);
+                abort_unless($payload, 404);
+
+                return response()->json($payload);
+            })->whereIn('type', ['drf', 'dcn'])->whereNumber('id')->name('api.office-intake.show');
+
+            Route::post('/api/office-intake/{type}/{id}/received', function (string $type, int $id) {
+                return response()->json(OfficeIntakeHelper::markReceived($type, $id));
+            })->whereIn('type', ['drf', 'dcn'])->whereNumber('id')->name('api.office-intake.received');
+
+            Route::delete('/api/office-intake/{type}/{id}/received', function (string $type, int $id) {
+                return response()->json(OfficeIntakeHelper::clearReceived($type, $id));
+            })->whereIn('type', ['drf', 'dcn'])->whereNumber('id')->name('api.office-intake.received.clear');
+
+            Route::post('/api/office-intake/{type}/{id}/begin-register', function (string $type, int $id) {
+                return response()->json(OfficeIntakeHelper::beginRegister($type, $id));
+            })->whereIn('type', ['drf', 'dcn'])->whereNumber('id')->name('api.office-intake.begin-register');
+
+            Route::post('/api/office-intake/{type}/{id}/unlock-edit', function (string $type, int $id, Request $request) {
+                $reason = (string) $request->input('reason', '');
+
+                return response()->json(OfficeIntakeHelper::unlockForEdit($type, $id, $reason));
+            })->whereIn('type', ['drf', 'dcn'])->whereNumber('id')->name('api.office-intake.unlock-edit');
+
+            Route::post('/api/office-intake/{type}/{id}/notify-print-ready', function (string $type, int $id) {
+                return response()->json(OfficeIntakeHelper::notifyReadyForPrintSign($type, $id));
+            })->whereIn('type', ['drf', 'dcn'])->whereNumber('id')->name('api.office-intake.notify-print-ready');
+
             Route::post('/api/office-intake/{type}/{id}/printed', function (string $type, int $id) {
                 return response()->json(OfficeIntakeHelper::markOfficeIntakePrinted($type, $id));
-            })->whereIn('type', ['drf', 'dcn'])->name('api.office-intake.printed');
+            })->whereIn('type', ['drf', 'dcn'])->whereNumber('id')->name('api.office-intake.printed');
 
             Route::get('/api/office-intake/attention', function (\Illuminate\Http\Request $request) {
                 if ($request->boolean('fresh')) {

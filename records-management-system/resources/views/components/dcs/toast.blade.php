@@ -10,10 +10,14 @@ DCS file: DCS toast. Same look on every DCS screen.
     $flashMessage = $message
         ?? session('success')
         ?? session('error')
+        ?? session('info')
         ?? ($errors->any() ? $errors->first() : null);
     $flashType = $type
-        ?? ((session('error') || ($errors->any() && ! session('success'))) ? 'error' : 'success');
+        ?? ((session('error') || ($errors->any() && ! session('success') && ! session('info'))) ? 'error' : 'success');
     $isError = $flashType === 'error';
+    $toastTitle = $isError
+        ? 'Error'
+        : ((session('info') && ! session('success') && ! $message) ? 'Notice' : 'Success');
 @endphp
 
 @if($flashMessage)
@@ -27,7 +31,7 @@ DCS file: DCS toast. Same look on every DCS screen.
             <i class="fa-solid {{ $isError ? 'fa-circle-exclamation' : 'fa-circle-check' }}"></i>
         </div>
         <div class="dcs-toast-content">
-            <span class="dcs-toast-title">{{ $isError ? 'Error' : 'Success' }}</span>
+            <span class="dcs-toast-title">{{ $toastTitle }}</span>
             <span class="dcs-toast-message">{{ $flashMessage }}</span>
         </div>
         <button type="button" class="dcs-toast-close" onclick="closeToast()">

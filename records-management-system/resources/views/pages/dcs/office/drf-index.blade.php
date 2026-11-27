@@ -80,12 +80,6 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
             @endunless
         </div>
 
-        @if(session('success'))
-            <div class="ofi-alert ok">{{ session('success') }}</div>
-        @endif
-        @if(session('error'))
-            <div class="ofi-alert err">{{ session('error') }}</div>
-        @endif
 
         @php
             $totalRows = method_exists($rows, 'total') ? (int) $rows->total() : (is_countable($rows) ? count($rows) : 0);
@@ -247,6 +241,3 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
         </div>
     </div>
 </div>
-@push('scripts')
-    @include('pages.dcs.office.partials.print-unlock-list')
-@endpush

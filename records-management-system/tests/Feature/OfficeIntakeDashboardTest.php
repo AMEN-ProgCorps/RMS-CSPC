@@ -254,11 +254,13 @@ class OfficeIntakeDashboardTest extends TestCase
         $row = [
             'document_no' => 'HANDOFF-'.uniqid(),
             'document_title' => 'Handoff title',
-            'department_office_id' => $this->vpaaOfficeId,
             'created_by' => $this->limitedUserId,
             'created_at' => $now,
             'updated_at' => $now,
         ];
+        if (Schema::hasColumn('dcs_office_intake_dcn', 'department_office_id')) {
+            $row['department_office_id'] = $this->vpaaOfficeId;
+        }
         if (Schema::hasColumn('dcs_office_intake_dcn', 'originator_name')) {
             $row['originator_name'] = 'Originator';
         }

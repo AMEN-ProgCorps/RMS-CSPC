@@ -163,15 +163,6 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
             </div>
         </div>
 
-        @if(session('success'))
-            <div class="ofi-alert ok">{{ session('success') }}</div>
-        @endif
-        @if(session('error'))
-            <div class="ofi-alert err">{{ session('error') }}</div>
-        @endif
-        @if(session('info'))
-            <div class="ofi-alert">{{ session('info') }}</div>
-        @endif
         @if(collect($rows->items())->contains(fn ($row) => !empty($row['appraisal_url']) || !empty($row['awaiting_appraisal'])))
             <div class="ofi-alert">Received documents stay on Incoming until Appraisal is finished for your office.</div>
         @endif

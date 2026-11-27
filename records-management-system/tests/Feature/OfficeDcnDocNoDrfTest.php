@@ -309,7 +309,7 @@ class OfficeDcnDocNoDrfTest extends TestCase
         $response->assertRedirect(route('dcs.office.dcn.create'));
         $response->assertSessionHasErrors('finderDocumentNo');
         $this->assertStringContainsString(
-            'no registered revisable',
+            'no registered document matched',
             strtolower((string) session('errors')->first('finderDocumentNo'))
         );
     }
@@ -339,7 +339,7 @@ class OfficeDcnDocNoDrfTest extends TestCase
         $show = $this->actingAs(User::find($this->limitedUserId))
             ->get($response->headers->get('Location') ?? '');
         $show->assertOk();
-        $show->assertDontSee('Create DRF', false);
+        $show->assertSee('Create DRF', false);
         $show->assertDontSee('View linked DRF', false);
     }
 
@@ -361,10 +361,9 @@ class OfficeDcnDocNoDrfTest extends TestCase
                 . '&originator=' . urlencode($doc['originator']));
 
         $response->assertOk();
-        $response->assertJson([
-            'found' => true,
-            'revise_no' => 0,
-        ]);
+        $response->assertJsonPath('found', true);
+        $response->assertJsonPath('matches.0.revise_no', 0);
+        $response->assertJsonPath('matches.0.document_no', $doc['doc_no']);
         $this->assertArrayNotHasKey('doc_title', $response->json());
         $this->assertArrayNotHasKey('doc_no', $response->json());
     }
@@ -444,7 +443,7 @@ class OfficeDcnDocNoDrfTest extends TestCase
             'drfDate' => now()->toDateString(),
             'drfTitle' => $title,
             'originatorName' => 'DRF Originator',
-            'docTypeKind' => 'internal',
+            'docTypeKind' => 'external',
             'descriptionReason' => 'Office intake DRF for schema split test.',
             'distributeToOffice' => [$this->vpaaOfficeId],
             'preparedByName' => 'Prepared Name',

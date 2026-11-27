@@ -375,7 +375,7 @@ class DcsAccessControlTest extends TestCase
 
         $response = $this->withHeader('User-Agent', 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36')
             ->get('/dcs/recycle-bin');
-        $response->assertOk();
+        $response->assertRedirect('/admin/recycle-bin');
     }
 
     public function test_rfio_user_can_access_register_page(): void
@@ -727,9 +727,15 @@ class DcsAccessControlTest extends TestCase
         $this->assertNotContains($rfioQueueNotifId, $ids);
         $this->assertContains($intakeNotifId, $ids);
         if ($otherNotifId !== null) {
-            $this->assertNotContains($otherNotifId, $ids);
-            $this->assertFalse(\App\Helpers\RegisterQueryHelper::limitedUserOwnsOfficeIntakeNotice(
+            // Registered success (?registered=1) is intentionally office-wide for the creating office.
+            $this->assertContains($otherNotifId, $ids);
+            $this->assertTrue(\App\Helpers\RegisterQueryHelper::limitedUserOwnsOfficeIntakeNotice(
                 '/dcs/office/drf/' . $otherDrfId . '?registered=1',
+                $this->limitedUserId
+            ));
+            // Non-registered form-specific notices remain scoped to the creator.
+            $this->assertFalse(\App\Helpers\RegisterQueryHelper::limitedUserOwnsOfficeIntakeNotice(
+                '/dcs/office/drf/' . $otherDrfId,
                 $this->limitedUserId
             ));
         }
@@ -885,10 +891,11 @@ class DcsAccessControlTest extends TestCase
     public function test_error_guard_apis_require_auth_and_reject_forged_clear_path(): void
     {
         $this->getJson('/api/errors/active-guards')->assertUnauthorized();
-        $this->postJson('/api/errors/auto-capture', [
-            'title' => 'probe',
-            'message' => 'probe',
-        ])->assertUnauthorized();
+        $this->withoutMiddleware(\Illuminate\Foundation\Http\Middleware\ValidateCsrfToken::class)
+            ->postJson('/api/errors/auto-capture', [
+                'title' => 'probe',
+                'message' => 'probe',
+            ])->assertUnauthorized();
 
         $this->actingAs(User::find($this->limitedUserId))
             ->withHeader('Referer', 'http://localhost/dcs/office/drf')

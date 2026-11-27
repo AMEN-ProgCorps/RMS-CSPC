@@ -337,6 +337,9 @@
     <livewire:components.scanner-modal />
     @auth
         <script src="{{ asset('js/dcs/dashboard-page.js') }}?v={{ @filemtime(public_path('js/dcs/dashboard-page.js')) ?: time() }}"></script>
+        @if(\App\Helpers\RegisterQueryHelper::canAccessOfficeIntake())
+            @include('pages.dcs.office.partials.print-unlock-list')
+        @endif
     @endauth
     @stack('scripts')
     @livewireScripts

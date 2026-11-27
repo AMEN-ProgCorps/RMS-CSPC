@@ -142,15 +142,6 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
             @endif
         </div>
 
-        @if(session('success'))
-            <div class="ofi-alert ok">{{ session('success') }}</div>
-        @endif
-        @if(session('error'))
-            <div class="ofi-alert err">{{ session('error') }}</div>
-        @endif
-        @if(session('info'))
-            <div class="ofi-alert ok">{{ session('info') }}</div>
-        @endif
 
         @unless(auth()->user()?->enableTopTabs() ?? true)
         <nav class="ofi-doc-nav" aria-label="Document types">

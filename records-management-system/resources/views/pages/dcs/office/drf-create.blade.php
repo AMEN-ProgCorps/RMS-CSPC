@@ -190,9 +190,6 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
             </p>
         </div>
 
-        @if(session('success'))
-            <div class="ofi-alert ok">{{ session('success') }}</div>
-        @endif
 
         @if($errors->any())
             <div class="ofi-alert err">

@@ -151,12 +151,6 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
             </div>
         </div>
 
-        @if(session('error'))
-            <div class="ofi-alert err">{{ session('error') }}</div>
-        @endif
-        @if(session('info'))
-            <div class="ofi-alert ok">{{ session('info') }}</div>
-        @endif
 
         <section class="ofi-dash-panel">
             <div class="ofi-dash-panel-head">
@@ -233,15 +227,6 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
             </div>
         </div>
 
-        @if(session('error'))
-            <div class="ofi-alert err">{{ session('error') }}</div>
-        @endif
-        @if(session('success'))
-            <div class="ofi-alert ok">{{ session('success') }}</div>
-        @endif
-        @if(session('info'))
-            <div class="ofi-alert ok">{{ session('info') }}</div>
-        @endif
 
         <section class="ofi-dash-stats" aria-label="Office overview">
             <a href="{{ route('dcs.office.drf.index', absolute: false) }}" class="ofi-dash-stat is-drf">

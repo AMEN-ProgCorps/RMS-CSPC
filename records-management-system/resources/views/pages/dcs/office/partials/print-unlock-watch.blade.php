@@ -69,9 +69,11 @@ Pauses while the tab is hidden. The route must stay on EnforceDcsIntakeAllowlist
         var statusUrl = node.getAttribute('data-status-url');
         if (!statusUrl) return;
         try {
-            var res = await fetch(statusUrl, {
+            var sep = statusUrl.indexOf('?') === -1 ? '?' : '&';
+            var res = await fetch(statusUrl + sep + '_t=' + Date.now(), {
                 headers: { 'Accept': 'application/json', 'X-Requested-With': 'XMLHttpRequest' },
                 credentials: 'same-origin',
+                cache: 'no-store',
             });
             if (!res.ok) return;
             var data = await res.json();

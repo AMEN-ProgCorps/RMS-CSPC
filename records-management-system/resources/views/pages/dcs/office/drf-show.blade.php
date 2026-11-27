@@ -162,13 +162,6 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
             </div>
         </div>
 
-        @if(session('success'))
-            <div class="ofi-alert ok">{{ session('success') }}</div>
-        @endif
-
-        @if(session('error'))
-            <div class="ofi-alert err">{{ session('error') }}</div>
-        @endif
 
         @if(($canEdit ?? false) && ($editReason ?? '') !== '')
             <div class="ofi-alert err ofi-correction-alert" role="status">

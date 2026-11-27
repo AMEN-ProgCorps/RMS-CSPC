@@ -78,7 +78,6 @@ class BackupService
             'dcs_custom_stamps' => 35,
             'dcs_faculties' => 36,
             'dcs_program_courses' => 37,
-            'dcs_office_drf_batch_items' => 78,
             'dcs_faculty_colleges' => 38,
             'dcs_program_course_faculties' => 38,
             'dcs_checklist_types' => 39,
@@ -173,6 +172,7 @@ class BackupService
             'dcs_syllabi_monitoring_status' => 107,
             'dcs_office_intake_drf' => 108,
             'dcs_office_intake_dcn' => 109,
+            'dcs_office_drf_batch_items' => 110,
             'dcs_office_drf_offices' => 110,
             'dcs_office_drf_distribute_offices' => 110,
             'dcs_office_drf_originators' => 110,
@@ -943,5 +943,314 @@ class BackupService
         } catch (\Throwable) {
             return null;
         }
+    }
+
+    /**
+     * Whitelisted DCS file storage directories included in DCS file archives.
+     * Keys are relative prefixes inside the zip; values are absolute disk paths.
+     *
+     * @return array<string, string>
+     */
+    public static function dcsFileArchiveDirectories(): array
+    {
+        return [
+            'public/scans' => storage_path('app/public/scans'),
+            'public/report_templates' => storage_path('app/public/report_templates'),
+            'private/stamps' => storage_path('app/private/stamps'),
+            'private/stamp_backups' => storage_path('app/private/stamp_backups'),
+        ];
+    }
+
+    /**
+     * Create a ZIP archive of all physical DCS files (scans, report templates,
+     * custom stamps, and unstamped originals) and sync via 3-2-1 (Local + S3/NAS + Google Drive).
+     *
+     * @return array{success: bool, filename: string, files_count: int, size_bytes: int, message: string}
+     */
+    public function createDcsFilesArchive(?string $customLabel = null): array
+    {
+        @set_time_limit(300);
+        @ini_set('max_execution_time', '300');
+
+        if (!class_exists(\ZipArchive::class)) {
+            return [
+                'success' => false,
+                'filename' => '',
+                'files_count' => 0,
+                'size_bytes' => 0,
+                'message' => 'PHP ZipArchive extension is not enabled on this server.',
+            ];
+        }
+
+        try {
+            $cleanLabel = trim((string) preg_replace('/[\/\\\:\*\?"<>\|]/', '', (string) $customLabel));
+            $tag = $cleanLabel !== '' ? "DCS_Files - {$cleanLabel}" : 'DCS_Files';
+            $stamp = date('d-m-Y-Hi');
+            $filename = "[{$tag}]{$stamp}.zip";
+            if (Storage::disk('local')->exists("backups/{$filename}")) {
+                $filename = "[{$tag}]{$stamp}-" . date('s') . '.zip';
+            }
+
+            if (!Storage::disk('local')->exists('backups')) {
+                Storage::disk('local')->makeDirectory('backups');
+            }
+
+            $targetAbs = Storage::disk('local')->path("backups/{$filename}");
+            $targetDir = dirname($targetAbs);
+            if (!is_dir($targetDir)) {
+                @mkdir($targetDir, 0775, true);
+            }
+
+            $zip = new \ZipArchive();
+            if ($zip->open($targetAbs, \ZipArchive::CREATE | \ZipArchive::OVERWRITE) !== true) {
+                return [
+                    'success' => false,
+                    'filename' => '',
+                    'files_count' => 0,
+                    'size_bytes' => 0,
+                    'message' => 'Could not create ZIP archive on local storage.',
+                ];
+            }
+
+            $filesCount = 0;
+            $dirSummary = [];
+            foreach (self::dcsFileArchiveDirectories() as $prefix => $absDir) {
+                $dirCount = 0;
+                if (is_dir($absDir)) {
+                    $iterator = new \RecursiveIteratorIterator(
+                        new \RecursiveDirectoryIterator($absDir, \FilesystemIterator::SKIP_DOTS),
+                        \RecursiveIteratorIterator::LEAVES_ONLY
+                    );
+                    $normBase = rtrim(str_replace('\\', '/', $absDir), '/') . '/';
+                    foreach ($iterator as $fileInfo) {
+                        if (!$fileInfo->isFile() || !$fileInfo->isReadable()) {
+                            continue;
+                        }
+                        if ($fileInfo->getFilename() === '.gitignore') {
+                            continue;
+                        }
+                        $absFile = $fileInfo->getPathname();
+                        $normFile = str_replace('\\', '/', $absFile);
+                        $rel = ltrim(str_starts_with($normFile, $normBase) ? substr($normFile, strlen($normBase)) : $fileInfo->getFilename(), '/');
+                        if ($rel === '' || str_contains($rel, '..')) {
+                            continue;
+                        }
+                        $zip->addFile($absFile, "{$prefix}/{$rel}");
+                        $filesCount++;
+                        $dirCount++;
+                    }
+                }
+                $dirSummary[$prefix] = $dirCount;
+            }
+
+            $manifest = [
+                'app_name' => config('app.name', 'RMS CSPC'),
+                'archive_type' => 'dcs_files',
+                'created_at' => now()->toIso8601String(),
+                'created_by' => auth()->user()?->email ?: 'Server System',
+                'files_count' => $filesCount,
+                'directories' => $dirSummary,
+            ];
+            $zip->addFromString('manifest.json', json_encode($manifest, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES));
+            $zip->close();
+
+            $sizeBytes = file_exists($targetAbs) ? (int) filesize($targetAbs) : 0;
+            $synced = ['Local'];
+
+            // 3-2-1 Copy 2: S3 / NAS Silo
+            try {
+                if (config('filesystems.disks.s3.bucket')) {
+                    $stream = fopen($targetAbs, 'rb');
+                    if (is_resource($stream)) {
+                        Storage::disk('s3')->put("backups/{$filename}", $stream);
+                        fclose($stream);
+                        $synced[] = 'NAS/S3';
+                    }
+                }
+            } catch (\Throwable $e) {
+                Log::warning("S3/NAS DCS files archive sync error: " . $e->getMessage());
+            }
+
+            // 3-2-1 Copy 3: Google Drive (Offsite)
+            try {
+                $stream = fopen($targetAbs, 'rb');
+                if (is_resource($stream)) {
+                    Storage::disk('google')->put("backup/{$filename}", $stream);
+                    fclose($stream);
+                    $synced[] = 'Google Drive';
+                }
+            } catch (\Throwable $e) {
+                Log::warning("Google Drive DCS files archive sync error: " . $e->getMessage());
+            }
+
+            $adminId = auth()->id();
+            if ($adminId) {
+                $adminLogsTbl = Schema::hasTable('sys_admin_logs') ? 'sys_admin_logs' : (Schema::hasTable('admin_logs') ? 'admin_logs' : null);
+                if ($adminLogsTbl) {
+                    try {
+                        DB::table($adminLogsTbl)->insert([
+                            'changes' => "DCS files archive created: [{$filename}] ({$filesCount} files; synced to " . implode(', ', $synced) . ")",
+                            'admin_id' => $adminId,
+                            'created_at' => now(),
+                            'updated_at' => now(),
+                        ]);
+                    } catch (\Throwable) {}
+                }
+            }
+
+            return [
+                'success' => true,
+                'filename' => $filename,
+                'files_count' => $filesCount,
+                'size_bytes' => $sizeBytes,
+                'message' => "DCS files archived successfully: {$filename} ({$filesCount} files; saved to " . implode(', ', $synced) . ").",
+            ];
+        } catch (\Throwable $e) {
+            Log::error("createDcsFilesArchive error: " . $e->getMessage(), ['exception' => $e]);
+            return [
+                'success' => false,
+                'filename' => '',
+                'files_count' => 0,
+                'size_bytes' => 0,
+                'message' => 'DCS file archiving failed: ' . $e->getMessage(),
+            ];
+        }
+    }
+
+    /**
+     * Restore physical DCS files from a ZIP archive (Local -> S3/NAS -> Google Drive).
+     *
+     * @return array{success: bool, files_restored: int, message: string}
+     */
+    public function restoreDcsFilesArchive(string $filename, ?callable $progressCallback = null): array
+    {
+        @set_time_limit(300);
+        @ini_set('max_execution_time', '300');
+
+        $log = function (string $msg, int $pct = 0) use ($progressCallback) {
+            if ($progressCallback) {
+                $progressCallback($msg, $pct);
+            }
+        };
+
+        if (!class_exists(\ZipArchive::class)) {
+            return [
+                'success' => false,
+                'files_restored' => 0,
+                'message' => 'PHP ZipArchive extension is not enabled on this server.',
+            ];
+        }
+
+        $filename = basename($filename);
+        $localPath = "backups/{$filename}";
+        $googlePath = "backup/{$filename}";
+
+        // Ensure archive is cached locally (Local -> S3/NAS -> Google Drive)
+        if (!Storage::disk('local')->exists($localPath)) {
+            $fetched = false;
+            try {
+                if (config('filesystems.disks.s3.bucket') && Storage::disk('s3')->exists($localPath)) {
+                    $log('Downloading DCS files archive from S3/NAS Silo...', 15);
+                    $stream = Storage::disk('s3')->readStream($localPath);
+                    if (is_resource($stream)) {
+                        Storage::disk('local')->put($localPath, $stream);
+                        fclose($stream);
+                        $fetched = true;
+                    }
+                }
+            } catch (\Throwable $e) {
+                Log::warning("Could not read DCS archive [{$filename}] from S3/NAS: " . $e->getMessage());
+            }
+
+            if (!$fetched) {
+                try {
+                    if (Storage::disk('google')->exists($googlePath)) {
+                        $log('Downloading DCS files archive from Google Drive...', 20);
+                        $stream = Storage::disk('google')->readStream($googlePath);
+                        if (is_resource($stream)) {
+                            Storage::disk('local')->put($localPath, $stream);
+                            fclose($stream);
+                            $fetched = true;
+                        }
+                    }
+                } catch (\Throwable $e) {
+                    Log::warning("Could not read DCS archive [{$filename}] from Google Drive: " . $e->getMessage());
+                }
+            }
+
+            if (!$fetched || !Storage::disk('local')->exists($localPath)) {
+                return [
+                    'success' => false,
+                    'files_restored' => 0,
+                    'message' => "DCS files archive [{$filename}] could not be found in Local, S3/NAS, or Google Drive.",
+                ];
+            }
+        }
+
+        $zipAbs = Storage::disk('local')->path($localPath);
+        $zip = new \ZipArchive();
+        if ($zip->open($zipAbs) !== true) {
+            return [
+                'success' => false,
+                'files_restored' => 0,
+                'message' => "Could not open ZIP archive [{$filename}].",
+            ];
+        }
+
+        $allowed = self::dcsFileArchiveDirectories();
+        $restored = 0;
+        $total = $zip->numFiles;
+        $log("Extracting DCS files from [{$filename}] ({$total} entries)...", 40);
+
+        for ($i = 0; $i < $total; $i++) {
+            $entry = str_replace('\\', '/', (string) $zip->getNameIndex($i));
+            if ($entry === '' || str_ends_with($entry, '/') || $entry === 'manifest.json') {
+                continue;
+            }
+            if (str_contains($entry, '..') || str_starts_with($entry, '/') || str_contains($entry, "\0")) {
+                continue;
+            }
+
+            $matchedTarget = null;
+            foreach ($allowed as $prefix => $absBase) {
+                $prefixSlash = $prefix . '/';
+                if (str_starts_with($entry, $prefixSlash)) {
+                    $rel = substr($entry, strlen($prefixSlash));
+                    if ($rel !== '' && !str_contains($rel, '..')) {
+                        $matchedTarget = rtrim($absBase, DIRECTORY_SEPARATOR) . DIRECTORY_SEPARATOR . str_replace('/', DIRECTORY_SEPARATOR, $rel);
+                    }
+                    break;
+                }
+            }
+
+            if ($matchedTarget === null) {
+                continue;
+            }
+
+            $parentDir = dirname($matchedTarget);
+            if (!is_dir($parentDir)) {
+                @mkdir($parentDir, 0775, true);
+            }
+
+            $in = $zip->getStream($zip->getNameIndex($i));
+            if (is_resource($in)) {
+                $out = @fopen($matchedTarget, 'wb');
+                if (is_resource($out)) {
+                    stream_copy_to_stream($in, $out);
+                    fclose($out);
+                    $restored++;
+                }
+                fclose($in);
+            }
+        }
+
+        $zip->close();
+        $log("Restored {$restored} DCS file(s) successfully.", 100);
+
+        return [
+            'success' => true,
+            'files_restored' => $restored,
+            'message' => "Restored {$restored} DCS file(s) from [{$filename}].",
+        ];
     }
 }

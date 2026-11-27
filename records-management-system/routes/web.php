@@ -757,12 +757,30 @@ Route::middleware(['auth'])
             $filename = basename($filename);
             $localPath = "backups/{$filename}";
             $googlePath = "backup/{$filename}";
+            $contentType = str_ends_with(strtolower($filename), '.zip')
+                ? 'application/zip'
+                : 'application/json';
 
             if (\Illuminate\Support\Facades\Storage::disk('local')->exists($localPath)) {
                 return \Illuminate\Support\Facades\Storage::disk('local')->download($localPath, $filename, [
-                    'Content-Type' => 'application/json',
+                    'Content-Type' => $contentType,
                 ]);
             }
+
+            try {
+                if (config('filesystems.disks.s3.bucket') && \Illuminate\Support\Facades\Storage::disk('s3')->exists($localPath)) {
+                    $stream = \Illuminate\Support\Facades\Storage::disk('s3')->readStream($localPath);
+                    return response()->stream(function () use ($stream) {
+                        fpassthru($stream);
+                        if (is_resource($stream)) {
+                            fclose($stream);
+                        }
+                    }, 200, [
+                        'Content-Type' => $contentType,
+                        'Content-Disposition' => 'attachment; filename="' . $filename . '"',
+                    ]);
+                }
+            } catch (\Throwable) {}
 
             if (\Illuminate\Support\Facades\Storage::disk('google')->exists($googlePath)) {
                 $stream = \Illuminate\Support\Facades\Storage::disk('google')->readStream($googlePath);
@@ -772,7 +790,7 @@ Route::middleware(['auth'])
                         fclose($stream);
                     }
                 }, 200, [
-                    'Content-Type' => 'application/json',
+                    'Content-Type' => $contentType,
                     'Content-Disposition' => 'attachment; filename="' . $filename . '"',
                 ]);
             }

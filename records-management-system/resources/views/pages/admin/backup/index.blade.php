@@ -382,7 +382,8 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Backup & Recovery Manage
                 'color' => '#1d4ed8',
                 'tables' => [
                     'dcs_doc_types', 'dcs_version_type', 'dcs_originators', 'dcs_colleges', 'dcs_programs',
-                    'dcs_semesters', 'dcs_school_years', 'dcs_faculties', 'dcs_faculty_colleges',
+                    'dcs_semesters', 'dcs_school_years', 'dcs_year_levels', 'dcs_custom_stamps',
+                    'dcs_faculties', 'dcs_faculty_colleges',
                     'dcs_program_courses', 'dcs_program_course_faculties',
                     'dcs_checklist_types', 'dcs_checklist_version', 'dcs_approval_body',
                     'dcs_distribution_office_groups', 'dcs_distribution_office_group_items',
@@ -392,6 +393,7 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Backup & Recovery Manage
                     'dcs_document_requests', 'dcs_approval_records', 'dcs_document_change_notice', 'dcs_doc_revision',
                     'dcs_dcn_reviewers', 'dcs_dcn_approvals',
                     'dcs_document_request_form', 'dcs_office_intake_drf', 'dcs_office_intake_dcn',
+                    'dcs_office_drf_batch_items',
                     'dcs_office_drf_offices', 'dcs_office_drf_distribute_offices', 'dcs_office_drf_originators',
                     'dcs_office_dcn_offices', 'dcs_office_dcn_reviewers', 'dcs_office_dcn_approvals', 'dcs_office_dcn_originators',
                     'dcs_document_distribution', 'dcs_document_retrieval',
@@ -504,7 +506,8 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Backup & Recovery Manage
                 $localFiles = \Illuminate\Support\Facades\Storage::disk('local')->files('backups');
                 foreach ($localFiles as $file) {
                     $filename = basename($file);
-                    if (str_ends_with($filename, '.json') || str_starts_with($filename, 'rms_backup_') || str_contains($filename, 'rms_backup_')) {
+                    $isZip = str_ends_with(strtolower($filename), '.zip');
+                    if ($isZip || str_ends_with($filename, '.json') || str_starts_with($filename, 'rms_backup_') || str_contains($filename, 'rms_backup_')) {
                         $size = \Illuminate\Support\Facades\Storage::disk('local')->size($file);
                         $lastModified = \Illuminate\Support\Facades\Storage::disk('local')->lastModified($file);
                         $isCustom = str_contains($filename, 'custom');
@@ -521,9 +524,11 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Backup & Recovery Manage
                             'source' => 'Local Only',
                             'source_icon' => 'fa-solid fa-hard-drive',
                             'source_color' => '#64748b',
-                            'type' => $isCustom ? 'Selective' : 'Full Snapshot',
-                            'type_badge' => $isCustom ? 'background: #fff7ed; color: #c2410c; border: 1px solid #ffedd5;' : 'background: #f0fdf4; color: #15803d; border: 1px solid #dcfce7;',
-                            'type_icon' => $isCustom ? 'fa-solid fa-filter' : 'fa-solid fa-database',
+                            'type' => $isZip ? 'DCS Files (.zip)' : ($isCustom ? 'Selective' : 'Full Snapshot'),
+                            'type_badge' => $isZip
+                                ? 'background: #eef2ff; color: #3730a3; border: 1px solid #c7d2fe;'
+                                : ($isCustom ? 'background: #fff7ed; color: #c2410c; border: 1px solid #ffedd5;' : 'background: #f0fdf4; color: #15803d; border: 1px solid #dcfce7;'),
+                            'type_icon' => $isZip ? 'fa-solid fa-file-zipper' : ($isCustom ? 'fa-solid fa-filter' : 'fa-solid fa-database'),
                             'size_formatted' => $this->formatBytes($size),
                             'size' => $size,
                             'last_modified' => $lastModified,
@@ -541,7 +546,8 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Backup & Recovery Manage
                     $nasFiles = \Illuminate\Support\Facades\Storage::disk('s3')->files('backups');
                     foreach ($nasFiles as $file) {
                         $filename = basename($file);
-                        if (str_ends_with($filename, '.json') || str_starts_with($filename, 'rms_backup_') || str_contains($filename, 'rms_backup_')) {
+                        $isZip = str_ends_with(strtolower($filename), '.zip');
+                        if ($isZip || str_ends_with($filename, '.json') || str_starts_with($filename, 'rms_backup_') || str_contains($filename, 'rms_backup_')) {
                             if (isset($foundBackups[$filename])) {
                                 $currentSource = $foundBackups[$filename]['source'];
                                 if (!str_contains($currentSource, 'NAS')) {
@@ -564,9 +570,11 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Backup & Recovery Manage
                                     'source' => 'S3 / NAS Silo',
                                     'source_icon' => 'fa-solid fa-server',
                                     'source_color' => '#8b5cf6',
-                                    'type' => $isCustom ? 'Selective' : 'Full Snapshot',
-                                    'type_badge' => $isCustom ? 'background: #fff7ed; color: #c2410c; border: 1px solid #ffedd5;' : 'background: #f0fdf4; color: #15803d; border: 1px solid #dcfce7;',
-                                    'type_icon' => $isCustom ? 'fa-solid fa-filter' : 'fa-solid fa-database',
+                                    'type' => $isZip ? 'DCS Files (.zip)' : ($isCustom ? 'Selective' : 'Full Snapshot'),
+                                    'type_badge' => $isZip
+                                        ? 'background: #eef2ff; color: #3730a3; border: 1px solid #c7d2fe;'
+                                        : ($isCustom ? 'background: #fff7ed; color: #c2410c; border: 1px solid #ffedd5;' : 'background: #f0fdf4; color: #15803d; border: 1px solid #dcfce7;'),
+                                    'type_icon' => $isZip ? 'fa-solid fa-file-zipper' : ($isCustom ? 'fa-solid fa-filter' : 'fa-solid fa-database'),
                                     'size_formatted' => $this->formatBytes($size),
                                     'size' => $size,
                                     'last_modified' => $lastModified,
@@ -587,7 +595,8 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Backup & Recovery Manage
                     if (!$item->isFile()) continue;
                     $file = $item->path();
                     $filename = basename($file);
-                    if (str_ends_with($filename, '.json') || str_starts_with($filename, 'rms_backup_') || str_contains($filename, 'rms_backup_')) {
+                    $isZip = str_ends_with(strtolower($filename), '.zip');
+                    if ($isZip || str_ends_with($filename, '.json') || str_starts_with($filename, 'rms_backup_') || str_contains($filename, 'rms_backup_')) {
                         if (isset($foundBackups[$filename])) {
                             $foundBackups[$filename]['source'] = 'Google Drive & Local';
                             $foundBackups[$filename]['source_icon'] = 'fa-solid fa-cloud-arrow-down';
@@ -609,9 +618,11 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Backup & Recovery Manage
                                 'source' => 'Google Drive',
                                 'source_icon' => 'fa-brands fa-google-drive',
                                 'source_color' => '#2563eb',
-                                'type' => $isCustom ? 'Selective' : 'Full Snapshot',
-                                'type_badge' => $isCustom ? 'background: #fff7ed; color: #c2410c; border: 1px solid #ffedd5;' : 'background: #f0fdf4; color: #15803d; border: 1px solid #dcfce7;',
-                                'type_icon' => $isCustom ? 'fa-solid fa-filter' : 'fa-solid fa-database',
+                                'type' => $isZip ? 'DCS Files (.zip)' : ($isCustom ? 'Selective' : 'Full Snapshot'),
+                                'type_badge' => $isZip
+                                    ? 'background: #eef2ff; color: #3730a3; border: 1px solid #c7d2fe;'
+                                    : ($isCustom ? 'background: #fff7ed; color: #c2410c; border: 1px solid #ffedd5;' : 'background: #f0fdf4; color: #15803d; border: 1px solid #dcfce7;'),
+                                'type_icon' => $isZip ? 'fa-solid fa-file-zipper' : ($isCustom ? 'fa-solid fa-filter' : 'fa-solid fa-database'),
                                 'size_formatted' => $this->formatBytes($size),
                                 'size' => $size,
                                 'last_modified' => $lastModified,
@@ -879,6 +890,22 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Backup & Recovery Manage
      *
      * @param string $filename
      */
+    public function archiveDcsFiles(): void
+    {
+        $this->successMessage = '';
+        $this->errorMessage = '';
+
+        $service = new \App\Services\BackupService();
+        $result = $service->createDcsFilesArchive();
+
+        if ($result['success']) {
+            $this->successMessage = $result['message'];
+            $this->checkBackups();
+        } else {
+            $this->errorMessage = $result['message'];
+        }
+    }
+
     public function downloadBackup(string $filename)
     {
         $filename = basename($filename);
@@ -1052,6 +1079,29 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Backup & Recovery Manage
         try {
             $backupService = new \App\Services\BackupService();
             $logs = [];
+            $isZipArchive = str_ends_with(strtolower($filename), '.zip');
+
+            if ($isZipArchive) {
+                $this->revertCurrentTable = 'Restoring DCS files archive...';
+                $result = $backupService->restoreDcsFilesArchive($filename, function ($message, $percent) use (&$logs) {
+                    $logs[] = "- {$message}";
+                });
+                $this->revertLogs = array_merge($this->revertLogs, $logs);
+                $this->revertProgress = 100;
+                $this->isReverting = false;
+                $this->selectedTargetBackup = '';
+                $this->backupConfirmInput = '';
+
+                if ($result['success']) {
+                    $this->successMessage = $result['message'];
+                    $this->checkBackups();
+                } else {
+                    $this->errorMessage = $result['message'];
+                }
+
+                return;
+            }
+
             $result = $backupService->restoreBackupFile($filename, function ($message, $percent) use (&$logs) {
                 $logs[] = "- {$message}";
             });
@@ -1487,6 +1537,12 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Backup & Recovery Manage
                 <i class="fa-solid fa-rotate" wire:loading.remove wire:target="checkBackups"></i>
                 <i class="fa-solid fa-spinner fa-spin" wire:loading wire:target="checkBackups"></i>
                 <span>Refresh Inventory</span>
+            </button>
+            <button type="button" wire:click="archiveDcsFiles" wire:loading.attr="disabled" style="background: #4f46e5; color: white; border: none; padding: 10px 16px; border-radius: 8px; font-weight: 700; font-size: 13px; cursor: pointer; display: inline-flex; align-items: center; gap: 8px; box-shadow: 0 4px 12px rgba(79, 70, 229, 0.25);">
+                <i class="fa-solid fa-file-zipper" wire:loading.remove wire:target="archiveDcsFiles"></i>
+                <i class="fa-solid fa-spinner fa-spin" wire:loading wire:target="archiveDcsFiles"></i>
+                <span wire:loading.remove wire:target="archiveDcsFiles">Archive DCS Files (.zip)</span>
+                <span wire:loading wire:target="archiveDcsFiles">Archiving...</span>
             </button>
             <button type="button" wire:click="openCreateBackupModal" wire:loading.attr="disabled" style="background: #10b981; color: white; border: none; padding: 10px 20px; border-radius: 8px; font-weight: 700; font-size: 13px; cursor: pointer; display: inline-flex; align-items: center; gap: 8px; box-shadow: 0 4px 12px rgba(16, 185, 129, 0.25);">
                 <i class="fa-solid fa-cloud-arrow-up" wire:loading.remove wire:target="openCreateBackupModal"></i>

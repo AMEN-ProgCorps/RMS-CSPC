@@ -4182,7 +4182,61 @@ class RegisterQueryHelper
         return $groups->sortByDesc('sort_id')->values();
     }
 
-    /** Draft registrations only — for Document Registration → Drafts. */
+    /**
+     * Aggregated document counts by revision status and parent document type
+     * for the Admin DCS dashboard.
+     *
+     * @return array{stats: array<string, int>, typeIds: array<string, int>}
+     */
+    public static function adminDashboardStats(): array
+    {
+        $typeIds = self::parentTypeIdMap();
+        $hasRevStatus = self::supportsRevisionStatus();
+
+        $counts = DB::table('dcs_document_requests as dr');
+        self::joinLatestByRequest($counts, 'dcs_masterlist_registration', 'ml');
+        $counts->whereIn('dr.approval_status', ['applicable', 'not_applicable']);
+        self::applyNotDeleted($counts, 'dr');
+        self::applyRegisteredDocumentScope($counts, 'dr');
+        $counts->groupBy('dr.doc_type_id')
+            ->select('dr.doc_type_id')
+            ->selectRaw('COUNT(*)::int as total');
+
+        if ($hasRevStatus) {
+            $counts->selectRaw("COUNT(*) FILTER (WHERE COALESCE(NULLIF(TRIM(ml.revision_status::text), ''), 'latest') = 'latest')::int as latest")
+                ->selectRaw("COUNT(*) FILTER (WHERE ml.revision_status = 'superseded')::int as superseded")
+                ->selectRaw("COUNT(*) FILTER (WHERE ml.revision_status = 'obsolete')::int as obsolete")
+                ->selectRaw("COUNT(*) FILTER (WHERE ml.revision_status IS NULL OR TRIM(ml.revision_status::text) = '' OR ml.revision_status = 'latest')::int as current");
+        } else {
+            $counts->selectRaw('COUNT(*)::int as latest')
+                ->selectRaw('0::int as superseded')
+                ->selectRaw('0::int as obsolete')
+                ->selectRaw('COUNT(*)::int as current');
+        }
+
+        $byTypeId = $counts->get()->keyBy(fn ($row) => (int) $row->doc_type_id);
+        $countFor = function (string $key) use ($byTypeId, $typeIds): int {
+            $row = $byTypeId->get((int) ($typeIds[$key] ?? 0));
+
+            return (int) ($row->current ?? 0);
+        };
+
+        return [
+            'stats' => [
+                'totalDocuments' => (int) $byTypeId->sum('total'),
+                'latestCount' => (int) $byTypeId->sum('latest'),
+                'supersededCount' => (int) $byTypeId->sum('superseded'),
+                'obsoleteCount' => (int) $byTypeId->sum('obsolete'),
+                'internalCount' => $countFor('internal_docs'),
+                'internalFormsCount' => $countFor('internal_forms'),
+                'externalCount' => $countFor('external_docs'),
+                'formsCount' => $countFor('forms'),
+                'logbooksCount' => $countFor('logbooks'),
+            ],
+            'typeIds' => $typeIds,
+        ];
+    }
+
     /**
      * Recent registration drafts for the admin DCS dashboard (lean, no search UI extras).
      * @return array{total: int, items: list<array{title: string, doc_no: string, doc_type: string, href: string, updated_at: ?string}>}

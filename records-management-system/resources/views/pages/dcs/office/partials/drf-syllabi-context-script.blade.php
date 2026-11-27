@@ -455,7 +455,7 @@ All course types use college + program (per-program catalog).
                 batchProgramTabs.innerHTML = '';
             }
             updateBatchCount();
-            batchList.innerHTML = '<div class="ofi-batch-empty">No courses in Settings for the selected program(s), course type, semester, school year, and year level.</div>';
+            batchList.innerHTML = '<div class="ofi-batch-empty">No courses found for the selected program(s), course type, semester, school year, and year level. Please contact the administrator or the document controller.</div>';
             renderBatchDrfCards();
             return;
         }
@@ -878,7 +878,7 @@ All course types use college + program (per-program catalog).
         if (!progIds.length || !semesterId || !schoolYearId) {
             placeholder = 'Select semester and school year first…';
         } else if (!allContextCourses.length) {
-            placeholder = 'No courses in Settings for the selected program(s), type, semester, and school year…';
+            placeholder = 'No courses found for the selected program(s), type, semester, and school year — please contact the administrator or the document controller.';
         } else if (!currentCourses.length) {
             placeholder = 'Select at least 1 year level above…';
         }

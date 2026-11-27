@@ -138,10 +138,13 @@
         query: '',
         results: [],
         loading: false,
+        searchError: false,
         open: false,
         timer: null,
         abortController: null,
         searchSeq: 0,
+        lastQuery: '',
+        searchCache: new Map(),
         detailModal: false,
         detailDoc: null,
         detailDocLabel: '',
@@ -168,7 +171,48 @@
             { key: 'file', label: 'Documented Information' },
         ],
         activeChecklists: null,
-        search() {
+        onFocus() {
+            const q = this.query.trim();
+            if (q.length > 0) {
+                this.open = true;
+            }
+        },
+        getCachedSearch(key) {
+            const entry = this.searchCache.get(key);
+            if (!entry) return null;
+            if (Date.now() - entry.at > 60000) {
+                this.searchCache.delete(key);
+                return null;
+            }
+            return entry.data;
+        },
+        setCachedSearch(key, data) {
+            if (this.searchCache.size >= 50) {
+                const oldest = this.searchCache.keys().next().value;
+                if (oldest !== undefined) this.searchCache.delete(oldest);
+            }
+            this.searchCache.set(key, { at: Date.now(), data });
+        },
+        filterLocalResults(q) {
+            if (!this.results.length || !this.lastQuery) return;
+            const lower = q.toLowerCase();
+            if (!lower.startsWith(this.lastQuery.toLowerCase())) {
+                this.results = [];
+                return;
+            }
+            const tokens = lower.split(/\s+/).filter(Boolean);
+            this.results = this.results.filter((doc) => {
+                const hay = [
+                    doc.doc_no || '',
+                    doc.doc_title || '',
+                    doc.keywords || '',
+                    doc.type_name || '',
+                    doc.sub_type_name || '',
+                ].join(' ').toLowerCase();
+                return tokens.every((t) => hay.includes(t));
+            });
+        },
+        search(force = false) {
             clearTimeout(this.timer);
             if (this.abortController) {
                 try { this.abortController.abort(); } catch (e) {}
@@ -178,25 +222,50 @@
             const q = this.query.trim();
             if (q.length < 2) {
                 this.results = [];
+                this.lastQuery = '';
                 this.open = q.length > 0;
                 this.loading = false;
+                this.searchError = false;
                 return;
             }
 
+            const cacheKey = q.toLowerCase();
+            if (!force) {
+                const cached = this.getCachedSearch(cacheKey);
+                if (cached !== null) {
+                    this.results = cached;
+                    this.lastQuery = q;
+                    this.open = true;
+                    this.loading = false;
+                    this.searchError = false;
+                    return;
+                }
+            }
+
+            // Instantly narrow already-loaded results when refining a prefix; otherwise clear stale hits.
+            if (!force) {
+                this.filterLocalResults(q);
+            }
             this.loading = true;
+            this.searchError = false;
             this.open = true;
-            // Keep prior results only while the same query is still loading; never mix queries.
+
             const seq = ++this.searchSeq;
             const requested = q;
-            // Short debounce so each typed character refreshes related matches quickly.
+            const delay = force ? 0 : 220;
             this.timer = setTimeout(async () => {
-                // Drop stale timers if the user kept typing.
                 if (seq !== this.searchSeq || requested !== this.query.trim()) {
                     return;
                 }
 
                 const abort = new AbortController();
                 this.abortController = abort;
+                let timedOut = false;
+                const timeoutId = setTimeout(() => {
+                    timedOut = true;
+                    try { abort.abort(); } catch (e) {}
+                }, 10000);
+
                 try {
                     const res = await fetch(
                         '/dcs/api/documents/search?q=' + encodeURIComponent(requested) + '&dashboard=1',
@@ -205,20 +274,28 @@
                     if (seq !== this.searchSeq || requested !== this.query.trim()) {
                         return;
                     }
-                    const payload = res.ok ? await res.json() : [];
-                    // Re-check after JSON parse — older responses must never overwrite newer ones.
+                    if (!res.ok) {
+                        throw new Error('HTTP ' + res.status);
+                    }
+                    const payload = await res.json();
                     if (seq !== this.searchSeq || requested !== this.query.trim()) {
                         return;
                     }
-                    this.results = Array.isArray(payload) ? payload : [];
+                    const rows = Array.isArray(payload) ? payload : [];
+                    this.results = rows;
+                    this.lastQuery = requested;
+                    this.searchError = false;
+                    this.setCachedSearch(cacheKey, rows);
                 } catch (e) {
-                    if (e && e.name === 'AbortError') {
+                    if (e && e.name === 'AbortError' && !timedOut) {
                         return;
                     }
                     if (seq === this.searchSeq && requested === this.query.trim()) {
                         this.results = [];
+                        this.searchError = true;
                     }
                 } finally {
+                    clearTimeout(timeoutId);
                     if (seq === this.searchSeq && requested === this.query.trim()) {
                         this.loading = false;
                     }
@@ -226,7 +303,7 @@
                         this.abortController = null;
                     }
                 }
-            }, 120);
+            }, delay);
         },
         clear() {
             clearTimeout(this.timer);
@@ -236,9 +313,11 @@
             }
             this.searchSeq++;
             this.query = '';
+            this.lastQuery = '';
             this.results = [];
             this.open = false;
             this.loading = false;
+            this.searchError = false;
             this.closeDetailModal();
         },
         close() {

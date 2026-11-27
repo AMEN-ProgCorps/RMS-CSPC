@@ -16,6 +16,7 @@
                 class="dash-search-input"
                 x-model="query"
                 @input="search()"
+                @focus="onFocus()"
                 placeholder="Search by document no., title, or keywords..."
                 autocomplete="off"
                 aria-label="Search documents"
@@ -29,8 +30,9 @@
         <div class="dash-search-results" x-show="open && query.trim().length > 0" x-cloak>
             <div class="dash-search-results-head">
                 <span x-show="loading">Searching...</span>
-                <span x-show="!loading && results.length > 0" x-text="results.length + (results.length === 1 ? ' document found' : ' documents found')"></span>
-                <span x-show="!loading && results.length === 0">No matching documents</span>
+                <span x-show="!loading && searchError">Search took too long or failed</span>
+                <span x-show="!loading && !searchError && results.length > 0" x-text="results.length + (results.length === 1 ? ' document found' : ' documents found')"></span>
+                <span x-show="!loading && !searchError && results.length === 0">No matching documents</span>
             </div>
 
             <template x-if="loading && results.length === 0">
@@ -40,7 +42,15 @@
                 </div>
             </template>
 
-            <template x-if="!loading && results.length === 0">
+            <template x-if="!loading && searchError && results.length === 0">
+                <div class="dash-search-state">
+                    <i class="fa-solid fa-triangle-exclamation" aria-hidden="true"></i>
+                    <span>Could not load search results.</span>
+                    <button type="button" class="dash-search-clear" @click="search(true)">Retry</button>
+                </div>
+            </template>
+
+            <template x-if="!loading && !searchError && results.length === 0">
                 <div class="dash-search-state">
                     <i class="fa-regular fa-folder-open" aria-hidden="true"></i>
                     <span x-text="query.trim().length < 2 ? 'Type at least 2 characters to search.' : 'No documents matched your search.'"></span>

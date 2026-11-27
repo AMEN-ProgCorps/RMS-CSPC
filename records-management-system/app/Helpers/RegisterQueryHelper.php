@@ -6,6 +6,7 @@ use App\Services\DocumentStorageService;
 use Carbon\Carbon;
 use Illuminate\Http\Request;
 use Illuminate\Support\Collection;
+use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Schema;
 use Illuminate\Support\Facades\Storage;
@@ -38,6 +39,56 @@ class RegisterQueryHelper
 
     /** DTS routing placeholders — hidden in Admin Offices management and all DCS office pickers. */
     public const SYSTEM_OFFICE_CODES = ['ORIGIN', '[H]', '[HUB]', 'HUB'];
+
+    /** @var array<string, bool> In-request schema capability memo */
+    private static array $schemaMemo = [];
+
+    /**
+     * Cached Schema::hasTable() check (in-memory + 5-min file cache) to avoid repeated
+     * pg_catalog round-trips on hot endpoints like dashboard document search.
+     */
+    private static function hasTableCached(string $table): bool
+    {
+        $key = 't:' . $table;
+        if (array_key_exists($key, self::$schemaMemo)) {
+            return self::$schemaMemo[$key];
+        }
+
+        try {
+            $val = (bool) Cache::store('file')->remember(
+                'dcs_schema_tbl_v1:' . $table,
+                300,
+                fn () => Schema::hasTable($table)
+            );
+        } catch (\Throwable) {
+            $val = Schema::hasTable($table);
+        }
+
+        return self::$schemaMemo[$key] = $val;
+    }
+
+    /**
+     * Cached Schema::hasColumn() check (in-memory + 5-min file cache).
+     */
+    private static function hasColumnCached(string $table, string $column): bool
+    {
+        $key = 'c:' . $table . '.' . $column;
+        if (array_key_exists($key, self::$schemaMemo)) {
+            return self::$schemaMemo[$key];
+        }
+
+        try {
+            $val = (bool) Cache::store('file')->remember(
+                'dcs_schema_col_v1:' . $table . ':' . $column,
+                300,
+                fn () => Schema::hasColumn($table, $column)
+            );
+        } catch (\Throwable) {
+            $val = Schema::hasColumn($table, $column);
+        }
+
+        return self::$schemaMemo[$key] = $val;
+    }
 
     /**
      * Keep only real offices (same set Admin shows in Offices management).
@@ -116,7 +167,7 @@ class RegisterQueryHelper
      */
     public static function supportsSoftDelete(): bool
     {
-        return Schema::hasColumn('dcs_document_requests', 'deleted_at');
+        return self::hasColumnCached('dcs_document_requests', 'deleted_at');
     }
 
     /**
@@ -124,7 +175,7 @@ class RegisterQueryHelper
      */
     public static function supportsRevisionStatus(): bool
     {
-        return Schema::hasColumn('dcs_masterlist_registration', 'revision_status');
+        return self::hasColumnCached('dcs_masterlist_registration', 'revision_status');
     }
 
     /**
@@ -188,7 +239,7 @@ class RegisterQueryHelper
      */
     public static function supportsRevisedFromDocNo(): bool
     {
-        return Schema::hasColumn('dcs_masterlist_registration', 'revised_from_doc_no');
+        return self::hasColumnCached('dcs_masterlist_registration', 'revised_from_doc_no');
     }
 
     /**
@@ -732,12 +783,7 @@ class RegisterQueryHelper
      */
     public static function supportsAllowsRevisionColumn(): bool
     {
-        static $ok = null;
-        if ($ok !== null) {
-            return $ok;
-        }
-
-        return $ok = \Illuminate\Support\Facades\Schema::hasColumn('dcs_masterlist_registration', 'allows_revision');
+        return self::hasColumnCached('dcs_masterlist_registration', 'allows_revision');
     }
 
     /**
@@ -933,7 +979,7 @@ class RegisterQueryHelper
      */
     public static function applyNotDeleted($query, string $alias = 'dr')
     {
-        if (Schema::hasColumn('dcs_document_requests', 'deleted_at')) {
+        if (self::hasColumnCached('dcs_document_requests', 'deleted_at')) {
             $query->whereNull($alias . '.deleted_at');
         }
 
@@ -1960,21 +2006,21 @@ class RegisterQueryHelper
     public static function masterlistOriginatorNameSql(string $mlAlias = 'ml'): string
     {
         $alias = preg_replace('/[^A-Za-z0-9_]/', '', $mlAlias) ?: 'ml';
-        if (Schema::hasTable('dcs_masterlist_originators') && Schema::hasTable('dcs_originators')) {
+        if (self::hasTableCached('dcs_masterlist_originators') && self::hasTableCached('dcs_originators')) {
             return '(SELECT string_agg(og_n.originator_name, \', \' ORDER BY mo_n.sort_order, mo_n.id)'
                 .' FROM dcs_masterlist_originators mo_n'
                 .' INNER JOIN dcs_originators og_n ON og_n.id = mo_n.originator_id'
                 .' WHERE mo_n.masterlist_id = '.$alias.'.id)';
         }
-        if (Schema::hasColumn('dcs_masterlist_registration', 'originator_id') && Schema::hasTable('dcs_originators')) {
+        if (self::hasColumnCached('dcs_masterlist_registration', 'originator_id') && self::hasTableCached('dcs_originators')) {
             $lookup = '(SELECT og_fb.originator_name FROM dcs_originators og_fb WHERE og_fb.id = '.$alias.'.originator_id)';
-            if (Schema::hasColumn('dcs_masterlist_registration', 'originator_name')) {
+            if (self::hasColumnCached('dcs_masterlist_registration', 'originator_name')) {
                 return 'COALESCE(NULLIF('.$alias.'.originator_name, \'\'), '.$lookup.')';
             }
 
             return $lookup;
         }
-        if (Schema::hasColumn('dcs_masterlist_registration', 'originator_name')) {
+        if (self::hasColumnCached('dcs_masterlist_registration', 'originator_name')) {
             return $alias.'.originator_name';
         }
 
@@ -1987,12 +2033,12 @@ class RegisterQueryHelper
     public static function masterlistKeywordsSql(string $mlAlias = 'ml'): string
     {
         $alias = preg_replace('/[^A-Za-z0-9_]/', '', $mlAlias) ?: 'ml';
-        if (Schema::hasTable('dcs_masterlist_keywords')) {
+        if (self::hasTableCached('dcs_masterlist_keywords')) {
             return '(SELECT string_agg(kw_n.keyword, \', \' ORDER BY kw_n.sort_order, kw_n.id)'
                 .' FROM dcs_masterlist_keywords kw_n'
                 .' WHERE kw_n.masterlist_id = '.$alias.'.id)';
         }
-        if (Schema::hasColumn('dcs_masterlist_registration', 'keywords')) {
+        if (self::hasColumnCached('dcs_masterlist_registration', 'keywords')) {
             return $alias.'.keywords';
         }
 
@@ -2209,8 +2255,8 @@ class RegisterQueryHelper
             return;
         }
 
-        $hasColumn = Schema::hasColumn('dcs_masterlist_registration', 'keywords');
-        $hasTable = Schema::hasTable('dcs_masterlist_keywords');
+        $hasColumn = self::hasColumnCached('dcs_masterlist_registration', 'keywords');
+        $hasTable = self::hasTableCached('dcs_masterlist_keywords');
         if (! $hasColumn && ! $hasTable) {
             return;
         }
@@ -2517,30 +2563,34 @@ class RegisterQueryHelper
      */
     public static function applyExcludeOfficeIntakeRequests($query, string $drAlias = 'dr'): void
     {
-        if (! Schema::hasColumn('dcs_document_request_form', 'is_office_intake')
-            && ! Schema::hasColumn('dcs_document_change_notice', 'is_office_intake')) {
+        $hasDrfIntake = self::hasColumnCached('dcs_document_request_form', 'is_office_intake');
+        $hasDcnIntake = self::hasColumnCached('dcs_document_change_notice', 'is_office_intake');
+        if (! $hasDrfIntake && ! $hasDcnIntake) {
             return;
         }
 
-        $query->where(function ($q) use ($drAlias) {
-            if (Schema::hasColumn('dcs_document_request_form', 'is_office_intake')) {
-                $q->whereNotExists(function ($sub) use ($drAlias) {
+        $hasDrfReg = $hasDrfIntake && self::hasColumnCached('dcs_document_request_form', 'rfio_registered_at');
+        $hasDcnReg = $hasDcnIntake && self::hasColumnCached('dcs_document_change_notice', 'rfio_registered_at');
+
+        $query->where(function ($q) use ($drAlias, $hasDrfIntake, $hasDcnIntake, $hasDrfReg, $hasDcnReg) {
+            if ($hasDrfIntake) {
+                $q->whereNotExists(function ($sub) use ($drAlias, $hasDrfReg) {
                     $sub->select(DB::raw(1))
                         ->from('dcs_document_request_form as oi_drf')
                         ->whereColumn('oi_drf.request_id', $drAlias . '.id')
                         ->where('oi_drf.is_office_intake', true);
-                    if (Schema::hasColumn('dcs_document_request_form', 'rfio_registered_at')) {
+                    if ($hasDrfReg) {
                         $sub->whereNull('oi_drf.rfio_registered_at');
                     }
                 });
             }
-            if (Schema::hasColumn('dcs_document_change_notice', 'is_office_intake')) {
-                $q->whereNotExists(function ($sub) use ($drAlias) {
+            if ($hasDcnIntake) {
+                $q->whereNotExists(function ($sub) use ($drAlias, $hasDcnReg) {
                     $sub->select(DB::raw(1))
                         ->from('dcs_document_change_notice as oi_dcn')
                         ->whereColumn('oi_dcn.request_id', $drAlias . '.id')
                         ->where('oi_dcn.is_office_intake', true);
-                    if (Schema::hasColumn('dcs_document_change_notice', 'rfio_registered_at')) {
+                    if ($hasDcnReg) {
                         $sub->whereNull('oi_dcn.rfio_registered_at');
                     }
                 });
@@ -2716,7 +2766,7 @@ class RegisterQueryHelper
      */
     public static function supportsDrafts(): bool
     {
-        return Schema::hasColumn('dcs_document_requests', 'is_draft');
+        return self::hasColumnCached('dcs_document_requests', 'is_draft');
     }
 
     /**
@@ -6406,8 +6456,8 @@ class RegisterQueryHelper
         $docTypeId = $request->input('doc_type_id');
         $subTypeId = $request->input('sub_type_id');
         $allRevisions = $request->boolean('all_revisions');
-        $hasKeywordColumn = Schema::hasColumn('dcs_masterlist_registration', 'keywords');
-        $hasKeywords = $hasKeywordColumn || Schema::hasTable('dcs_masterlist_keywords');
+        $hasKeywordColumn = self::hasColumnCached('dcs_masterlist_registration', 'keywords');
+        $hasKeywords = $hasKeywordColumn || self::hasTableCached('dcs_masterlist_keywords');
         $dashboardSearch = $request->boolean('dashboard')
             || (! $allRevisions && ($field === null || $field === ''));
         $latestOnly = $request->boolean('latest_only') || $dashboardSearch;
@@ -6484,11 +6534,8 @@ class RegisterQueryHelper
                 self::applyMasterlistOriginatorFilter($qr, 'ml', '%'.$q.'%', false, true, false);
             } else {
                 $columns = ['ml.doc_title', 'ml.doc_no'];
-                if ($hasKeywordColumn) {
-                    $columns[] = 'ml.keywords';
-                }
                 self::applyLooseColumnSearch($qr, $q, $columns);
-                // Also match normalized keyword rows even when ml.keywords exists.
+                // Match legacy ml.keywords column and/or normalized dcs_masterlist_keywords rows.
                 self::applyMasterlistKeywordSearch($qr, $q);
             }
         });
@@ -6497,40 +6544,29 @@ class RegisterQueryHelper
             $query->where('ml.request_id', '!=', $request->exclude_request_id);
         }
 
-        $select = [
-            'ml.id',
-            'ml.request_id',
-            'ml.doc_no',
-            'ml.doc_title',
-            'ml.revise_no',
-            'ml.effectivity_date',
-            'ml.scanned_masterlist',
-            DB::raw(self::masterlistOriginatorNameSql('ml').' as originator_name'),
-            'dr.doc_type_id',
-            'dr.sub_type_id',
-            'dt.doc_type_name as type_name',
-            'st.doc_type_name as sub_type_name',
-        ];
-        if (self::supportsRevisionStatus()) {
-            $select[] = 'ml.revision_status';
-        }
-        if ($hasKeywords) {
-            $select[] = Schema::hasColumn('dcs_masterlist_registration', 'keywords')
-                ? 'ml.keywords'
-                : DB::raw(self::masterlistKeywordsSql('ml').' as keywords');
-        }
-        if (self::supportsRevisedFromDocNo()) {
-            $select[] = 'ml.revised_from_doc_no';
-        }
-        if (self::supportsAllowsRevisionColumn()) {
-            $select[] = 'ml.allows_revision';
-        }
-        if (Schema::hasColumn('dcs_masterlist_registration', 'stack_group')) {
-            $select[] = 'ml.stack_group';
-        }
-
-        // Dashboard typeahead: lean select + modest candidate window.
         if ($dashboardSearch) {
+            // Dashboard typeahead: lean select (skip originator subquery & scan path checks).
+            $select = [
+                'ml.id',
+                'ml.request_id',
+                'ml.doc_no',
+                'ml.doc_title',
+                'ml.revise_no',
+                'ml.effectivity_date',
+                'dr.doc_type_id',
+                'dr.sub_type_id',
+                'dt.doc_type_name as type_name',
+                'st.doc_type_name as sub_type_name',
+            ];
+            if (self::supportsRevisionStatus()) {
+                $select[] = 'ml.revision_status';
+            }
+            if ($hasKeywords) {
+                $select[] = $hasKeywordColumn
+                    ? 'ml.keywords'
+                    : DB::raw(self::masterlistKeywordsSql('ml').' as keywords');
+            }
+        } else {
             $select = [
                 'ml.id',
                 'ml.request_id',
@@ -6553,11 +6589,28 @@ class RegisterQueryHelper
                     ? 'ml.keywords'
                     : DB::raw(self::masterlistKeywordsSql('ml').' as keywords');
             }
+            if (self::supportsRevisedFromDocNo()) {
+                $select[] = 'ml.revised_from_doc_no';
+            }
+            if (self::supportsAllowsRevisionColumn()) {
+                $select[] = 'ml.allows_revision';
+            }
+            if (self::hasColumnCached('dcs_masterlist_registration', 'stack_group')) {
+                $select[] = 'ml.stack_group';
+            }
         }
 
         $fetchLimit = $dashboardSearch
             ? 40
             : (count(self::searchTokens($q)) > 1 ? 80 : ($allRevisions ? 50 : 20));
+
+        if ($dashboardSearch) {
+            $prefixLike = $q . '%';
+            $query->orderByRaw(
+                'CASE WHEN ml.doc_no ILIKE ? THEN 0 WHEN ml.doc_title ILIKE ? THEN 1 ELSE 2 END',
+                [$prefixLike, $prefixLike]
+            );
+        }
 
         $rows = $query->orderByDesc('ml.revise_no')
             ->orderBy('ml.doc_no')
@@ -6684,8 +6737,8 @@ class RegisterQueryHelper
                 'brief_purpose' => null,
                 'originator_name' => $m->originator_name ?? null,
                 'keywords' => $m->keywords ?? null,
-                'scanned_copy_url' => $m->scanned_masterlist ? self::scanUrl($m->scanned_masterlist) : null,
-                'scanned_copy_path' => $m->scanned_masterlist,
+                'scanned_copy_url' => (! $dashboardSearch && ! empty($m->scanned_masterlist)) ? self::scanUrl($m->scanned_masterlist) : null,
+                'scanned_copy_path' => $dashboardSearch ? null : ($m->scanned_masterlist ?? null),
                 'label' => $docNo . ' — ' . $title . ' (Rev ' . (int) $m->revise_no . ')'
                     . ($isObsolete ? ' (Obsolete)' : '')
                     . ($isSuperseded ? ' (Superseded)' : ''),

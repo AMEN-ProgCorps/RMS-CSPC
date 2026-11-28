@@ -17,6 +17,7 @@ DCS file: Free-text cell clamped to two lines, with See more / See less.
 @else
     <div
         class="db-offices-clamp"
+        :class="{ 'is-expanded': expanded }"
         wire:key="txt-clamp-{{ $clampKey }}"
         x-data="dcsTextClamp(@js($textRaw))"
         x-init="init()"

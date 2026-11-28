@@ -104,6 +104,8 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
     public string $sigDocTypeKind = 'internal';
     public string $sigParentTypeId = '';
     public string $sigSubTypeId = '';
+    /** @var list<int|string> Multi-select sub-types when assigning signatories */
+    public array $sigSubTypeIds = [];
     /** College scope for Syllabi / TOS signatories (empty = All campuses default). */
     public string $sigCollegeId = '';
     public string $sigEffectiveFrom = '';
@@ -174,6 +176,7 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
     public function updatedSigParentTypeId(): void
     {
         $this->sigSubTypeId = '';
+        $this->sigSubTypeIds = [];
         $this->sigCollegeId = '';
         $this->syncSigDocTypeKindFromCatalog();
         $this->loadSignatoryTemplateFields();
@@ -185,11 +188,54 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
      */
     public function updatedSigSubTypeId(): void
     {
+        $this->sigSubTypeIds = $this->sigSubTypeId !== '' ? [(string) (int) $this->sigSubTypeId] : [];
         if (! $this->sigScopeNeedsCollege()) {
             $this->sigCollegeId = '';
         }
         $this->syncSigDocTypeKindFromCatalog();
         $this->loadSignatoryTemplateFields();
+    }
+
+    public function updatedSigSubTypeIds(): void
+    {
+        $clean = array_values(array_unique(array_filter(
+            array_map(fn ($v) => (string) (int) $v, $this->sigSubTypeIds),
+            fn ($v) => (int) $v > 0
+        )));
+        $this->sigSubTypeIds = $clean;
+        $this->sigSubTypeId = count($clean) === 1 ? $clean[0] : '';
+        if (! $this->sigScopeNeedsCollege()) {
+            $this->sigCollegeId = '';
+        }
+        $this->syncSigDocTypeKindFromCatalog();
+        if ($this->sigEditingId === null && count($clean) === 1) {
+            $this->loadSignatoryTemplateFields();
+        }
+    }
+
+    public function syncSigSubTypeSelection(array $ids): void
+    {
+        $this->sigSubTypeIds = $ids;
+        $this->updatedSigSubTypeIds();
+    }
+
+    public function toggleAllSigSubTypes(): void
+    {
+        if ($this->sigParentTypeId === '' || ! Schema::hasTable('dcs_doc_types')) {
+            return;
+        }
+        $q = DB::table('dcs_doc_types')->where('parent_id', (int) $this->sigParentTypeId);
+        \App\Helpers\SettingsRecycleHelper::applyNotDeleted($q, 'dcs_doc_types');
+        $allIds = $q->orderBy('doc_type_name')->pluck('id')->map(fn ($id) => (string) (int) $id)->all();
+        if ($allIds === []) {
+            $this->sigSubTypeIds = [];
+            $this->sigSubTypeId = '';
+            return;
+        }
+        $current = array_map('strval', $this->sigSubTypeIds);
+        $missing = array_diff($allIds, $current);
+        $this->sigSubTypeIds = $missing === [] ? [] : $allIds;
+        $this->updatedSigSubTypeIds();
     }
 
     /**
@@ -204,6 +250,12 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
     /** Syllabi / TOS sub-types require a college (or All campuses) scope. */
     private function sigScopeNeedsCollege(): bool
     {
+        foreach ($this->sigSubTypeIds as $subRaw) {
+            $sub = (int) $subRaw;
+            if ($sub > 0 && OfficeIntakeHelper::isOfficeDrfSyllabiLike($sub)) {
+                return true;
+            }
+        }
         $sub = (int) $this->sigSubTypeId;
         if ($sub > 0) {
             return OfficeIntakeHelper::isOfficeDrfSyllabiLike($sub);
@@ -404,14 +456,16 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
         $this->sigFormKind = $formKind === 'dcn' ? 'dcn' : 'drf';
 
         $docTypeId = (int) ($row->doc_type_id ?? 0);
-        if ($docTypeId > 0 && Schema::hasTable('dcs_document_types')) {
-            $dt = DB::table('dcs_document_types')->where('id', $docTypeId)->first(['id', 'parent_id']);
+        if ($docTypeId > 0 && Schema::hasTable('dcs_doc_types')) {
+            $dt = DB::table('dcs_doc_types')->where('id', $docTypeId)->first(['id', 'parent_id']);
             if ($dt && ! empty($dt->parent_id)) {
                 $this->sigParentTypeId = (string) $dt->parent_id;
                 $this->sigSubTypeId = (string) $dt->id;
+                $this->sigSubTypeIds = [(string) $dt->id];
             } elseif ($dt) {
                 $this->sigParentTypeId = (string) $dt->id;
                 $this->sigSubTypeId = '';
+                $this->sigSubTypeIds = [];
             }
         }
 
@@ -454,7 +508,6 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
 
         $this->sigEditingId = $id;
         $this->sigEditingDateRange = OfficeIntakeHelper::formatSignatoryDateRange($fromRaw, $untilRaw);
-        $this->flashToast("Editing timeline ({$this->sigEditingDateRange}). Update any names, designations, or dates and click Update timeline.", 'info');
     }
 
     /**
@@ -554,17 +607,59 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
 
                 return;
             }
-            OfficeIntakeHelper::saveSignatoryTemplate(
-                $this->sigFormKind,
-                $this->sigDocTypeKind,
-                $payload,
-                auth()->id(),
-                $docTypeId,
-                $from,
-                $until,
-                $this->resolvedSigCollegeId()
-            );
-            $this->flashToast('Signatory assignment saved for this scope and date window.', 'success');
+
+            // Check if the chosen parent document type has sub-types; if so, save for every selected sub-type.
+            $parentIdInt = (int) $this->sigParentTypeId;
+            $hasSubs = $parentIdInt > 0 && Schema::hasTable('dcs_doc_types') && DB::table('dcs_doc_types')
+                ->where('parent_id', $parentIdInt)
+                ->when(Schema::hasColumn('dcs_doc_types', 'deleted_at'), fn ($q) => $q->whereNull('deleted_at'))
+                ->exists();
+
+            if ($hasSubs) {
+                $targetSubIds = array_values(array_unique(array_filter(
+                    array_map('intval', $this->sigSubTypeIds),
+                    fn ($id) => $id > 0
+                )));
+                if ($targetSubIds === []) {
+                    $this->fail('Select at least one sub-type.');
+
+                    return;
+                }
+                foreach ($targetSubIds as $subId) {
+                    $subCollegeId = OfficeIntakeHelper::isOfficeDrfSyllabiLike($subId)
+                        ? ((int) $this->sigCollegeId ?: null)
+                        : null;
+                    OfficeIntakeHelper::saveSignatoryTemplate(
+                        $this->sigFormKind,
+                        $this->sigDocTypeKind,
+                        $payload,
+                        auth()->id(),
+                        $subId,
+                        $from,
+                        $until,
+                        $subCollegeId
+                    );
+                }
+                $savedCount = count($targetSubIds);
+                $this->flashToast(
+                    $savedCount === 1
+                        ? 'Signatory assignment saved for this scope and date window.'
+                        : "Signatory assignment saved for {$savedCount} sub-types.",
+                    'success'
+                );
+            } else {
+                OfficeIntakeHelper::saveSignatoryTemplate(
+                    $this->sigFormKind,
+                    $this->sigDocTypeKind,
+                    $payload,
+                    auth()->id(),
+                    $docTypeId,
+                    $from,
+                    $until,
+                    $this->resolvedSigCollegeId()
+                );
+                $this->flashToast('Signatory assignment saved for this scope and date window.', 'success');
+            }
             $this->loadSignatoryTemplateFields();
             if ($this->modalKind === 'signatory:replace') {
                 $this->closeModal();
@@ -3876,6 +3971,12 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
         syllabiSection: new URLSearchParams(window.location.search).get('section') || sessionStorage.getItem('settingsSyllabiSection') || 'colleges',
         isModalOpen: false,
         isModalLoading: false,
+        sigLeaveModalOpen: false,
+        sigLeaveTarget: null,
+        sigLeaveBypass: false,
+        isEditingSignatory() {
+            return this.tab === 'signatories' && Number($wire.sigEditingId || 0) > 0;
+        },
         init() {
             const legacySyllabi = {
                 faculties: 'faculties',
@@ -3899,11 +4000,55 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
             document.documentElement.removeAttribute('data-dcs-settings-boot-tab');
             document.documentElement.removeAttribute('data-dcs-settings-boot-section');
             if (this.tab === 'signatories') $wire.loadSignatoryTemplateFields();
+
+            window.addEventListener('beforeunload', (e) => {
+                if (!this.sigLeaveBypass && this.isEditingSignatory()) {
+                    e.preventDefault();
+                    e.returnValue = '';
+                }
+            });
+
+            document.addEventListener('click', (e) => {
+                if (this.sigLeaveBypass || !this.isEditingSignatory()) return;
+                if (e.metaKey || e.ctrlKey || e.shiftKey || e.altKey || e.button !== 0) return;
+                const link = e.target && e.target.closest ? e.target.closest('a[href]') : null;
+                if (!link) return;
+                const rawHref = (link.getAttribute('href') || '').trim();
+                if (!rawHref || rawHref.startsWith('#') || rawHref.startsWith('javascript:') || link.hasAttribute('download') || link.target === '_blank') return;
+                e.preventDefault();
+                e.stopPropagation();
+                this.sigLeaveTarget = { kind: 'url', value: link.href };
+                this.sigLeaveModalOpen = true;
+            }, true);
         },
         setTab(name) {
+            if (name !== this.tab && this.isEditingSignatory()) {
+                this.sigLeaveTarget = { kind: 'tab', value: name };
+                this.sigLeaveModalOpen = true;
+                return;
+            }
             this.tab = name;
             sessionStorage.setItem('settingsActiveTab', name);
             if (name === 'signatories') $wire.loadSignatoryTemplateFields();
+        },
+        cancelSignatoryLeave() {
+            this.sigLeaveModalOpen = false;
+            this.sigLeaveTarget = null;
+        },
+        async confirmDiscardSignatoryLeave() {
+            const target = this.sigLeaveTarget;
+            this.sigLeaveModalOpen = false;
+            this.sigLeaveTarget = null;
+            if (!target) return;
+            if (target.kind === 'tab') {
+                await $wire.cancelSignatoryEdit();
+                this.tab = target.value;
+                sessionStorage.setItem('settingsActiveTab', target.value);
+                if (target.value === 'signatories') $wire.loadSignatoryTemplateFields();
+            } else if (target.kind === 'url') {
+                this.sigLeaveBypass = true;
+                window.location.href = target.value;
+            }
         },
         setSyllabiSection(name) {
             this.syllabiSection = name === 'programs' ? 'colleges' : name;
@@ -4086,17 +4231,111 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
                                 </select>
                             </div>
                             <div class="st-field sig-field">
-                                <label class="st-label">Sub-type @if(($sigSubOptions ?? collect())->count())<span class="st-optional">optional</span>@else<span class="st-optional">none</span>@endif</label>
-                                <select class="st-input" wire:model.live="sigSubTypeId" @disabled($sigParentTypeId === '' || ($sigSubOptions ?? collect())->count() < 1)>
-                                    <option value="">{{ ($sigSubOptions ?? collect())->count() ? 'Whole type' : 'Whole type (no sub-types)' }}</option>
-                                    @foreach($sigSubOptions as $sub)
-                                        <option value="{{ $sub->id }}">{{ $sub->doc_type_name }}</option>
-                                    @endforeach
-                                </select>
-                                @if($sigParentTypeId !== '' && ($sigSubOptions ?? collect())->count() < 1)
-                                    <span class="sig-field-note">No sub-types — save against this whole type.</span>
-                                @elseif(($sigSubOptions ?? collect())->count() && $sigSubTypeId === '')
-                                    <span class="sig-field-note">Office intake can pick a sub-type — assign here when you can, or leave Whole type for the rest.</span>
+                                @if($sigEditingId !== null)
+                                    <label class="st-label">Sub-type @if(($sigSubOptions ?? collect())->count())<span class="st-optional">editing</span>@else<span class="st-optional">none</span>@endif</label>
+                                    <select class="st-input" wire:model.live="sigSubTypeId" @disabled($sigParentTypeId === '' || ($sigSubOptions ?? collect())->count() < 1)>
+                                        <option value="">{{ ($sigSubOptions ?? collect())->count() ? 'Select sub-type…' : 'No sub-types' }}</option>
+                                        @foreach($sigSubOptions as $sub)
+                                            <option value="{{ $sub->id }}">{{ $sub->doc_type_name }}</option>
+                                        @endforeach
+                                    </select>
+                                @elseif(($sigSubOptions ?? collect())->count() > 0)
+                                    @php
+                                        $allSubIdsStr = ($sigSubOptions ?? collect())->pluck('id')->map(fn ($id) => (string) $id)->all();
+                                        $selectedSubStr = array_values(array_map('strval', $sigSubTypeIds));
+                                        $subNamesMap = ($sigSubOptions ?? collect())
+                                            ->mapWithKeys(fn ($s) => [(string) $s->id => (string) $s->doc_type_name])
+                                            ->all();
+                                        $syllabiSubIds = ($sigSubOptions ?? collect())
+                                            ->filter(fn ($s) => OfficeIntakeHelper::isOfficeDrfSyllabiLike((int) $s->id))
+                                            ->pluck('id')
+                                            ->map(fn ($id) => (string) $id)
+                                            ->values()
+                                            ->all();
+                                    @endphp
+                                    <label class="st-label">Sub-type <span class="st-optional">multi-select</span></label>
+                                    <div
+                                        class="sig-sub-dd"
+                                        wire:key="sig-sub-dd-{{ $sigParentTypeId }}"
+                                        x-data="{
+                                            open: false,
+                                            selected: @js($selectedSubStr),
+                                            allIds: @js($allSubIdsStr),
+                                            names: @js($subNamesMap),
+                                            syllabiIds: @js($syllabiSubIds),
+                                            needsCollege(list) {
+                                                return list.some(id => this.syllabiIds.includes(String(id)));
+                                            },
+                                            allPicked() {
+                                                return this.allIds.length > 0 && this.allIds.every(id => this.selected.includes(id));
+                                            },
+                                            label() {
+                                                const n = this.selected.length;
+                                                if (n === 0) return 'Select sub-types…';
+                                                if (n === 1) return this.names[this.selected[0]] || '1 sub-type selected';
+                                                if (this.allPicked()) return 'All sub-types (' + n + ')';
+                                                return n + ' sub-types selected';
+                                            },
+                                            syncToWire(prevHadCollege) {
+                                                const nowNeedsCollege = this.needsCollege(this.selected);
+                                                $wire.set('sigSubTypeIds', this.selected, false);
+                                                if (nowNeedsCollege !== prevHadCollege) {
+                                                    $wire.syncSigSubTypeSelection(this.selected);
+                                                }
+                                            },
+                                            toggleOne(id) {
+                                                id = String(id);
+                                                const prevHadCollege = this.needsCollege(this.selected);
+                                                if (this.selected.includes(id)) {
+                                                    this.selected = this.selected.filter(x => x !== id);
+                                                } else {
+                                                    this.selected = [...this.selected, id];
+                                                }
+                                                this.syncToWire(prevHadCollege);
+                                            },
+                                            toggleAll() {
+                                                const prevHadCollege = this.needsCollege(this.selected);
+                                                this.selected = this.allPicked() ? [] : [...this.allIds];
+                                                this.syncToWire(prevHadCollege);
+                                            }
+                                        }"
+                                        @click.outside="open = false"
+                                        @keydown.escape.window="open = false"
+                                    >
+                                        <button
+                                            type="button"
+                                            class="st-input sig-sub-dd-trigger"
+                                            :class="{ 'is-open': open, 'is-placeholder': selected.length === 0 }"
+                                            @click="open = !open"
+                                            aria-haspopup="listbox"
+                                            :aria-expanded="open ? 'true' : 'false'"
+                                        >
+                                            <span class="sig-sub-dd-label" x-text="label()"></span>
+                                            <i class="fa-solid fa-chevron-down sig-sub-dd-caret" aria-hidden="true"></i>
+                                        </button>
+                                        <div class="sig-sub-dd-menu" x-show="open" x-cloak role="listbox" aria-multiselectable="true">
+                                            <div class="sig-sub-dd-top">
+                                                <span><span x-text="selected.length"></span> of {{ count($allSubIdsStr) }} selected</span>
+                                                <button type="button" class="sig-sub-toggle-all" @click="toggleAll()" x-text="allPicked() ? 'Clear all' : 'Select all'"></button>
+                                            </div>
+                                            <div class="sig-sub-dd-list">
+                                                @foreach($sigSubOptions as $sub)
+                                                    <label class="sig-sub-dd-item">
+                                                        <input type="checkbox" :checked="selected.includes('{{ $sub->id }}')" @change="toggleOne('{{ $sub->id }}')">
+                                                        <span>{{ $sub->doc_type_name }}</span>
+                                                    </label>
+                                                @endforeach
+                                            </div>
+                                        </div>
+                                    </div>
+                                @else
+                                    <label class="st-label">Sub-type <span class="st-optional">none</span></label>
+                                    <select class="st-input" disabled>
+                                        <option value="">No sub-types</option>
+                                    </select>
+                                    @if($sigParentTypeId !== '')
+                                        <span class="sig-field-note">No sub-types — save against this document type.</span>
+                                    @endif
                                 @endif
                             </div>
                             @if($sigNeedsCollege ?? false)
@@ -5956,6 +6195,35 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
     </div>
 </div>
 @endif
+
+<template x-teleport="body">
+<div
+    class="overlay"
+    x-show="sigLeaveModalOpen"
+    x-cloak
+    x-on:click.self="cancelSignatoryLeave()"
+    style="z-index: 20050;"
+>
+    <div class="modal" x-on:click.stop>
+        <div class="st-modal delete-modal">
+            <div class="st-modal-top">
+                <div class="st-modal-icon"><i class="fa-solid fa-triangle-exclamation"></i></div>
+                <button type="button" class="st-modal-close" x-on:click="cancelSignatoryLeave()" aria-label="Close"><i class="fa-solid fa-xmark"></i></button>
+            </div>
+            <div class="delete-title">Unsaved Signatory Changes</div>
+            <div class="delete-message">
+                You are currently editing a signatory timeline. If you leave this page without clicking <strong>Update timeline</strong>, your changes will be lost.
+            </div>
+            <div class="st-actions-row">
+                <button type="button" class="st-btn st-btn-ghost" x-on:click="cancelSignatoryLeave()">Stay &amp; Keep Editing</button>
+                <button type="button" class="st-btn st-btn-danger" x-on:click="confirmDiscardSignatoryLeave()">
+                    <i class="fa-solid fa-arrow-right-from-bracket"></i> Discard &amp; Leave
+                </button>
+            </div>
+        </div>
+    </div>
+</div>
+</template>
 
 </div>
 

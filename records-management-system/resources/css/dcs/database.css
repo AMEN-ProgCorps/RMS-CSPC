@@ -2293,3 +2293,290 @@ mark.db-office-hit {
 [data-theme="dark"] .db-crpt-toggle,
 [data-theme="dark"] .db-crpt-count { color: #cbd5e1; }
 [data-theme="dark"] .db-crpt-group-head span { color: #93c5fd; }
+
+/* ── Prevent unclamped row-height flash before Alpine clamp sync ── */
+.db-offices-clamp:not(.is-expanded) .db-offices-clamp-view {
+    display: -webkit-box;
+    -webkit-line-clamp: 2;
+    -webkit-box-orient: vertical;
+    overflow: hidden;
+    max-height: 2.9em;
+}
+
+/* ── Courses Pill inside Document Title & Column-Aligned Course Sub-Rows ── */
+.db-title-courses-wrap {
+    margin-top: 6px;
+    width: 100%;
+    display: block;
+}
+
+.db-courses-pill {
+    width: 100%;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+    padding: 4px 10px;
+    border-radius: 7px;
+    border: 1px solid #bfdbfe;
+    background: #eff6ff;
+    color: #1d4ed8;
+    font-size: 0.71rem;
+    font-weight: 700;
+    line-height: 1.4;
+    cursor: pointer;
+    transition: background 0.14s ease, border-color 0.14s ease, color 0.14s ease;
+}
+
+.db-courses-pill-left,
+.db-courses-pill-right {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+}
+
+.db-courses-pill:hover,
+.db-courses-pill.is-open {
+    background: #043899;
+    border-color: #043899;
+    color: #ffffff;
+}
+
+.db-courses-pill-hint {
+    font-weight: 600;
+    opacity: 0.9;
+}
+
+.db-courses-pill-caret {
+    font-size: 0.62rem;
+    transition: transform 0.15s ease;
+}
+
+.db-courses-pill.is-open .db-courses-pill-caret {
+    transform: rotate(180deg);
+}
+
+.db-table tbody tr.db-course-prog-row {
+    cursor: pointer;
+}
+
+.db-table tbody tr.db-course-prog-row > td {
+    background: #eef4ff !important;
+    border-left: 3px solid #043899;
+    border-top: 1px solid #dbeafe;
+    border-bottom: 1px solid #dbeafe;
+    padding: 6px 14px;
+    transition: background 0.12s ease;
+}
+
+.db-table tbody tr.db-course-prog-row:hover > td {
+    background: #dbeafe !important;
+}
+
+.db-course-prog-caret {
+    font-size: 0.65rem;
+    transition: transform 0.15s ease;
+}
+
+.db-course-prog-badge.is-collapsed .db-course-prog-caret {
+    transform: rotate(-90deg);
+}
+
+.db-course-prog-badge {
+    display: inline-flex;
+    align-items: center;
+    gap: 7px;
+    font-size: 0.74rem;
+    font-weight: 800;
+    color: #043899;
+    letter-spacing: 0.01em;
+}
+
+.db-course-prog-count {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    min-width: 20px;
+    height: 18px;
+    padding: 0 6px;
+    border-radius: 999px;
+    background: #dbeafe;
+    color: #1d4ed8;
+    font-size: 0.68rem;
+    font-weight: 800;
+}
+
+[data-theme="dark"] .db-table tbody tr.db-course-prog-row > td {
+    background: #172554 !important;
+    border-left-color: #60a5fa;
+    border-top-color: #1e3a8a;
+    border-bottom-color: #1e3a8a;
+}
+
+[data-theme="dark"] .db-course-prog-badge {
+    color: #93c5fd;
+}
+
+[data-theme="dark"] .db-course-prog-count {
+    background: rgba(59, 130, 246, 0.25);
+    color: #bfdbfe;
+}
+
+.db-table tbody tr.db-course-prog-row.is-course-block-start > td {
+    border-top: 2px solid #2563eb !important;
+}
+
+.db-table tbody tr.db-course-sub-row > td {
+    background: #f3f7ff !important;
+    border-top: 1px solid #dbeafe;
+    border-bottom: 1px solid #dbeafe;
+    padding-top: 7px;
+    padding-bottom: 7px;
+    font-size: 0.77rem;
+}
+
+.db-table tbody tr.db-course-sub-row.is-course-alt > td {
+    background: #eaf1ff !important;
+}
+
+.db-table tbody tr.db-course-sub-row.is-course-first > td {
+    border-top: 2px solid #60a5fa !important;
+}
+
+.db-table tbody tr.db-course-sub-row.is-course-last > td {
+    border-bottom: 2.5px solid #2563eb !important;
+}
+
+.db-table tbody tr.db-course-sub-row > td.col-group-drf,
+.db-table tbody tr.db-course-sub-row > td.col-group-summary-drf {
+    background: #e6f0ff !important;
+}
+
+.db-table tbody tr.db-course-sub-row.is-course-alt > td.col-group-drf,
+.db-table tbody tr.db-course-sub-row.is-course-alt > td.col-group-summary-drf {
+    background: #dce8ff !important;
+}
+
+.db-table tbody tr.db-course-sub-row:hover > td {
+    background: #dbeafe !important;
+}
+
+.db-table tbody tr.db-course-sub-row > td:first-child {
+    border-left: 3px solid #2563eb;
+    color: #64748b;
+    font-size: 0.72rem;
+    font-weight: 700;
+    text-align: center;
+}
+
+.db-course-sub-muted {
+    color: #94a3b8;
+}
+
+.db-ct-course {
+    display: flex;
+    align-items: center;
+    gap: 7px;
+    font-weight: 600;
+    color: #0f172a;
+    line-height: 1.35;
+}
+
+.db-ct-course-name {
+    color: #0f172a;
+}
+
+.db-course-code-badge {
+    display: inline-flex;
+    align-items: center;
+    padding: 2px 7px;
+    border-radius: 5px;
+    background: #eff6ff;
+    border: 1px solid #bfdbfe;
+    color: #1d4ed8;
+    font-size: 0.69rem;
+    font-weight: 700;
+    white-space: nowrap;
+    flex-shrink: 0;
+}
+
+.db-course-drf-badge {
+    display: inline-flex;
+    align-items: center;
+    padding: 2px 8px;
+    border-radius: 999px;
+    font-size: 0.68rem;
+    font-weight: 700;
+    white-space: nowrap;
+}
+
+.db-course-drf-badge.is-avail {
+    background: #ecfdf5;
+    color: #047857;
+    border: 1px solid #a7f3d0;
+}
+
+.db-course-drf-badge.is-none {
+    background: #f1f5f9;
+    color: #64748b;
+    border: 1px solid #e2e8f0;
+}
+
+[data-theme="dark"] .db-courses-pill {
+    background: rgba(59, 130, 246, 0.16);
+    border-color: rgba(147, 197, 253, 0.35);
+    color: #93c5fd;
+}
+[data-theme="dark"] .db-courses-pill:hover,
+[data-theme="dark"] .db-courses-pill.is-open {
+    background: #2563eb;
+    border-color: #2563eb;
+    color: #ffffff;
+}
+[data-theme="dark"] .db-table tbody tr.db-course-sub-row > td {
+    background: #101b33 !important;
+    border-top-color: #1e293b;
+    border-bottom-color: #1e293b;
+    color: #e2e8f0;
+}
+[data-theme="dark"] .db-table tbody tr.db-course-sub-row.is-course-alt > td {
+    background: #142240 !important;
+}
+[data-theme="dark"] .db-table tbody tr.db-course-sub-row.is-course-first > td {
+    border-top: 2px solid #3b82f6 !important;
+}
+[data-theme="dark"] .db-table tbody tr.db-course-sub-row.is-course-last > td {
+    border-bottom: 2.5px solid #60a5fa !important;
+}
+[data-theme="dark"] .db-table tbody tr.db-course-sub-row > td.col-group-drf,
+[data-theme="dark"] .db-table tbody tr.db-course-sub-row > td.col-group-summary-drf {
+    background: #16274a !important;
+}
+[data-theme="dark"] .db-table tbody tr.db-course-sub-row.is-course-alt > td.col-group-drf,
+[data-theme="dark"] .db-table tbody tr.db-course-sub-row.is-course-alt > td.col-group-summary-drf {
+    background: #1b2f58 !important;
+}
+[data-theme="dark"] .db-table tbody tr.db-course-sub-row:hover > td {
+    background: #172554 !important;
+}
+[data-theme="dark"] .db-table tbody tr.db-course-sub-row > td:first-child {
+    border-left-color: #60a5fa;
+    color: #94a3b8;
+}
+[data-theme="dark"] .db-ct-course,
+[data-theme="dark"] .db-ct-course-name { color: #f8fafc; }
+[data-theme="dark"] .db-course-code-badge {
+    background: rgba(59, 130, 246, 0.18);
+    border-color: rgba(147, 197, 253, 0.3);
+    color: #93c5fd;
+}
+[data-theme="dark"] .db-course-drf-badge.is-avail {
+    background: rgba(16, 185, 129, 0.16);
+    border-color: rgba(110, 231, 183, 0.3);
+    color: #6ee7b7;
+}
+[data-theme="dark"] .db-course-drf-badge.is-none {
+    background: #1e293b;
+    border-color: #334155;
+    color: #94a3b8;
+}

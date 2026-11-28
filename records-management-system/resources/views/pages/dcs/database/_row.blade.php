@@ -15,6 +15,27 @@ Column expand/collapse is driven by [data-dcs-db-root][data-open-*] CSS (not per
         'clampKey' => 'title-' . ($r['request_id'] ?? 0),
         'emptyLabel' => 'N/A',
     ])
+    @if(!empty($r['syllabi_courses']) && count($r['syllabi_courses']) > 0)
+        @php $cCount = count($r['syllabi_courses']); @endphp
+        <div class="db-title-courses-wrap">
+            <button
+                type="button"
+                class="db-courses-pill"
+                :class="{ 'is-open': !!openCourses['{{ $r['request_id'] }}'] }"
+                @click.stop="toggleCourses('{{ $r['request_id'] }}')"
+                title="Click to show or hide courses, originators, and DRFs"
+            >
+                <span class="db-courses-pill-left">
+                    <i class="fa-solid fa-graduation-cap" aria-hidden="true"></i>
+                    <span>{{ $cCount }} {{ $cCount === 1 ? 'Course' : 'Courses' }}</span>
+                </span>
+                <span class="db-courses-pill-right">
+                    <span class="db-courses-pill-hint" x-text="openCourses['{{ $r['request_id'] }}'] ? 'Hide' : 'Show'">Show</span>
+                    <i class="fa-solid fa-chevron-down db-courses-pill-caret" aria-hidden="true"></i>
+                </span>
+            </button>
+        </div>
+    @endif
 </td>
 <td>{{ $r['effectivity'] }}</td>
 <td class="rpt-originator"><x-dcs.originator-lines :name="$r['originator'] ?? ''" /></td>

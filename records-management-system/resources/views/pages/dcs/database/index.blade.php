@@ -1036,9 +1036,7 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
             })->values();
 
             $total = $groups->count();
-            // ALL mixes every type in category order (Logbooks last). A small page size
-            // buried trailing types on page 2+ while collapsed headers looked "empty".
-            $perPage = ($this->docTypeId === 'all' || $this->docTypeId === '') ? 100 : 20;
+            $perPage = ($this->docTypeId === 'all' || $this->docTypeId === '') ? 40 : 20;
             $lastPage = max(1, (int) ceil($total / $perPage));
             $page = min(max(1, $this->page), $lastPage);
 
@@ -1085,8 +1083,33 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
      *
      * @return \Illuminate\Support\Collection
      */
+    /**
+     * Cached schema capability flags so information_schema isn't queried on every render.
+     *
+     * @return array{effectivity_date: bool, deleted_at: bool, allows_revision: bool, stack_group: bool, revised_from_doc_no: bool}
+     */
+    private function schemaFlags(): array
+    {
+        return Cache::remember('dcs.database.schema_flags.v1', 3600, static function (): array {
+            return [
+                'effectivity_date' => Schema::hasColumn('dcs_masterlist_registration', 'effectivity_date'),
+                'deleted_at' => Schema::hasColumn('dcs_document_requests', 'deleted_at'),
+                'allows_revision' => Schema::hasColumn('dcs_masterlist_registration', 'allows_revision'),
+                'stack_group' => Schema::hasColumn('dcs_masterlist_registration', 'stack_group'),
+                'revised_from_doc_no' => Schema::hasColumn('dcs_masterlist_registration', 'revised_from_doc_no'),
+            ];
+        });
+    }
+
     private function lightInventoryRows($query, int $receivedOfficeId = 0): \Illuminate\Support\Collection
     {
+        $flags = $this->schemaFlags();
+        $hasEffectivity = $flags['effectivity_date'];
+        $hasDeletedAt = $flags['deleted_at'];
+        $hasAllows = $flags['allows_revision'];
+        $hasStack = $flags['stack_group'];
+        $hasRevisedFrom = $flags['revised_from_doc_no'];
+
         $select = [
             'dr.id as request_id',
             'dr.doc_type_id',
@@ -1097,27 +1120,24 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
             'ml.revise_no',
             'ml.revision_status',
         ];
-        if (Schema::hasColumn('dcs_masterlist_registration', 'effectivity_date')) {
+        if ($hasEffectivity) {
             $select[] = 'ml.effectivity_date';
         }
-        if (Schema::hasColumn('dcs_document_requests', 'deleted_at')) {
+        if ($hasDeletedAt) {
             $select[] = 'dr.deleted_at';
         }
-        $hasAllows = Schema::hasColumn('dcs_masterlist_registration', 'allows_revision');
         if ($hasAllows) {
             $select[] = 'ml.allows_revision';
         }
-        $hasStack = Schema::hasColumn('dcs_masterlist_registration', 'stack_group');
         if ($hasStack) {
             $select[] = 'ml.stack_group';
         }
-        $hasRevisedFrom = Schema::hasColumn('dcs_masterlist_registration', 'revised_from_doc_no');
         if ($hasRevisedFrom) {
             $select[] = 'ml.revised_from_doc_no';
         }
 
         $mlColumns = ['doc_no', 'doc_title', 'revise_no', 'revision_status'];
-        if (Schema::hasColumn('dcs_masterlist_registration', 'effectivity_date')) {
+        if ($hasEffectivity) {
             $mlColumns[] = 'effectivity_date';
         }
         if ($hasAllows) {
@@ -1158,6 +1178,21 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
                 $status = 'latest';
             }
 
+            $effSort = '';
+            $rawEff = $doc->effectivity_date ?? null;
+            if (! empty($rawEff)) {
+                $effStr = (string) $rawEff;
+                if (strlen($effStr) >= 10 && $effStr[4] === '-' && $effStr[7] === '-') {
+                    $effSort = substr($effStr, 0, 10);
+                } else {
+                    try {
+                        $effSort = \Carbon\Carbon::parse($effStr)->format('Y-m-d');
+                    } catch (\Throwable) {
+                        $effSort = '';
+                    }
+                }
+            }
+
             return [
                 'request_id' => (int) $doc->request_id,
                 'doc_type_id' => (int) ($doc->doc_type_id ?? 0),
@@ -1165,9 +1200,7 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
                 'doc_type_name' => $doc->doc_type_name ?? 'Uncategorized',
                 'doc_no' => trim((string) ($doc->doc_no ?? '')) !== '' ? trim((string) $doc->doc_no) : 'N/A',
                 'title' => trim((string) ($doc->doc_title ?? '')),
-                'effectivity_sort' => ! empty($doc->effectivity_date)
-                    ? \Carbon\Carbon::parse($doc->effectivity_date)->format('Y-m-d')
-                    : '',
+                'effectivity_sort' => $effSort,
                 'rev_no' => (int) ($doc->revise_no ?? 0),
                 'status' => $status,
                 'stack_group' => $hasStack ? trim((string) ($doc->stack_group ?? '')) : '',
@@ -1245,6 +1278,85 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
 
             return $name ?: $code;
         })->filter()->values();
+
+        $syllabiCourseDetails = $doc->syllabi->map(function ($syl) {
+            $code = trim((string) ($syl->course->course_code ?? ''));
+            $name = trim((string) ($syl->course->course_name ?? ''));
+            if ($code === '' && $name === '') {
+                return null;
+            }
+            $drfs = collect($syl->drfs ?? []);
+            $originators = $drfs
+                ->map(fn ($d) => trim((string) ($d->faculty_name ?? '')))
+                ->filter()
+                ->unique(fn ($n) => mb_strtolower($n))
+                ->values()
+                ->all();
+            $drfAvailable = $drfs->contains(fn ($d) => ! empty($d->is_drf_available));
+            $drfNos = $drfs
+                ->map(fn ($d) => trim((string) ($d->drf_no ?? '')))
+                ->filter()
+                ->unique()
+                ->values()
+                ->all();
+            $drfDates = $drfs
+                ->map(fn ($d) => ! empty($d->drf_date) ? RegisterQueryHelper::formatSmartDate($d->drf_date) : null)
+                ->filter()
+                ->unique()
+                ->values()
+                ->all();
+            $drfReceivedDates = $drfs
+                ->map(fn ($d) => ! empty($d->drf_received_date) ? RegisterQueryHelper::formatSmartDate($d->drf_received_date) : null)
+                ->filter()
+                ->unique()
+                ->values()
+                ->all();
+            $drfScans = [];
+            $seenScan = [];
+            foreach ($drfs as $d) {
+                $path = trim((string) ($d->scanned_drf ?? ''));
+                if ($path === '' || isset($seenScan[$path])) {
+                    continue;
+                }
+                $seenScan[$path] = true;
+                $url = RegisterQueryHelper::scanUrl($path, false);
+                if ($url) {
+                    $drfScans[] = [
+                        'url' => $url,
+                        'name' => basename($path),
+                    ];
+                }
+            }
+
+            $pName = trim((string) ($syl->program_name ?? ''));
+            $pCode = trim((string) ($syl->program_code ?? ''));
+            $progLabel = $pName !== ''
+                ? ($pCode !== '' ? "{$pName} ({$pCode})" : $pName)
+                : ($pCode !== '' ? $pCode : 'General / Unassigned Program');
+
+            return [
+                'program_label' => $progLabel,
+                'code' => $code,
+                'name' => $name,
+                'originators' => implode(', ', $originators),
+                'drf_available' => $drfAvailable,
+                'drf_no' => implode(', ', $drfNos),
+                'drf_date' => implode(', ', $drfDates),
+                'drf_received' => implode(', ', $drfReceivedDates),
+                'drf_scan' => $drfScans[0]['url'] ?? null,
+                'drf_scans' => $drfScans,
+            ];
+        })->filter()->values()->all();
+
+        $syllabiCourseGroups = collect($syllabiCourseDetails)
+            ->groupBy('program_label')
+            ->sortKeys()
+            ->map(fn ($items, $label) => [
+                'program' => (string) $label,
+                'courses' => $items->values()->all(),
+            ])
+            ->values()
+            ->all();
         $ml = $doc->masterlistRegistration;
         $appr = $doc->approvalRecords?->first();
         $dcn = $doc->documentChangeNotice;
@@ -1365,6 +1477,8 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
                 'title' => $r->doc_title,
             ])->values() : [],
             'syllabi_courses' => $syllabiCourses,
+            'syllabi_course_details' => $syllabiCourseDetails,
+            'syllabi_course_groups' => $syllabiCourseGroups,
             'syllabi_stack' => $syllabiStack,
             'approval_no' => $appr?->approval_no,
             'approval_date' => ($appr && $appr->approval_date) ? RegisterQueryHelper::formatSmartDate($appr->approval_date) : null,
@@ -1774,6 +1888,7 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
     categories: {{ json_encode($categoryState) }},
     expandedRevs: {},
     openCourses: {},
+    collapsedCoursePrograms: {},
     openOffices: {},
     tableBusy: false,
     busyLabel: 'Loading documents…',
@@ -2119,14 +2234,13 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
         // display:none / db-row-collapsed from collapsed categories — clear them.
         if (!showCats) {
             root.querySelectorAll('tbody tr').forEach((tr) => {
-                tr.classList.remove('db-row-collapsed');
-                tr.hidden = false;
-                tr.style.removeProperty('display');
-            });
-            // Still honor revision expand/collapse on child rows.
-            root.querySelectorAll('tr[data-rev-key]').forEach((tr) => {
                 const revKey = tr.getAttribute('data-rev-key') || '';
-                const open = !revKey || !!this.expandedRevs[revKey];
+                const courseReq = tr.getAttribute('data-course-req') || '';
+                const courseProg = tr.getAttribute('data-course-prog') || '';
+                const revOpen = !revKey || !!this.expandedRevs[revKey];
+                const courseOpen = !courseReq || !!this.openCourses[courseReq];
+                const progOpen = !courseProg || !this.collapsedCoursePrograms[courseProg];
+                const open = revOpen && courseOpen && progOpen;
                 tr.classList.toggle('db-row-collapsed', !open);
                 tr.hidden = !open;
                 if (open) {
@@ -2140,11 +2254,15 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
         root.querySelectorAll('tr[data-cat]').forEach((tr) => {
             const slug = tr.getAttribute('data-cat') || '';
             const revKey = tr.getAttribute('data-rev-key') || '';
+            const courseReq = tr.getAttribute('data-course-req') || '';
+            const courseProg = tr.getAttribute('data-course-prog') || '';
             const catOpen = forced || !!this.categories[slug];
             const revOpen = !revKey || !!this.expandedRevs[revKey];
-            const open = catOpen && revOpen;
+            const courseOpen = !courseReq || !!this.openCourses[courseReq];
+            const progOpen = !courseProg || !this.collapsedCoursePrograms[courseProg];
+            const open = catOpen && revOpen && courseOpen && progOpen;
             tr.classList.toggle('db-row-collapsed', !open);
-            tr.classList.toggle('db-cat-open', catOpen);
+            tr.classList.toggle('db-cat-open', open);
             tr.hidden = !open;
             if (open) {
                 tr.style.removeProperty('display');
@@ -2535,7 +2653,15 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
         this.applyCategoryVisibility();
         this.persistExpand();
     },
-    toggleCourses(id) { this.openCourses[id] = !this.openCourses[id]; this.persistExpand(); },
+    toggleCourses(id) {
+        this.openCourses[id] = !this.openCourses[id];
+        this.persistExpand();
+        this.applyCategoryVisibility();
+    },
+    toggleCourseProgram(progKey) {
+        this.collapsedCoursePrograms[progKey] = !this.collapsedCoursePrograms[progKey];
+        this.applyCategoryVisibility();
+    },
     slug(name) { return String(name || 'uncategorized').toLowerCase().replace(/[^a-z0-9]+/g, '-') }
 }" @keydown.escape.window="rowMenu.open = false; paintRowMenuDom(); closeGroupMenu()">
 
@@ -2648,9 +2774,9 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
 
     <section class="db-controls">
         <div class="db-type-grid">
-            <button class="db-type-btn {{ $docTypeId === 'all' ? 'active' : '' }}" type="button" wire:click="setType('all')" wire:loading.attr="disabled" wire:target="setType">ALL</button>
+            <button wire:key="db-type-all" class="db-type-btn {{ $docTypeId === 'all' ? 'active' : '' }}" type="button" wire:click="setType('all')">ALL</button>
             @foreach($docTypes ?? [] as $type)
-                <button class="db-type-btn {{ (string) $docTypeId === (string) $type->id ? 'active' : '' }}" type="button" wire:click="setType('{{ $type->id }}')" wire:loading.attr="disabled" wire:target="setType">{{ strtoupper($type->doc_type_name) }}</button>
+                <button wire:key="db-type-{{ $type->id }}" class="db-type-btn {{ (string) $docTypeId === (string) $type->id ? 'active' : '' }}" type="button" wire:click="setType('{{ $type->id }}')">{{ strtoupper($type->doc_type_name) }}</button>
             @endforeach
         </div>
         <div class="db-controls-right">
@@ -2853,20 +2979,45 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
                             @include('pages.dcs.database._row', ['r' => $r])
                         </tr>
 
-                        @if(!empty($r['syllabi_courses']) && count($r['syllabi_courses']))
-                            <tr class="db-courses-row @if($showCategoryRows && ! $catStartsOpen) db-row-collapsed @endif @if($showCategoryRows && $catStartsOpen) db-cat-open @endif" @if($showCategoryRows) data-cat="{{ $catSlug }}" :class="{ 'db-row-collapsed': !categories['{{ $catSlug }}'], 'db-cat-open': !!categories['{{ $catSlug }}'] }" @endif>
-                                <td colspan="47">
-                                    <div class="db-courses-toggle" :class="{ expanded: openCourses['{{ $r['request_id'] }}'] }" x-on:click="toggleCourses('{{ $r['request_id'] }}')">
-                                        <span class="db-courses-chevron" x-text="openCourses['{{ $r['request_id'] }}'] ? '▼' : '▶'">▶</span>
-                                        <span class="db-courses-label"><i class="fa-solid fa-graduation-cap"></i> Courses ({{ count($r['syllabi_courses']) }})</span>
-                                    </div>
-                                    <div class="db-courses-list" x-show="openCourses['{{ $r['request_id'] }}']" x-cloak>
-                                        @foreach($r['syllabi_courses'] as $course)
-                                            <span class="db-course-chip">{{ $course }}</span>
-                                        @endforeach
-                                    </div>
-                                </td>
-                            </tr>
+                        @if(!empty($r['syllabi_course_groups']))
+                            @php $totalProgGroups = count($r['syllabi_course_groups']); @endphp
+                            @foreach($r['syllabi_course_groups'] as $pIdx => $pGrp)
+                                @php
+                                    $isLastProgGroup = ($pIdx === $totalProgGroups - 1);
+                                    $progCourseCount = count($pGrp['courses']);
+                                    $progToggleKey = $r['request_id'] . ':' . $pIdx;
+                                @endphp
+                                <tr
+                                    wire:key="course-prog-{{ $r['request_id'] }}-{{ $pIdx }}"
+                                    class="db-course-prog-row {{ $pIdx === 0 ? 'is-course-block-start' : '' }} db-row-collapsed"
+                                    @if($showCategoryRows) data-cat="{{ $catSlug }}" @endif
+                                    data-course-req="{{ $r['request_id'] }}"
+                                    style="display:none;"
+                                    @click="toggleCourseProgram('{{ $progToggleKey }}')"
+                                    title="Click to collapse or expand courses for {{ $pGrp['program'] }}"
+                                >
+                                    <td colspan="47">
+                                        <span class="db-course-prog-badge" :class="{ 'is-collapsed': !!collapsedCoursePrograms['{{ $progToggleKey }}'] }">
+                                            <i class="fa-solid fa-chevron-down db-course-prog-caret" aria-hidden="true"></i>
+                                            <i class="fa-solid fa-graduation-cap" aria-hidden="true"></i>
+                                            <span>{{ $pGrp['program'] }}</span>
+                                            <span class="db-course-prog-count">{{ $progCourseCount }}</span>
+                                        </span>
+                                    </td>
+                                </tr>
+                                @foreach($pGrp['courses'] as $cIdx => $cd)
+                                    <tr
+                                        wire:key="course-sub-{{ $r['request_id'] }}-{{ $pIdx }}-{{ $cIdx }}"
+                                        class="db-course-sub-row {{ $cIdx % 2 === 1 ? 'is-course-alt' : '' }} {{ ($pIdx === 0 && $cIdx === 0) ? 'is-course-first' : '' }} {{ ($isLastProgGroup && $cIdx === $progCourseCount - 1) ? 'is-course-last' : '' }} db-row-collapsed"
+                                        @if($showCategoryRows) data-cat="{{ $catSlug }}" @endif
+                                        data-course-req="{{ $r['request_id'] }}"
+                                        data-course-prog="{{ $progToggleKey }}"
+                                        style="display:none;"
+                                    >
+                                        @include('pages.dcs.database._course-row', ['cd' => $cd, 'cIdx' => $cIdx])
+                                    </tr>
+                                @endforeach
+                            @endforeach
                         @endif
 
                         @foreach($group['children'] ?? [] as $ci => $child)
@@ -2891,20 +3042,47 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
                                 <td class="db-child-ind"></td>
                                 @include('pages.dcs.database._row', ['r' => $child])
                             </tr>
-                            @if(!empty($child['syllabi_courses']) && count($child['syllabi_courses']))
-                                <tr class="db-courses-row db-child-courses-row @if($showCategoryRows && ! $catStartsOpen) db-row-collapsed @endif @if($showCategoryRows && $catStartsOpen) db-cat-open @endif" @if($showCategoryRows) data-cat="{{ $catSlug }}" @endif data-rev-key="{{ $revKey }}" :class="{ 'db-row-collapsed': {{ $showCategoryRows ? "!categories['{$catSlug}'] || " : '' }}!expandedRevs['{{ $revKey }}'], 'db-cat-open': {{ $showCategoryRows ? "!!categories['{$catSlug}']" : 'true' }} }">
-                                    <td colspan="47">
-                                        <div class="db-courses-toggle" :class="{ expanded: openCourses['{{ $child['request_id'] }}'] }" x-on:click="toggleCourses('{{ $child['request_id'] }}')">
-                                            <span class="db-courses-chevron" x-text="openCourses['{{ $child['request_id'] }}'] ? '▼' : '▶'">▶</span>
-                                            <span class="db-courses-label"><i class="fa-solid fa-graduation-cap"></i> Courses ({{ count($child['syllabi_courses']) }})</span>
-                                        </div>
-                                        <div class="db-courses-list" x-show="openCourses['{{ $child['request_id'] }}']" x-cloak>
-                                            @foreach($child['syllabi_courses'] as $course)
-                                                <span class="db-course-chip">{{ $course }}</span>
-                                            @endforeach
-                                        </div>
-                                    </td>
-                                </tr>
+                            @if(!empty($child['syllabi_course_groups']))
+                                @php $totalChildProgGroups = count($child['syllabi_course_groups']); @endphp
+                                @foreach($child['syllabi_course_groups'] as $pIdx => $pGrp)
+                                    @php
+                                        $isLastChildProgGroup = ($pIdx === $totalChildProgGroups - 1);
+                                        $childProgCourseCount = count($pGrp['courses']);
+                                        $childProgToggleKey = $child['request_id'] . ':' . $pIdx;
+                                    @endphp
+                                    <tr
+                                        wire:key="child-course-prog-{{ $child['request_id'] }}-{{ $pIdx }}"
+                                        class="db-course-prog-row db-child-course-sub-row {{ $pIdx === 0 ? 'is-course-block-start' : '' }} db-row-collapsed"
+                                        @if($showCategoryRows) data-cat="{{ $catSlug }}" @endif
+                                        data-rev-key="{{ $revKey }}"
+                                        data-course-req="{{ $child['request_id'] }}"
+                                        style="display:none;"
+                                        @click="toggleCourseProgram('{{ $childProgToggleKey }}')"
+                                        title="Click to collapse or expand courses for {{ $pGrp['program'] }}"
+                                    >
+                                        <td colspan="47">
+                                            <span class="db-course-prog-badge" :class="{ 'is-collapsed': !!collapsedCoursePrograms['{{ $childProgToggleKey }}'] }">
+                                                <i class="fa-solid fa-chevron-down db-course-prog-caret" aria-hidden="true"></i>
+                                                <i class="fa-solid fa-graduation-cap" aria-hidden="true"></i>
+                                                <span>{{ $pGrp['program'] }}</span>
+                                                <span class="db-course-prog-count">{{ $childProgCourseCount }}</span>
+                                            </span>
+                                        </td>
+                                    </tr>
+                                    @foreach($pGrp['courses'] as $cIdx => $cd)
+                                        <tr
+                                            wire:key="child-course-sub-{{ $child['request_id'] }}-{{ $pIdx }}-{{ $cIdx }}"
+                                            class="db-course-sub-row db-child-course-sub-row {{ $cIdx % 2 === 1 ? 'is-course-alt' : '' }} {{ ($pIdx === 0 && $cIdx === 0) ? 'is-course-first' : '' }} {{ ($isLastChildProgGroup && $cIdx === $childProgCourseCount - 1) ? 'is-course-last' : '' }} db-row-collapsed"
+                                            @if($showCategoryRows) data-cat="{{ $catSlug }}" @endif
+                                            data-rev-key="{{ $revKey }}"
+                                            data-course-req="{{ $child['request_id'] }}"
+                                            data-course-prog="{{ $childProgToggleKey }}"
+                                            style="display:none;"
+                                        >
+                                            @include('pages.dcs.database._course-row', ['cd' => $cd, 'cIdx' => $cIdx])
+                                        </tr>
+                                    @endforeach
+                                @endforeach
                             @endif
                         @endforeach
                     @empty

@@ -10204,7 +10204,7 @@ class RegisterQueryHelper
             ? DB::table('dcs_document_stamps')->whereIn('document_request_id', $ids)->get()->groupBy('document_request_id')
             : collect();
 
-        $historySyllabiSelect = ['s.*', 'c.course_name'];
+        $historySyllabiSelect = ['s.*', 'c.course_name', 'p.program_name', 'p.program_code'];
         if (($want('syllabi') || $only === null) && Schema::hasColumn('dcs_program_courses', 'course_code')) {
             $historySyllabiSelect[] = 'c.course_code';
         }
@@ -10215,6 +10215,7 @@ class RegisterQueryHelper
         $syllabi = ($want('syllabi') || $only === null)
             ? DB::table('dcs_syllabi as s')
                 ->leftJoin('dcs_program_courses as c', 'c.id', '=', 's.course_id')
+                ->leftJoin('dcs_programs as p', 'p.id', '=', DB::raw('COALESCE(s.program_id, c.program_id)'))
                 ->whereIn('s.request_id', $ids)
                 ->get($historySyllabiSelect)
             : collect();

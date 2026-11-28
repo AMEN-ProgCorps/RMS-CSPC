@@ -2991,3 +2991,121 @@ tr.st-course-data.is-selected td {
     border-color: #334155;
     color: #e2e8f0;
 }
+
+/* ── Signatory Multi-Select Sub-type Dropdown ── */
+.sig-sub-dd {
+    position: relative;
+    width: 100%;
+}
+.sig-sub-dd-trigger {
+    width: 100%;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+    text-align: left;
+    cursor: pointer;
+    background: var(--set-surface, #fff);
+}
+.sig-sub-dd-trigger.is-placeholder .sig-sub-dd-label {
+    color: var(--set-text-subtle, #64748b);
+}
+.sig-sub-dd-label {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    flex: 1;
+}
+.sig-sub-dd-caret {
+    font-size: 0.7rem;
+    opacity: 0.7;
+    transition: transform 0.15s ease;
+    flex-shrink: 0;
+}
+.sig-sub-dd-trigger.is-open .sig-sub-dd-caret {
+    transform: rotate(180deg);
+}
+.sig-sub-dd-menu {
+    position: absolute;
+    top: calc(100% + 4px);
+    left: 0;
+    right: 0;
+    min-width: 240px;
+    z-index: 60;
+    background: var(--set-surface, #fff);
+    border: 1px solid var(--set-border, #cbd5e1);
+    border-radius: 10px;
+    box-shadow: 0 12px 30px rgba(15, 23, 42, 0.14);
+    overflow: hidden;
+}
+.sig-sub-dd-top {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+    padding: 8px 12px;
+    border-bottom: 1px solid var(--set-border, #e2e8f0);
+    background: var(--set-bg, #f8fafc);
+    font-size: 0.72rem;
+    font-weight: 600;
+    color: var(--set-text-subtle, #64748b);
+}
+.sig-sub-toggle-all {
+    border: none;
+    background: transparent;
+    color: var(--set-accent, #043899);
+    font-size: 0.73rem;
+    font-weight: 700;
+    cursor: pointer;
+    padding: 0;
+}
+.sig-sub-toggle-all:hover {
+    text-decoration: underline;
+}
+.sig-sub-dd-list {
+    max-height: 220px;
+    overflow-y: auto;
+    padding: 6px;
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+}
+.sig-sub-dd-item {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 6px 8px;
+    border-radius: 6px;
+    font-size: 0.8rem;
+    font-weight: 500;
+    color: var(--set-text, #1e293b);
+    cursor: pointer;
+    transition: background 0.12s ease;
+}
+.sig-sub-dd-item:hover {
+    background: var(--set-bg, #f1f5f9);
+}
+.sig-sub-dd-item:has(input:checked) {
+    background: #eff6ff;
+    color: #043899;
+    font-weight: 600;
+}
+[data-theme="dark"] .sig-sub-dd-menu {
+    background: #131c2e;
+    border-color: #334155;
+    box-shadow: 0 14px 36px rgba(0, 0, 0, 0.45);
+}
+[data-theme="dark"] .sig-sub-dd-top {
+    background: #0f172a;
+    border-color: #1e293b;
+}
+[data-theme="dark"] .sig-sub-dd-item {
+    color: #e2e8f0;
+}
+[data-theme="dark"] .sig-sub-dd-item:hover {
+    background: #1e293b;
+}
+[data-theme="dark"] .sig-sub-dd-item:has(input:checked) {
+    background: rgba(59, 130, 246, 0.2);
+    color: #93c5fd;
+}

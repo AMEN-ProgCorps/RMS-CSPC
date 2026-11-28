@@ -20,6 +20,7 @@ DCS file: Office list clamped to two lines, with See more when the rest does not
 @else
     <div
         class="db-offices-clamp"
+        :class="{ 'is-expanded': expanded }"
         wire:key="ofi-clamp-{{ $clampKey }}"
         x-data="dcsOfficesClamp(@js($officesList), @js($highlightOffice))"
         x-init="init()"

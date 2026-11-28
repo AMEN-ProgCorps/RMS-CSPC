@@ -337,11 +337,20 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
         </section>
 
         <div class="ofi-dash-split">
+                    @php
+                        $drfInProgress = (int) $drfPipe['submitted'] + (int) $drfPipe['correction'] + (int) $drfPipe['print_ready'] + (int) ($drfPipe['printed'] ?? 0);
+                        $drfRegistered = (int) $drfPipe['registered'];
+                        $dcnInProgress = (int) $dcnPipe['submitted'] + (int) $dcnPipe['correction'] + (int) $dcnPipe['print_ready'] + (int) ($dcnPipe['printed'] ?? 0);
+                        $dcnRegistered = (int) $dcnPipe['registered'];
+                    @endphp
                     <section class="ofi-dash-panel ofi-dash-activity">
                 <div class="ofi-dash-panel-head">
                     <div>
                         <h2>Recent DRF</h2>
-                                <p>{{ (int) $drfPipe['submitted'] + (int) $drfPipe['correction'] + (int) $drfPipe['print_ready'] + (int) ($drfPipe['printed'] ?? 0) }} still in progress · {{ (int) $drfPipe['registered'] }} registered</p>
+                        <div class="ofi-dash-activity-pills">
+                            <span class="ofi-dash-activity-pill is-progress"><strong>{{ $drfInProgress }}</strong> in progress</span>
+                            <span class="ofi-dash-activity-pill is-done"><strong>{{ $drfRegistered }}</strong> registered</span>
+                        </div>
                     </div>
                             <a href="{{ route('dcs.office.drf.index', absolute: false) }}" class="ofi-dash-link">See all <i class="fa-solid fa-arrow-right"></i></a>
                 </div>
@@ -355,21 +364,21 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
                 @else
                     <ul class="ofi-dash-list">
                         @foreach($recentDrf as $row)
-                                    @php $pipe = $row->pipeline_status ?? (!empty($row->is_registered) ? 'registered' : 'submitted'); @endphp
+                                    @php
+                                        $pipe = $row->pipeline_status ?? (!empty($row->is_registered) ? 'registered' : 'submitted');
+                                        $rowTitle = $row->doc_title ?: 'Untitled DRF';
+                                        $rowCode = !empty($row->registered_doc_no) ? $row->registered_doc_no : (!empty($row->drf_no) ? $row->drf_no : null);
+                                    @endphp
                             <li>
-                                <a href="{{ route('dcs.office.drf.show', $row->id, absolute: false) }}">
+                                <a href="{{ route('dcs.office.drf.show', $row->id, absolute: false) }}" title="{{ $rowTitle }}">
                                             <span class="ofi-dash-list-mark is-drf" aria-hidden="true"><i class="fa-regular fa-file-lines"></i></span>
                                             <span class="ofi-dash-list-main">
-                                    <span class="ofi-dash-list-title">{{ $row->doc_title ?: 'Untitled DRF' }}</span>
+                                    <span class="ofi-dash-list-title">{{ $rowTitle }}</span>
                                     <span class="ofi-dash-list-meta">
-                                                    <span class="ofi-dash-list-date">{{ $row->drf_date ? \App\Helpers\RegisterQueryHelper::formatSmartDate($row->drf_date) : 'No date' }}</span>
-                                                    @if(!empty($row->registered_doc_no))
-                                                        <span class="ofi-dash-list-sep">·</span>
-                                                        <span>{{ $row->registered_doc_no }}</span>
-                                        @elseif(!empty($row->drf_no))
-                                                        <span class="ofi-dash-list-sep">·</span>
-                                                        <span>{{ $row->drf_no }}</span>
-                                        @endif
+                                                    <span class="ofi-dash-list-date"><i class="fa-regular fa-calendar" aria-hidden="true"></i>{{ $row->drf_date ? \App\Helpers\RegisterQueryHelper::formatSmartDate($row->drf_date) : 'No date' }}</span>
+                                                    @if($rowCode)
+                                                        <span class="ofi-dash-list-code">{{ $rowCode }}</span>
+                                                    @endif
                                     </span>
                                             </span>
                                             <span class="ofi-dash-status is-{{ $pipe }}">{{ $statusLabel[$pipe] ?? 'Submitted' }}</span>
@@ -385,7 +394,10 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
                 <div class="ofi-dash-panel-head">
                     <div>
                         <h2>Recent DCN</h2>
-                                <p>{{ (int) $dcnPipe['submitted'] + (int) $dcnPipe['correction'] + (int) $dcnPipe['print_ready'] + (int) ($dcnPipe['printed'] ?? 0) }} still in progress · {{ (int) $dcnPipe['registered'] }} registered</p>
+                        <div class="ofi-dash-activity-pills">
+                            <span class="ofi-dash-activity-pill is-progress"><strong>{{ $dcnInProgress }}</strong> in progress</span>
+                            <span class="ofi-dash-activity-pill is-done"><strong>{{ $dcnRegistered }}</strong> registered</span>
+                        </div>
                     </div>
                             <a href="{{ route('dcs.office.dcn.index', absolute: false) }}" class="ofi-dash-link">See all <i class="fa-solid fa-arrow-right"></i></a>
                 </div>
@@ -399,23 +411,20 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
                 @else
                     <ul class="ofi-dash-list">
                         @foreach($recentDcn as $row)
-                                    @php $pipe = $row->pipeline_status ?? (!empty($row->is_registered) ? 'registered' : 'submitted'); @endphp
+                                    @php
+                                        $pipe = $row->pipeline_status ?? (!empty($row->is_registered) ? 'registered' : 'submitted');
+                                        $rowTitle = $row->document_title ?? $row->originator_name ?? ($row->dcn_no ?: 'Untitled DCN');
+                                        $rowCode = !empty($row->registered_doc_no) ? $row->registered_doc_no : (!empty($row->document_no) ? $row->document_no : (!empty($row->dcn_no) ? $row->dcn_no : null));
+                                    @endphp
                             <li>
-                                <a href="{{ route('dcs.office.dcn.show', $row->id, absolute: false) }}">
+                                <a href="{{ route('dcs.office.dcn.show', $row->id, absolute: false) }}" title="{{ $rowTitle }}">
                                             <span class="ofi-dash-list-mark is-dcn" aria-hidden="true"><i class="fa-solid fa-file-pen"></i></span>
                                             <span class="ofi-dash-list-main">
-                                                <span class="ofi-dash-list-title">{{ $row->document_title ?? $row->originator_name ?? ($row->dcn_no ?: 'Untitled DCN') }}</span>
+                                                <span class="ofi-dash-list-title">{{ $rowTitle }}</span>
                                     <span class="ofi-dash-list-meta">
-                                                    <span class="ofi-dash-list-date">{{ $row->dcn_date ? \App\Helpers\RegisterQueryHelper::formatSmartDate($row->dcn_date) : 'No date' }}</span>
-                                                    @if(!empty($row->registered_doc_no))
-                                                        <span class="ofi-dash-list-sep">·</span>
-                                                        <span>{{ $row->registered_doc_no }}</span>
-                                                    @elseif(!empty($row->document_no))
-                                                        <span class="ofi-dash-list-sep">·</span>
-                                                        <span>{{ $row->document_no }}</span>
-                                                    @elseif(!empty($row->dcn_no))
-                                                        <span class="ofi-dash-list-sep">·</span>
-                                                        <span>{{ $row->dcn_no }}</span>
+                                                    <span class="ofi-dash-list-date"><i class="fa-regular fa-calendar" aria-hidden="true"></i>{{ $row->dcn_date ? \App\Helpers\RegisterQueryHelper::formatSmartDate($row->dcn_date) : 'No date' }}</span>
+                                                    @if($rowCode)
+                                                        <span class="ofi-dash-list-code">{{ $rowCode }}</span>
                                                     @endif
                                     </span>
                                             </span>

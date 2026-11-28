@@ -79,7 +79,7 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
     }
 }; ?>
 
-<div class="ofi-page" @if(!($canPrint ?? false)) wire:poll.1s @endif>
+<div class="ofi-page">
     <div class="ofi-inner">
         <div class="ofi-show-toolbar">
             <a href="{{ ($isIntakeReviewer ?? false) ? route('dcs', absolute: false) : route('dcs.office.dcn.index', absolute: false) }}" class="reg-btn reg-btn-cancel">

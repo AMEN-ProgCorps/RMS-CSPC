@@ -1384,16 +1384,22 @@ body.dash-cl-open {
     padding: 0;
     display: flex;
     flex-direction: column;
-    gap: 4px;
     flex: 1;
+}
+
+.dash-access-list li + li {
+    border-top: 1px solid var(--dash-border-light);
 }
 
 .dash-access-item {
     display: grid;
-    grid-template-columns: auto 1fr auto;
+    grid-template-columns: auto minmax(0, 1fr) auto;
     align-items: center;
-    gap: 10px;
-    padding: 8px 9px;
+    gap: 11px;
+    height: 62px;
+    box-sizing: border-box;
+    padding: 0 9px;
+    margin: 2px -4px;
     border-radius: 10px;
     text-decoration: none;
     color: inherit;
@@ -1407,7 +1413,7 @@ body.dash-cl-open {
 }
 
 .dash-access-item.is-static {
-    grid-template-columns: auto 1fr;
+    grid-template-columns: auto minmax(0, 1fr);
     cursor: default;
 }
 
@@ -1417,15 +1423,15 @@ body.dash-cl-open {
 }
 
 .dash-access-item-icon {
-    width: 32px;
-    height: 32px;
+    width: 34px;
+    height: 34px;
     border-radius: 9px;
     display: inline-flex;
     align-items: center;
     justify-content: center;
     background: #eff6ff;
     color: #1d4ed8;
-    font-size: 0.78rem;
+    font-size: 0.8rem;
     flex-shrink: 0;
 }
 
@@ -1440,8 +1446,8 @@ body.dash-cl-open {
 }
 
 .dash-access-item-dot {
-    width: 9px;
-    height: 9px;
+    width: 10px;
+    height: 10px;
     border-radius: 999px;
     flex-shrink: 0;
 }
@@ -1449,36 +1455,129 @@ body.dash-cl-open {
 .dash-access-item-copy {
     display: flex;
     flex-direction: column;
-    gap: 1px;
+    justify-content: center;
+    gap: 4px;
     min-width: 0;
+    overflow: hidden;
 }
 
-.dash-access-item-kind {
-    font-size: 0.67rem;
-    font-weight: 700;
-    letter-spacing: 0.03em;
-    text-transform: uppercase;
-    color: var(--dash-text-subtle);
-    white-space: nowrap;
-    overflow: hidden;
-    text-overflow: ellipsis;
+.dash-access-item-title-row {
+    display: flex;
+    align-items: center;
+    gap: 7px;
+    min-width: 0;
 }
 
 .dash-access-item-copy strong {
     font-size: 0.84rem;
-    font-weight: 600;
+    font-weight: 650;
     color: var(--dash-text);
     white-space: nowrap;
     overflow: hidden;
     text-overflow: ellipsis;
+    min-width: 0;
 }
 
-.dash-access-item-copy span:last-child {
-    font-size: 0.73rem;
+.dash-access-item:hover .dash-access-item-copy strong {
+    color: var(--dash-accent);
+}
+
+.dash-access-item-sub {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    font-size: 0.72rem;
     color: var(--dash-text-muted);
     white-space: nowrap;
     overflow: hidden;
     text-overflow: ellipsis;
+    min-width: 0;
+}
+
+.dash-access-item-sub i {
+    font-size: 0.66rem;
+    opacity: 0.7;
+    flex-shrink: 0;
+}
+
+.dash-access-item-sub span {
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    min-width: 0;
+}
+
+.dash-access-item-tags {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    min-width: 0;
+    overflow: hidden;
+}
+
+.dash-access-type-pill {
+    display: inline-flex;
+    align-items: center;
+    padding: 2px 6px;
+    border-radius: 5px;
+    font-size: 0.62rem;
+    font-weight: 750;
+    letter-spacing: 0.03em;
+    text-transform: uppercase;
+    line-height: 1.2;
+    flex-shrink: 0;
+    background: #eff6ff;
+    color: #1d4ed8;
+    border: 1px solid #dbeafe;
+}
+
+.dash-access-type-pill.is-dcn {
+    background: #f5f3ff;
+    color: #6d28d9;
+    border-color: #ede9fe;
+}
+
+.dash-access-type-pill.is-draft {
+    background: #fff7ed;
+    color: #c2410c;
+    border-color: #ffedd5;
+    max-width: 112px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    display: inline-block;
+}
+
+.dash-access-code-pill {
+    display: inline-flex;
+    align-items: center;
+    padding: 1px 6px;
+    border-radius: 5px;
+    background: #f1f5f9;
+    border: 1px solid #e2e8f0;
+    color: #334155;
+    font-size: 0.66rem;
+    font-weight: 600;
+    white-space: nowrap;
+    flex-shrink: 0;
+}
+
+.dash-access-item-time {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    font-size: 0.7rem;
+    color: var(--dash-text-muted);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    min-width: 0;
+}
+
+.dash-access-item-time i {
+    font-size: 0.64rem;
+    opacity: 0.75;
+    flex-shrink: 0;
 }
 
 .dash-access-item > .fa-chevron-right {
@@ -1493,17 +1592,18 @@ body.dash-cl-open {
 }
 
 .dash-access-foot {
-    margin-top: 12px;
-    padding-top: 10px;
+    margin-top: 10px;
+    padding-top: 11px;
     border-top: 1px solid var(--dash-border-light);
-    display: inline-flex;
+    display: flex;
     align-items: center;
-    gap: 6px;
+    justify-content: space-between;
+    width: 100%;
+    gap: 8px;
     font-size: 0.76rem;
     font-weight: 700;
     color: var(--dash-accent, #043899);
     text-decoration: none;
-    align-self: flex-start;
 }
 
 .dash-access-foot:hover { text-decoration: underline; }
@@ -1514,16 +1614,58 @@ body.dash-cl-open {
     flex-direction: column;
     align-items: center;
     justify-content: center;
-    gap: 8px;
+    gap: 6px;
     text-align: center;
-    color: var(--dash-text-subtle);
-    font-size: 0.8rem;
-    padding: 20px 8px;
+    color: var(--dash-text-muted);
+    font-size: 0.78rem;
+    padding: 24px 12px;
 }
 
-.dash-access-empty i {
-    font-size: 1.2rem;
-    opacity: 0.75;
+.dash-access-empty strong {
+    font-size: 0.86rem;
+    font-weight: 700;
+    color: var(--dash-text);
+    margin-top: 4px;
+}
+
+.dash-access-empty-icon {
+    width: 44px;
+    height: 44px;
+    border-radius: 12px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    background: var(--dash-bg);
+    border: 1px solid var(--dash-border);
+    color: var(--dash-text-subtle);
+    font-size: 1.1rem;
+}
+
+.dash-access-empty-icon.is-ok {
+    background: var(--dcs-green-bg, #ecfdf5);
+    border-color: #a7f3d0;
+    color: var(--dcs-green, #059669);
+}
+
+.dash-access-empty-btn {
+    margin-top: 8px;
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 7px 13px;
+    border-radius: 8px;
+    border: 1px solid var(--dash-border);
+    background: var(--dash-surface);
+    color: var(--dash-accent);
+    font-size: 0.75rem;
+    font-weight: 650;
+    cursor: pointer;
+    transition: background 0.15s ease, border-color 0.15s ease;
+}
+
+.dash-access-empty-btn:hover {
+    background: var(--dash-accent-subtle);
+    border-color: var(--dash-accent);
 }
 
 .dash-access-holiday {

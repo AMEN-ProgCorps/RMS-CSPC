@@ -11,7 +11,7 @@ Pauses while the tab is hidden. The route must stay on EnforceDcsIntakeAllowlist
 <script>
 (function () {
     var timer = null;
-    var activeMs = 2500;
+    var activeMs = 1500;
     var hiddenMs = 15000;
 
     /**

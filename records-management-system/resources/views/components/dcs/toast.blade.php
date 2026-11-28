@@ -208,7 +208,7 @@ DCS file: DCS toast. Same look on every DCS screen.
         if (!document.getElementById('ofiIncomingBadge') && !document.querySelector('[data-ofi-incoming-badge]')) {
             return;
         }
-        fetch(attentionUrl + (attentionUrl.indexOf('?') >= 0 ? '&' : '?') + 'fresh=1', {
+        fetch(attentionUrl, {
             headers: { 'Accept': 'application/json', 'X-Requested-With': 'XMLHttpRequest' },
             credentials: 'same-origin',
             cache: 'no-store',

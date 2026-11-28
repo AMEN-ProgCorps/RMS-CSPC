@@ -2457,14 +2457,63 @@
     background: transparent !important;
     border-color: transparent !important;
 }
+[data-theme="dark"] .dash-access-list li + li {
+    border-top-color: #1e293b !important;
+}
 [data-theme="dark"] .dash-access-item-kind {
     color: #94a3b8 !important;
 }
 [data-theme="dark"] .dash-access-item-copy strong {
     color: #f8fafc !important;
 }
-[data-theme="dark"] .dash-access-item-copy span:last-child {
+[data-theme="dark"] .dash-access-item:hover .dash-access-item-copy strong {
+    color: #93c5fd !important;
+}
+[data-theme="dark"] .dash-access-item-sub,
+[data-theme="dark"] .dash-access-item-time {
+    color: #94a3b8 !important;
+}
+[data-theme="dark"] .dash-access-type-pill {
+    background: rgba(59, 130, 246, 0.18) !important;
+    border-color: rgba(147, 197, 253, 0.3) !important;
+    color: #93c5fd !important;
+}
+[data-theme="dark"] .dash-access-type-pill.is-dcn {
+    background: rgba(139, 92, 246, 0.18) !important;
+    border-color: rgba(196, 181, 253, 0.3) !important;
+    color: #c4b5fd !important;
+}
+[data-theme="dark"] .dash-access-type-pill.is-draft {
+    background: rgba(234, 88, 12, 0.18) !important;
+    border-color: rgba(253, 186, 116, 0.3) !important;
+    color: #fdba74 !important;
+}
+[data-theme="dark"] .dash-access-code-pill {
+    background: #1e293b !important;
+    border-color: #334155 !important;
     color: #cbd5e1 !important;
+}
+[data-theme="dark"] .dash-access-empty strong {
+    color: #f8fafc !important;
+}
+[data-theme="dark"] .dash-access-empty-icon {
+    background: #0f172a !important;
+    border-color: #334155 !important;
+    color: #94a3b8 !important;
+}
+[data-theme="dark"] .dash-access-empty-icon.is-ok {
+    background: rgba(16, 185, 129, 0.16) !important;
+    border-color: rgba(52, 211, 153, 0.35) !important;
+    color: #6ee7b7 !important;
+}
+[data-theme="dark"] .dash-access-empty-btn {
+    background: #0f172a !important;
+    border-color: #334155 !important;
+    color: #93c5fd !important;
+}
+[data-theme="dark"] .dash-access-empty-btn:hover {
+    background: #1e3a5f !important;
+    border-color: #3b82f6 !important;
 }
 [data-theme="dark"] .dash-access-item > .fa-chevron-right {
     color: #64748b !important;

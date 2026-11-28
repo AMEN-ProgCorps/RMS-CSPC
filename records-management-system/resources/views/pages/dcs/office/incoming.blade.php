@@ -199,8 +199,8 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
             'placeholder' => 'Search by document no. or title…',
         ])
 
-        <div class="ofi-card ofi-list-card" style="position:relative;" wire:loading.class="is-loading">
-            <div class="dcs-loading-overlay" wire:loading.flex wire:target="selectType,search,markReceived,previousPage,nextPage,gotoPage">
+        <div class="ofi-card ofi-list-card" style="position:relative;" wire:loading.class="is-loading" wire:target="selectType,search,previousPage,nextPage,gotoPage">
+            <div class="dcs-loading-overlay" wire:loading.flex wire:target="selectType,search,previousPage,nextPage,gotoPage">
                 <div class="dcs-loading-spinner" aria-hidden="true"></div>
                 <h4>Loading incoming…</h4>
                 <p>Fetching documents awaiting receipt.</p>
@@ -255,12 +255,7 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
                                                 wire:loading.attr="disabled"
                                                 wire:target="markReceived({{ (int) $row['request_id'] }})"
                                             >
-                                                <span wire:loading.remove wire:target="markReceived({{ (int) $row['request_id'] }})">
-                                                    Mark as received
-                                                </span>
-                                                <span wire:loading wire:target="markReceived({{ (int) $row['request_id'] }})">
-                                                    Receiving…
-                                                </span>
+                                                Mark as received
                                             </button>
                                         @else
                                             —

@@ -4361,8 +4361,52 @@ body.ofi-modal-open {
     grid-template-columns: 1fr 1fr;
     gap: 16px;
     margin-bottom: 0;
+    align-items: stretch;
 }
 .ofi-dash-split > .ofi-dash-panel { margin-bottom: 0; }
+.ofi-dash-activity {
+    display: flex;
+    flex-direction: column;
+}
+.ofi-dash-activity .ofi-dash-panel-head {
+    padding-bottom: 14px;
+    margin-bottom: 6px;
+    border-bottom: 1px solid #eef2f7;
+}
+.ofi-dash-activity-pills {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 6px;
+    margin-top: 6px;
+}
+.ofi-dash-activity-pill {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    padding: 3px 9px;
+    border-radius: 999px;
+    font-size: 11px;
+    font-weight: 600;
+    line-height: 1.2;
+    background: #f1f5f9;
+    color: #475569;
+    border: 1px solid #e2e8f0;
+}
+.ofi-dash-activity-pill strong {
+    font-weight: 800;
+    font-variant-numeric: tabular-nums;
+}
+.ofi-dash-activity-pill.is-progress {
+    background: #eff6ff;
+    color: #1d4ed8;
+    border-color: #dbeafe;
+}
+.ofi-dash-activity-pill.is-done {
+    background: #ecfdf5;
+    color: #047857;
+    border-color: #d1fae5;
+}
 .ofi-dash-layout + .ofi-dash-guide {
     margin-top: 24px;
 }
@@ -4371,37 +4415,42 @@ body.ofi-modal-open {
     list-style: none;
     margin: 0;
     padding: 0;
+    display: flex;
+    flex-direction: column;
 }
 .ofi-dash-list li + li {
     border-top: 1px solid #eef2f7;
 }
 .ofi-dash-list a {
     display: grid;
-    grid-template-columns: auto 1fr auto auto;
+    grid-template-columns: auto minmax(0, 1fr) auto auto;
     align-items: center;
     gap: 12px;
-    padding: 13px 6px;
+    height: 68px;
+    box-sizing: border-box;
+    padding: 0 10px;
+    margin: 2px -6px;
     text-decoration: none;
     color: inherit;
-    border-radius: 12px;
+    border-radius: 10px;
     transition: background 0.15s ease;
 }
 .ofi-dash-list a:hover,
 .ofi-dash-list a:focus-visible {
-    background: #f1f5f9;
+    background: #f4f7fb;
 }
 .ofi-dash-list a:hover .ofi-dash-list-title,
 .ofi-dash-list a:focus-visible .ofi-dash-list-title {
-    color: #0f172a;
+    color: var(--dcs-accent, #043899);
 }
 .ofi-dash-list-mark {
-    width: 38px;
-    height: 38px;
-    border-radius: 11px;
+    width: 36px;
+    height: 36px;
+    border-radius: 10px;
     display: inline-flex;
     align-items: center;
     justify-content: center;
-    font-size: 0.9rem;
+    font-size: 0.88rem;
     flex-shrink: 0;
 }
 .ofi-dash-list-mark.is-drf {
@@ -4415,47 +4464,90 @@ body.ofi-modal-open {
 .ofi-dash-list-main {
     display: flex;
     flex-direction: column;
+    justify-content: center;
     gap: 4px;
     min-width: 0;
+    overflow: hidden;
 }
 .ofi-dash-list-title {
+    display: block;
     font-size: 13.5px;
-    font-weight: 750;
+    font-weight: 700;
     color: #0f172a;
-    line-height: 1.35;
+    line-height: 1.3;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
 }
 .ofi-dash-list-meta {
     display: flex;
-    flex-wrap: wrap;
+    flex-wrap: nowrap;
     align-items: center;
-    gap: 6px;
+    gap: 8px;
     font-size: 12px;
     color: #64748b;
+    min-width: 0;
+    overflow: hidden;
 }
 .ofi-dash-list-date {
-    font-size: 13px;
-    font-weight: 750;
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    font-size: 12px;
+    font-weight: 500;
+    color: #64748b;
+    white-space: nowrap;
+    flex-shrink: 0;
+}
+.ofi-dash-list-date i {
+    font-size: 11px;
+    opacity: 0.75;
+}
+.ofi-dash-list-code {
+    display: inline-flex;
+    align-items: center;
+    padding: 1px 7px;
+    border-radius: 5px;
+    background: #f1f5f9;
+    border: 1px solid #e2e8f0;
     color: #334155;
+    font-size: 11px;
+    font-weight: 600;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    min-width: 0;
 }
 .ofi-dash-list-sep { opacity: 0.55; }
 .ofi-dash-list-chevron {
     color: #cbd5e1;
-    font-size: 0.72rem;
+    font-size: 0.7rem;
+    transition: transform 0.15s ease, color 0.15s ease;
 }
 .ofi-dash-list a:hover .ofi-dash-list-chevron {
     color: var(--dcs-accent, #043899);
+    transform: translateX(2px);
 }
 .ofi-dash-status {
     flex-shrink: 0;
     display: inline-flex;
     align-items: center;
-    padding: 6px 10px;
+    gap: 6px;
+    padding: 5px 10px;
     border-radius: 999px;
     font-size: 10.5px;
-    font-weight: 800;
-    letter-spacing: 0.02em;
+    font-weight: 700;
+    letter-spacing: 0.015em;
     line-height: 1;
     white-space: nowrap;
+}
+.ofi-dash-status::before {
+    content: '';
+    width: 6px;
+    height: 6px;
+    border-radius: 999px;
+    background: currentColor;
+    flex-shrink: 0;
 }
 .ofi-dash-status.is-registered {
     background: #ecfdf5;
@@ -4485,12 +4577,13 @@ body.ofi-modal-open {
 }
 
 .ofi-dash-empty {
+    flex: 1;
     display: flex;
     flex-direction: column;
     align-items: center;
     justify-content: center;
     gap: 10px;
-    min-height: 180px;
+    min-height: 220px;
     padding: 28px 16px 22px;
     text-align: center;
 }
@@ -4689,7 +4782,10 @@ body.ofi-modal-open {
     }
     .ofi-dash-stats { grid-template-columns: 1fr; }
     .ofi-dash-list a {
-        grid-template-columns: auto 1fr;
+        height: auto;
+        min-height: 76px;
+        padding: 12px 10px;
+        grid-template-columns: auto minmax(0, 1fr);
         grid-template-areas:
             "mark main"
             "mark status";
@@ -5296,6 +5392,32 @@ body.ofi-modal-open {
 }
 [data-theme="dark"] .ofi-dash-type-bar {
     background: #243447;
+}
+[data-theme="dark"] .ofi-dash-activity .ofi-dash-panel-head {
+    border-bottom-color: #243447;
+}
+[data-theme="dark"] .ofi-dash-activity-pill {
+    background: #1e293b;
+    border-color: #334155;
+    color: #cbd5e1;
+}
+[data-theme="dark"] .ofi-dash-activity-pill.is-progress {
+    background: rgba(59, 130, 246, 0.16);
+    border-color: rgba(147, 197, 253, 0.3);
+    color: #93c5fd;
+}
+[data-theme="dark"] .ofi-dash-activity-pill.is-done {
+    background: rgba(16, 185, 129, 0.16);
+    border-color: rgba(52, 211, 153, 0.3);
+    color: #6ee7b7;
+}
+[data-theme="dark"] .ofi-dash-list-date {
+    color: #94a3b8;
+}
+[data-theme="dark"] .ofi-dash-list-code {
+    background: #1e293b;
+    border-color: #334155;
+    color: #cbd5e1;
 }
 [data-theme="dark"] .ofi-dash-list li + li {
     border-top-color: #243447;

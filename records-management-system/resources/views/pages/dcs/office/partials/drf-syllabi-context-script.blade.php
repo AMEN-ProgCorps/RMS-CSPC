@@ -224,6 +224,23 @@ All course types use college + program (per-program catalog).
         return raw.map(function (id) { return String(id); });
     }
 
+    function registeredSchoolYearIdsForCourseId(courseId, programIdOverride) {
+        const collegeId = collegeSel ? String(collegeSel.value || '') : '';
+        const programId = String(programIdOverride || (programSel ? programSel.value : '') || '');
+        const semesterId = semesterSel ? String(semesterSel.value || '') : '';
+        const subTypeId = selectedSubTypeId();
+        if (!collegeId || !programId || !semesterId || !courseId || !subTypeId) return [];
+        const key = collegeId + ':' + programId + ':' + semesterId + ':' + String(courseId) + ':' + subTypeId;
+        const raw = (catalog.registeredSchoolYearsByCourse || {})[key] || [];
+        return raw.map(function (id) { return String(id); });
+    }
+
+    function isCourseRegisteredForSelectedYear(courseId, programIdOverride) {
+        const syId = schoolYearSel ? String(schoolYearSel.value || '') : '';
+        if (!syId) return false;
+        return registeredSchoolYearIdsForCourseId(courseId, programIdOverride).indexOf(syId) !== -1;
+    }
+
     function isCourseTakenForSelectedYear(courseId, programIdOverride) {
         const syId = schoolYearSel ? String(schoolYearSel.value || '') : '';
         if (!syId) return false;
@@ -613,7 +630,7 @@ All course types use college + program (per-program catalog).
         });
 
         if (visibleCount === 0) {
-            batchList.innerHTML = '<div class="ofi-batch-empty">' + (query ? 'No courses match your filter.' : 'No available courses for this program.') + '</div>';
+            batchList.innerHTML = '<div class="ofi-batch-empty">' + (query ? 'No courses match your filter.' : (allCoursesAlreadyRegistered ? 'All courses for this selection are already registered.' : 'No available courses for this program.')) + '</div>';
         }
         if (batchSelectAllBtn) {
             const selectableInTab = tabCourses.filter(function (c) {
@@ -878,7 +895,9 @@ All course types use college + program (per-program catalog).
         if (!progIds.length || !semesterId || !schoolYearId) {
             placeholder = 'Select semester and school year first…';
         } else if (!allContextCourses.length) {
-            placeholder = 'No courses found for the selected program(s), type, semester, and school year — please contact the administrator or the document controller.';
+            placeholder = allCoursesAlreadyRegistered
+                ? 'All courses for this selection are already registered.'
+                : 'No courses found for the selected program(s), type, semester, and school year — please contact the administrator or the document controller.';
         } else if (!currentCourses.length) {
             placeholder = 'Select at least 1 year level above…';
         }
@@ -901,12 +920,15 @@ All course types use college + program (per-program catalog).
         syncTitle();
     }
 
+    let allCoursesAlreadyRegistered = false;
+
     function rebuildCourses(keep) {
         const type = selectedCourseType();
         const progIds = activeProgramIds();
         const semesterId = semesterSel ? String(semesterSel.value || '') : '';
         const schoolYearId = schoolYearSel ? String(schoolYearSel.value || '') : '';
         const combined = [];
+        let matchedBeforeRegisteredFilter = 0;
         if (progIds.length && semesterId && schoolYearId) {
             progIds.forEach(function (pid) {
                 const pMeta = programMetaById(pid);
@@ -914,13 +936,17 @@ All course types use college + program (per-program catalog).
                 const pCode = pMeta ? String(pMeta.program_code || '') : '';
                 const key = pid + ':' + semesterId;
                 const raw = (catalog.coursesByProgramSemester || {})[key] || [];
-                const filtered = sortCoursesByCode(raw.filter(function (c) {
+                const matchingContext = raw.filter(function (c) {
                     const year = String(c.year_level || '').trim();
                     const ct = String(c.course_type || '').trim();
                     if (year === '' || ct === '' || (type && ct !== type)) return false;
                     const cSy = c.school_year_id !== undefined && c.school_year_id !== null ? String(c.school_year_id) : '';
                     if (cSy && cSy !== '0' && cSy !== schoolYearId) return false;
                     return true;
+                });
+                matchedBeforeRegisteredFilter += matchingContext.length;
+                const filtered = sortCoursesByCode(matchingContext.filter(function (c) {
+                    return !isCourseRegisteredForSelectedYear(c.id, pid);
                 }));
                 filtered.forEach(function (c) {
                     combined.push(Object.assign({}, c, {
@@ -931,7 +957,13 @@ All course types use college + program (per-program catalog).
                 });
             });
         }
+        allCoursesAlreadyRegistered = matchedBeforeRegisteredFilter > 0 && combined.length === 0;
         allContextCourses = combined;
+        // Remove any previously selected batch IDs that are no longer available.
+        const availableIds = new Set(combined.map(function (c) { return String(c.id); }));
+        [...selectedBatchIds].forEach(function (id) {
+            if (!availableIds.has(id)) selectedBatchIds.delete(id);
+        });
         renderYearLevelPills(allContextCourses, keep);
         applyYearLevelCourseFilter(keep);
     }

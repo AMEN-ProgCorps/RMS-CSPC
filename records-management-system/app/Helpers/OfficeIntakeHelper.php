@@ -5636,6 +5636,104 @@ class OfficeIntakeHelper
         return $taken;
     }
 
+    /**
+     * Map of course keys to school_year_id arrays that are already registered in dcs_syllabi
+     * (active, non-deleted, non-draft, non-obsolete) for the same sub-type.
+     *
+     * @return array<string, list<int>>
+     */
+    public static function officeDrfSyllabiRegisteredSchoolYearsByCourse(): array
+    {
+        $registered = [];
+
+        if (! Schema::hasTable('dcs_syllabi') || ! Schema::hasTable('dcs_document_requests')) {
+            return $registered;
+        }
+
+        $regQ = DB::table('dcs_syllabi as s')
+            ->join('dcs_document_requests as dr', 'dr.id', '=', 's.request_id')
+            ->leftJoin(
+                DB::raw('(SELECT DISTINCT ON (request_id) request_id, revision_status FROM dcs_masterlist_registration ORDER BY request_id, id DESC) as ml'),
+                'ml.request_id',
+                '=',
+                's.request_id'
+            )
+            ->where('s.is_available', true)
+            ->whereNotNull('s.course_id')
+            ->whereNotNull('s.school_year_id')
+            ->whereNotNull('dr.sub_type_id');
+
+        if (Schema::hasColumn('dcs_document_requests', 'deleted_at')) {
+            $regQ->whereNull('dr.deleted_at');
+        }
+        if (Schema::hasColumn('dcs_document_requests', 'approval_status')) {
+            $regQ->where(function ($q) {
+                $q->whereNull('dr.approval_status')
+                    ->orWhere('dr.approval_status', '!=', 'draft');
+            });
+        }
+        if (Schema::hasColumn('dcs_masterlist_registration', 'revision_status')) {
+            $regQ->where(function ($q) {
+                $q->whereNull('ml.revision_status')
+                    ->orWhere('ml.revision_status', '!=', 'obsolete');
+            });
+        }
+
+        $rows = $regQ->get([
+            's.college_id',
+            's.program_id',
+            's.semester_id',
+            's.course_id',
+            's.school_year_id',
+            'dr.sub_type_id',
+        ]);
+
+        foreach ($rows as $row) {
+            $collegeId = (int) ($row->college_id ?? 0);
+            $programId = (int) ($row->program_id ?? 0);
+            $semesterId = (int) ($row->semester_id ?? 0);
+            $courseId = (int) ($row->course_id ?? 0);
+            $schoolYearId = (int) ($row->school_year_id ?? 0);
+            $subTypeId = (int) ($row->sub_type_id ?? 0);
+            if ($collegeId < 1 || $programId < 0 || $semesterId < 1 || $courseId < 1 || $schoolYearId < 1 || $subTypeId < 1) {
+                continue;
+            }
+            $key = $collegeId . ':' . $programId . ':' . $semesterId . ':' . $courseId . ':' . $subTypeId;
+            if (! isset($registered[$key])) {
+                $registered[$key] = [];
+            }
+            if (! in_array($schoolYearId, $registered[$key], true)) {
+                $registered[$key][] = $schoolYearId;
+            }
+        }
+
+        return $registered;
+    }
+
+    /**
+     * Whether this course + school year + sub-type is already registered in DCS.
+     */
+    public static function officeDrfSyllabiCourseSchoolYearRegistered(
+        int $collegeId,
+        int $programId,
+        int $semesterId,
+        int $courseId,
+        int $schoolYearId,
+        ?int $subTypeId = null
+    ): bool {
+        if ($collegeId < 1 || $programId < 0 || $semesterId < 1 || $courseId < 1 || $schoolYearId < 1) {
+            return false;
+        }
+        $subTypeId = (int) ($subTypeId ?? 0);
+        if ($subTypeId < 1) {
+            return false;
+        }
+        $key = $collegeId . ':' . $programId . ':' . $semesterId . ':' . $courseId . ':' . $subTypeId;
+        $registered = self::officeDrfSyllabiRegisteredSchoolYearsByCourse();
+
+        return in_array($schoolYearId, $registered[$key] ?? [], true);
+    }
+
     private static function drfBatchCoursesPath(): string
     {
         $dir = storage_path('app/private');
@@ -6134,6 +6232,7 @@ class OfficeIntakeHelper
             // Offer all configured school years on office Syllabi/TOS DRF.
             'schoolYears' => self::officeDrfActiveSchoolYears($exceptDrfId),
             'takenSchoolYearsByCourse' => self::officeDrfSyllabiTakenSchoolYearsByCourse($exceptDrfId),
+            'registeredSchoolYearsByCourse' => self::officeDrfSyllabiRegisteredSchoolYearsByCourse(),
         ];
     }
 
@@ -6350,6 +6449,22 @@ class OfficeIntakeHelper
 
         foreach ($courseIds as $cid) {
             $courseProgramId = (int) ($matchedCourses->get($cid)->program_id ?? $programId);
+            if (self::officeDrfSyllabiCourseSchoolYearRegistered(
+                $collegeId,
+                $courseProgramId,
+                $semesterId,
+                $cid,
+                $schoolYearId,
+                $subTypeId
+            )) {
+                $sy = (string) (DB::table('dcs_school_years')->where('id', $schoolYearId)->value('school_year') ?? '');
+                $courseName = (string) ($matchedCourses->get($cid)->course_name ?? 'This course');
+                $subLabel = trim((string) (DB::table('dcs_doc_types')->where('id', $subTypeId)->value('doc_type_name') ?? 'this document type'));
+                throw ValidationException::withMessages([
+                    'courseId' => trim($courseName) . ' is already registered for ' . $subLabel
+                        . ' (S/Y ' . ($sy !== '' ? $sy : 'that school year') . ') and cannot be requested again.',
+                ]);
+            }
             if (self::officeDrfSyllabiCourseSchoolYearTaken(
                 $collegeId,
                 $courseProgramId,

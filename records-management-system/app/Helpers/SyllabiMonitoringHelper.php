@@ -34,7 +34,6 @@ class SyllabiMonitoringHelper
         '2nd Year',
         '3rd Year',
         '4th Year',
-        '5th Year',
     ];
 
     public const COURSE_TYPES = [
@@ -56,7 +55,7 @@ class SyllabiMonitoringHelper
     /**
      * Helper used for year levels for context.
      */
-    public static function yearLevelsForContext(?int $collegeId, ?int $semesterId, ?string $courseType = null): array
+    public static function yearLevelsForContext(?int $collegeId, ?int $semesterId, ?string $courseType = null, ?int $schoolYearId = null): array
     {
         if (! $collegeId || ! $semesterId || ! Schema::hasColumn('dcs_program_courses', 'year_level')) {
             return [];
@@ -64,14 +63,19 @@ class SyllabiMonitoringHelper
 
         // All course types (GE/PE/NSTP/Major) are per-program under the college.
         $programIds = DB::table('dcs_programs')->where('college_id', $collegeId)->pluck('id')->all();
+        if ($programIds === []) {
+            return [];
+        }
         $query = DB::table('dcs_program_courses')
             ->where('semester_id', $semesterId)
             ->whereNotNull('year_level')
             ->where('year_level', '!=', '')
-            ->where(function ($q) use ($programIds) {
-                $q->whereIn('program_id', $programIds !== [] ? $programIds : [0])
-                    ->orWhereNull('program_id'); // legacy institutional rows still visible
-            });
+            ->whereIn('program_id', $programIds);
+
+        SettingsRecycleHelper::applyNotDeleted($query, 'dcs_program_courses');
+        if ($schoolYearId && Schema::hasColumn('dcs_program_courses', 'school_year_id')) {
+            $query->where('school_year_id', $schoolYearId);
+        }
 
         if ($courseType && Schema::hasColumn('dcs_program_courses', 'course_type')) {
             $query->where('course_type', $courseType);
@@ -179,9 +183,11 @@ class SyllabiMonitoringHelper
         $ids = $programs->pluck('id')->all() ?: [0];
         $coursesQ = DB::table('dcs_program_courses')
             ->where('semester_id', $semesterId)
-            ->where(function ($q) use ($ids) {
-                $q->whereIn('program_id', $ids)->orWhereNull('program_id');
-            });
+            ->whereIn('program_id', $ids);
+        SettingsRecycleHelper::applyNotDeleted($coursesQ, 'dcs_program_courses');
+        if (Schema::hasColumn('dcs_program_courses', 'school_year_id')) {
+            $coursesQ->where('school_year_id', $schoolYearId);
+        }
         if ($hasYearLevel && $yearLevel) {
             $coursesQ->where('year_level', $yearLevel);
         }
@@ -217,50 +223,16 @@ class SyllabiMonitoringHelper
         $rows = [];
         $totals = self::emptyTotals();
 
-        $institutionalProgram = (object) [
-            'id' => 0,
-            'program_code' => 'ALL',
-            'program_name' => 'Institutional (all programs)',
-        ];
-        $sharedType = $courseType !== null && CourseTypeRules::isSharedType($courseType);
-        $majorOnly = $courseType !== null && CourseTypeRules::isMajor($courseType);
-        if ($sharedType) {
-            $programIter = collect([$institutionalProgram]);
-        } elseif ($majorOnly) {
-            $programIter = $programs;
-        } else {
-            $programIter = collect([$institutionalProgram])->concat($programs);
-        }
-
-        foreach ($programIter as $program) {
+        foreach ($programs as $program) {
             $catalog = $coursesByProgram->get((int) $program->id, collect());
             $catalogIds = $catalog->pluck('id')->all();
-            $isInstitutionalBucket = (int) $program->id === 0;
 
             $syllabiSubs = $submissions
-                ->filter(function ($row) use ($program, $isInstitutionalBucket) {
-                    if ($isInstitutionalBucket) {
-                        return $row->program_id === null || (int) $row->program_id === 0;
-                    }
-
-                    return (int) $row->program_id === (int) $program->id;
-                })
+                ->filter(fn ($row) => (int) $row->program_id === (int) $program->id)
                 ->where('sub_type_id', $syllabiTypeId);
             $tosSubs = $submissions
-                ->filter(function ($row) use ($program, $isInstitutionalBucket) {
-                    if ($isInstitutionalBucket) {
-                        return $row->program_id === null || (int) $row->program_id === 0;
-                    }
-
-                    return (int) $row->program_id === (int) $program->id;
-                })
+                ->filter(fn ($row) => (int) $row->program_id === (int) $program->id)
                 ->where('sub_type_id', $tosTypeId);
-
-            // Hide empty institutional bucket when not filtering a shared course type.
-            if ($isInstitutionalBucket && ! $sharedType && $catalog->isEmpty()
-                && $syllabiSubs->isEmpty() && $tosSubs->isEmpty()) {
-                continue;
-            }
 
             $syllabiActualIds = $syllabiSubs->pluck('course_id')->unique()->filter()->values();
             $tosActualIds = $tosSubs->pluck('course_id')->unique()->filter()->values();
@@ -272,6 +244,7 @@ class SyllabiMonitoringHelper
             }
             $syllabiLacking = max(0, $target - $syllabiActual);
             $lackingNames = self::lackingCourseLabels($catalog, $syllabiActualIds);
+            $lackingGroups = self::lackingCoursesByYear($catalog, $syllabiActualIds);
 
             $tosTarget = $target;
             $tosActual = $tosActualIds->intersect($catalogIds)->count();
@@ -290,6 +263,7 @@ class SyllabiMonitoringHelper
                 $drfActual = $drfCourseIds->count();
             }
             $drfLackingNames = self::lackingCourseLabels($catalog, $drfCourseIds);
+            $drfLackingGroups = self::lackingCoursesByYear($catalog, $drfCourseIds);
             $tosDrfCourseIds = $tosSubs
                 ->filter(fn ($row) => (int) $row->drf_actual > 0)
                 ->pluck('course_id')
@@ -302,7 +276,9 @@ class SyllabiMonitoringHelper
             }
             $tosLacking = max(0, $tosTarget - $tosActual);
             $tosLackingNames = self::lackingCourseLabels($catalog, $tosActualIds);
+            $tosLackingGroups = self::lackingCoursesByYear($catalog, $tosActualIds);
             $tosDrfLackingNames = self::lackingCourseLabels($catalog, $tosDrfCourseIds);
+            $tosDrfLackingGroups = self::lackingCoursesByYear($catalog, $tosDrfCourseIds);
 
             $saved = $savedByProgram[(int) $program->id] ?? [];
             $syllabiStatus = $saved['syllabi'] ?? self::suggestStatus($syllabiActual, $target, $syllabiSubs, $deadline);
@@ -318,6 +294,7 @@ class SyllabiMonitoringHelper
                 'syllabi_pct' => self::pct($syllabiActual, $target),
                 'syllabi_lacking' => $syllabiLacking,
                 'syllabi_lacking_names' => $lackingNames,
+                'syllabi_lacking_groups' => $lackingGroups,
                 'submission_dates' => self::uniqueDates($syllabiSubs, 'date_received'),
                 'effectivity_date' => self::uniqueDates($syllabiSubs, 'effectivity_date'),
                 'released_date' => self::uniqueDates($syllabiSubs, 'released_date'),
@@ -327,6 +304,7 @@ class SyllabiMonitoringHelper
                 'drf_pct' => self::pct($drfActual, $target),
                 'drf_lacking' => count($drfLackingNames),
                 'drf_lacking_names' => $drfLackingNames,
+                'drf_lacking_groups' => $drfLackingGroups,
                 'drf_received' => self::uniqueDates($syllabiSubs, 'drf_received_date'),
                 'syllabi_status' => $syllabiStatus,
                 'tos_courses' => $catalog
@@ -340,6 +318,7 @@ class SyllabiMonitoringHelper
                 'tos_label' => $tosActual . ' / ' . $tosTarget,
                 'tos_lacking' => $tosLacking,
                 'tos_lacking_names' => $tosLackingNames,
+                'tos_lacking_groups' => $tosLackingGroups,
                 'tos_submission_dates' => self::uniqueDates($tosSubs, 'date_received'),
                 'tos_effectivity_date' => self::uniqueDates($tosSubs, 'effectivity_date'),
                 'tos_released_date' => self::uniqueDates($tosSubs, 'released_date'),
@@ -349,6 +328,7 @@ class SyllabiMonitoringHelper
                 'tos_drf_pct' => self::pct($tosDrfActual, $tosTarget),
                 'tos_drf_lacking' => count($tosDrfLackingNames),
                 'tos_drf_lacking_names' => $tosDrfLackingNames,
+                'tos_drf_lacking_groups' => $tosDrfLackingGroups,
                 'tos_drf_received' => self::uniqueDates($tosSubs, 'drf_received_date'),
                 'tos_status' => $tosStatus,
             ];
@@ -653,6 +633,51 @@ class SyllabiMonitoringHelper
             ->map(fn ($c) => self::courseLabel($c))
             ->values()
             ->all();
+    }
+
+    /**
+     * Groups lacking courses by year level for structured vertical display.
+     *
+     * @param \Illuminate\Support\Collection<int, object> $catalog
+     * @param \Illuminate\Support\Collection<int, mixed> $submittedIds
+     * @return list<array{year: string, courses: list<string>}>
+     */
+    private static function lackingCoursesByYear($catalog, $submittedIds): array
+    {
+        $byYear = [];
+        foreach ($catalog->reject(fn ($c) => $submittedIds->contains($c->id)) as $course) {
+            $year = trim((string) ($course->year_level ?? ''));
+            $yearKey = $year !== '' ? $year : 'Unspecified';
+            $code = trim((string) ($course->course_code ?? ''));
+            $name = trim((string) ($course->course_name ?? ''));
+            $label = $code !== '' ? $code : $name;
+            if ($label === '') {
+                continue;
+            }
+            $byYear[$yearKey][] = $label;
+        }
+
+        if ($byYear === []) {
+            return [];
+        }
+
+        $order = array_flip(CourseTypeRules::allYearLevels());
+        uksort($byYear, function (string $a, string $b) use ($order): int {
+            $oa = $order[$a] ?? ($a === 'Unspecified' ? 999 : 500);
+            $ob = $order[$b] ?? ($b === 'Unspecified' ? 999 : 500);
+
+            return $oa !== $ob ? ($oa <=> $ob) : strcasecmp($a, $b);
+        });
+
+        $groups = [];
+        foreach ($byYear as $year => $courses) {
+            $groups[] = [
+                'year' => $year,
+                'courses' => array_values($courses),
+            ];
+        }
+
+        return $groups;
     }
 
     /**

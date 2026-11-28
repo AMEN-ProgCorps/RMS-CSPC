@@ -18,7 +18,7 @@ return new class extends Migration
                 $table->timestamps();
             });
 
-            $levels = ['1st Year', '2nd Year', '3rd Year', '4th Year', '5th Year'];
+            $levels = ['1st Year', '2nd Year', '3rd Year', '4th Year'];
             $jsonPath = storage_path('app/private/dcs_year_levels.json');
             if (is_file($jsonPath)) {
                 $decoded = json_decode((string) @file_get_contents($jsonPath), true);

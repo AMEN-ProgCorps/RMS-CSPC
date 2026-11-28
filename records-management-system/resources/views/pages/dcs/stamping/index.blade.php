@@ -21,6 +21,7 @@ use Livewire\Volt\Component;
 new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class extends Component {
     public string $search = '';
     public string $typeId = 'all';
+    public string $stampType = 'all';
     public int $page = 1;
     public int $perPage = 15;
 
@@ -118,6 +119,33 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
 
         if ($this->typeId !== 'all' && $this->typeId !== '') {
             $query->where('dr.doc_type_id', $this->typeId);
+        }
+
+        if ($this->stampType !== 'all' && $this->stampType !== '' && Schema::hasTable('dcs_document_stamps')) {
+            if ($this->stampType === 'unstamped') {
+                $query->whereNotExists(function ($sq) {
+                    $sq->select(DB::raw(1))
+                        ->from('dcs_document_stamps as ds')
+                        ->whereColumn('ds.document_request_id', 'dr.id')
+                        ->where('ds.file_key', 'masterlist');
+                });
+            } elseif ($this->stampType === 'stamped') {
+                $query->whereExists(function ($sq) {
+                    $sq->select(DB::raw(1))
+                        ->from('dcs_document_stamps as ds')
+                        ->whereColumn('ds.document_request_id', 'dr.id')
+                        ->where('ds.file_key', 'masterlist');
+                });
+            } else {
+                $targetStampType = $this->stampType;
+                $query->whereExists(function ($sq) use ($targetStampType) {
+                    $sq->select(DB::raw(1))
+                        ->from('dcs_document_stamps as ds')
+                        ->whereColumn('ds.document_request_id', 'dr.id')
+                        ->where('ds.file_key', 'masterlist')
+                        ->where('ds.stamp_type', $targetStampType);
+                });
+            }
         }
 
         if (trim($this->search) !== '') {
@@ -375,7 +403,17 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
                     <option value="{{ $type->id }}">{{ $type->doc_type_name }}</option>
                 @endforeach
             </select>
-            <button type="button" id="stClearBtn" class="st-btn-clear" wire:click="$set('search', ''); $set('typeId', 'all')">
+            <select id="stStampTypeFilter" class="st-filter" wire:model.live="stampType" aria-label="Filter by stamp type">
+                <option value="all">All Stamp Types</option>
+                <option value="stamped">Stamped (Any)</option>
+                <option value="unstamped">Unstamped Only</option>
+                <optgroup label="By Stamp">
+                    @foreach($availableStamps as $st)
+                        <option value="{{ $st['id'] }}">{{ $st['label'] }}</option>
+                    @endforeach
+                </optgroup>
+            </select>
+            <button type="button" id="stClearBtn" class="st-btn-clear" wire:click="$set('search', ''); $set('typeId', 'all'); $set('stampType', 'all')">
                 <i class="fa-solid fa-xmark"></i> Clear
             </button>
         </div>

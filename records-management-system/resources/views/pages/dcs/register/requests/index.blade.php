@@ -21,6 +21,9 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
     public string $filter = 'all';
 
     #[Url]
+    public string $status = 'all';
+
+    #[Url]
     public string $search = '';
 
     public int $page = 1;
@@ -35,6 +38,9 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
         if (! in_array($this->filter, ['all', 'drf', 'dcn'], true)) {
             $this->filter = 'all';
         }
+        if (! in_array($this->status, ['all', 'pending', 'received'], true)) {
+            $this->status = 'all';
+        }
     }
 
     /**
@@ -42,6 +48,11 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
      * @return void
      */
     public function updatedFilter(): void
+    {
+        $this->page = 1;
+    }
+
+    public function updatedStatus(): void
     {
         $this->page = 1;
     }
@@ -73,6 +84,11 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
         $filtered = $this->filter === 'all'
             ? $allRows
             : $allRows->where('type', $this->filter)->values();
+        if ($this->status === 'received') {
+            $filtered = $filtered->where('received', true)->values();
+        } elseif ($this->status === 'pending') {
+            $filtered = $filtered->where('received', false)->values();
+        }
         $search = trim($this->search);
         if ($search !== '') {
             $needle = mb_strtolower($search);
@@ -100,6 +116,7 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
         return [
             'rows' => $filtered->slice(($page - 1) * $perPage, $perPage)->values(),
             'filter' => $this->filter,
+            'status' => $this->status,
             'search' => $this->search,
             'page' => $page,
             'lastPage' => $lastPage,
@@ -125,26 +142,41 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
     </div>
 
     <div class="ofi-request-stats">
-        <div class="ofi-request-stat">
-            <span class="ofi-request-stat-label">Total pending</span>
-            <strong>{{ $totalCount }}</strong>
-        </div>
-        <div class="ofi-request-stat is-drf">
-            <span class="ofi-request-stat-label">DRF</span>
-            <strong>{{ $drfCount }}</strong>
-        </div>
-        <div class="ofi-request-stat is-dcn">
-            <span class="ofi-request-stat-label">DCN</span>
-            <strong>{{ $dcnCount }}</strong>
-        </div>
-        <div class="ofi-request-stat is-received">
-            <span class="ofi-request-stat-label">Received</span>
-            <strong>{{ $receivedCount }}</strong>
-        </div>
-        <div class="ofi-request-stat is-awaiting">
-            <span class="ofi-request-stat-label">Awaiting receive</span>
-            <strong>{{ $pendingCount }}</strong>
-        </div>
+        <button type="button" wire:click="$set('filter', 'all'); $set('status', 'all')" class="ofi-request-stat {{ $filter === 'all' && $status === 'all' ? 'is-selected' : '' }}">
+            <span class="ofi-request-stat-icon" aria-hidden="true"><i class="fa-solid fa-layer-group"></i></span>
+            <span class="ofi-request-stat-copy">
+                <span class="ofi-request-stat-label">Total pending</span>
+                <strong>{{ $totalCount }}</strong>
+            </span>
+        </button>
+        <button type="button" wire:click="$set('filter', 'drf'); $set('status', 'all')" class="ofi-request-stat is-drf {{ $filter === 'drf' && $status === 'all' ? 'is-selected' : '' }}">
+            <span class="ofi-request-stat-icon" aria-hidden="true"><i class="fa-regular fa-file-lines"></i></span>
+            <span class="ofi-request-stat-copy">
+                <span class="ofi-request-stat-label">DRF</span>
+                <strong>{{ $drfCount }}</strong>
+            </span>
+        </button>
+        <button type="button" wire:click="$set('filter', 'dcn'); $set('status', 'all')" class="ofi-request-stat is-dcn {{ $filter === 'dcn' && $status === 'all' ? 'is-selected' : '' }}">
+            <span class="ofi-request-stat-icon" aria-hidden="true"><i class="fa-solid fa-file-pen"></i></span>
+            <span class="ofi-request-stat-copy">
+                <span class="ofi-request-stat-label">DCN</span>
+                <strong>{{ $dcnCount }}</strong>
+            </span>
+        </button>
+        <button type="button" wire:click="$set('status', '{{ $status === 'received' ? 'all' : 'received' }}')" class="ofi-request-stat is-received {{ $status === 'received' ? 'is-selected' : '' }}">
+            <span class="ofi-request-stat-icon" aria-hidden="true"><i class="fa-solid fa-circle-check"></i></span>
+            <span class="ofi-request-stat-copy">
+                <span class="ofi-request-stat-label">Received</span>
+                <strong>{{ $receivedCount }}</strong>
+            </span>
+        </button>
+        <button type="button" wire:click="$set('status', '{{ $status === 'pending' ? 'all' : 'pending' }}')" class="ofi-request-stat is-awaiting {{ $status === 'pending' ? 'is-selected' : '' }}">
+            <span class="ofi-request-stat-icon" aria-hidden="true"><i class="fa-regular fa-clock"></i></span>
+            <span class="ofi-request-stat-copy">
+                <span class="ofi-request-stat-label">Awaiting receive</span>
+                <strong>{{ $pendingCount }}</strong>
+            </span>
+        </button>
     </div>
 
     <div class="upd-search-bar ofi-request-toolbar">
@@ -158,6 +190,11 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
             <button type="button" wire:click="$set('filter', 'dcn')" class="ofi-request-filter {{ $filter === 'dcn' ? 'is-active' : '' }}">
                 DCN <span>{{ $dcnCount }}</span>
             </button>
+            @if($status !== 'all')
+                <button type="button" wire:click="$set('status', 'all')" class="ofi-request-filter is-status-pill" title="Clear status filter">
+                    Status: {{ ucfirst($status) }} <i class="fa-solid fa-xmark" aria-hidden="true"></i>
+                </button>
+            @endif
         </div>
         <div class="ofi-list-search ofi-request-search">
             <label class="ofi-list-search-field" for="ofiRequestSearch">
@@ -188,9 +225,9 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
         </div>
     </div>
 
-    <div class="upd-table-card ofi-request-card" style="position:relative;" wire:loading.class="is-loading" wire:target="filter,search">
+    <div class="upd-table-card ofi-request-card" style="position:relative;" wire:loading.class="is-loading" wire:target="filter,status,search">
         {{-- Overlay only on intentional filter/search changes — silent on wire:poll background refresh --}}
-        <div class="dcs-loading-overlay" wire:loading.flex wire:target="filter,search">
+        <div class="dcs-loading-overlay" wire:loading.flex wire:target="filter,status,search">
             <div class="dcs-loading-spinner" aria-hidden="true"></div>
             <h4>Loading requests…</h4>
             <p>Fetching records and preparing the list.</p>

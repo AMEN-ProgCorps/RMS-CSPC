@@ -38,6 +38,12 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
     public int $page = 1;
     public string $notice = '';
     public bool $exportAllColumns = false;
+    public string $customReportTitle = 'DOCUMENT MASTERLIST';
+    public string $customReportOrientation = 'landscape';
+    public string $customReportPaperSize = 'a4';
+    public bool $customReportIncludeRevisions = true;
+    /** @var list<int|string> Selected column indexes for Custom Report */
+    public array $customReportColumns = [0, 2, 3, 4, 5, 6, 8, 10];
 
     /**
      * Initializes component state, authorization gates, and default configurations.
@@ -70,7 +76,7 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
      */
     public function updated($name): void
     {
-        if (in_array($name, ['page', 'notice'], true)) {
+        if (in_array($name, ['page', 'notice', 'customReportOpen', 'customReportPreview', 'customReportTitle', 'customReportOrientation', 'customReportIncludeRevisions', 'customReportColumns', 'customReportError'], true) || str_starts_with((string) $name, 'customReportColumns.')) {
             return;
         }
         $this->page = 1;
@@ -136,6 +142,320 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
     {
         RegisterQueryHelper::assertFullDcsUser('database');
         DcsDatabaseColumns::persistSystemVisibleGroups($visible);
+    }
+
+    /**
+     * All 40 inventory export headers grouped by section for the Custom Report modal.
+     *
+     * @return array{headers: list<string>, groups: array<string, list<int>>}
+     */
+    private function customReportCatalog(): array
+    {
+        return [
+            'headers' => [
+                'Item No.',
+                'Category',
+                'Document No.',
+                'Rev.',
+                'Document Title',
+                'Effectivity Date',
+                'Originator',
+                'Pages',
+                'Status',
+                'PDF File',
+                'Source Unit',
+                'Related Docs',
+                'Courses',
+                'Approval No.',
+                'Approval Date',
+                'Deadline Date',
+                'Day Diff',
+                'ML Receipt Date',
+                'ML Receipt Time',
+                'ML Registered Date',
+                'ML Registered Time',
+                'Time Spent (mins)',
+                'DCN No.',
+                'DCN Date',
+                'DCN Receipt Date',
+                'DCN Receipt Time',
+                'Purpose of Revision',
+                'Scanned DCN',
+                'DRF No.',
+                'DRF Date',
+                'DRF Receipt Date',
+                'DRF Receipt Time',
+                'Scanned DRF',
+                'Dist. On File Date',
+                'Dist. On File Time',
+                'Dist. Actual Date',
+                'Dist. Actual Time',
+                'Receiving Office(s)',
+                'Scanned Dist.',
+                'Retrieved Office(s)',
+            ],
+            'groups' => [
+                'Document Information' => [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12],
+                'Masterlist & Approval' => [13, 14, 15, 16, 17, 18, 19, 20, 21],
+                'DCN Details' => [22, 23, 24, 25, 26, 27],
+                'DRF Details' => [28, 29, 30, 31, 32],
+                'Distribution & Retrieval' => [33, 34, 35, 36, 37, 38, 39],
+            ],
+        ];
+    }
+
+    #[Renderless]
+    public function loadCustomReportPreview(array $config = []): array
+    {
+        RegisterQueryHelper::assertFullDcsUser('database');
+        $this->applyCustomReportConfig($config);
+
+        return $this->buildCustomReportPayload(60);
+    }
+
+    private function applyCustomReportConfig(array $config): void
+    {
+        if (isset($config['title'])) {
+            $this->customReportTitle = trim((string) $config['title']);
+        }
+        if (isset($config['orientation']) && in_array($config['orientation'], ['portrait', 'landscape'], true)) {
+            $this->customReportOrientation = $config['orientation'];
+        }
+        if (isset($config['paperSize']) && in_array($config['paperSize'], ['a4', 'short', 'long', 'legal'], true)) {
+            $this->customReportPaperSize = $config['paperSize'];
+        }
+        if (array_key_exists('includeRevisions', $config)) {
+            $this->customReportIncludeRevisions = (bool) $config['includeRevisions'];
+        }
+        if (isset($config['columns']) && is_array($config['columns'])) {
+            $this->customReportColumns = $config['columns'];
+        }
+    }
+
+    /**
+     * Builds the exact headers, rows, and metadata shared by Preview, PDF, and Excel exports.
+     *
+     * @return array{error?: string, title?: string, generatedAt?: string, filterSummary?: string, headers?: list<string>, rows?: list<array{is_child: bool, cells: list<string>}>}
+     */
+    private function buildCustomReportPayload(?int $limitRows = null): array
+    {
+        $catalog = $this->customReportCatalog();
+        $allHeaders = $catalog['headers'];
+        $maxIdx = count($allHeaders) - 1;
+        $selected = array_values(array_unique(array_filter(
+            array_map('intval', $this->customReportColumns),
+            fn (int $idx) => $idx >= 0 && $idx <= $maxIdx
+        )));
+        sort($selected);
+
+        if ($selected === []) {
+            return ['error' => 'Select at least one column to generate the report.'];
+        }
+
+        $list = $this->listing(paginate: false);
+        if (! empty($list['error'])) {
+            return ['error' => (string) $list['error']];
+        }
+
+        $headers = array_map(fn (int $idx) => $allHeaders[$idx], $selected);
+        $rows = [];
+        $totalRows = 0;
+        $item = 1;
+        foreach ($list['data'] ?? [] as $group) {
+            $totalRows++;
+            if ($limitRows === null || count($rows) < $limitRows) {
+                $parentFull = $this->exportRow($group['parent'], (string) $item);
+                $rows[] = [
+                    'is_child' => false,
+                    'cells' => array_map(fn (int $idx) => (string) ($parentFull[$idx] ?? ''), $selected),
+                ];
+            }
+            if ($this->customReportIncludeRevisions) {
+                foreach ($group['children'] ?? [] as $ci => $child) {
+                    $totalRows++;
+                    if ($limitRows === null || count($rows) < $limitRows) {
+                        $childFull = $this->exportRow($child, $item . '.' . ($ci + 1));
+                        $rows[] = [
+                            'is_child' => true,
+                            'cells' => array_map(fn (int $idx) => (string) ($childFull[$idx] ?? ''), $selected),
+                        ];
+                    }
+                }
+            }
+            $item++;
+        }
+
+        $title = trim($this->customReportTitle) !== ''
+            ? trim($this->customReportTitle)
+            : 'DCS Document Inventory Report';
+
+        $filterParts = [];
+        if ($this->search !== '') {
+            $filterParts[] = 'Search: "' . $this->search . '"';
+        }
+        if ($this->revisionStatus !== 'all') {
+            $filterParts[] = 'Revision: ' . ucfirst($this->revisionStatus);
+        }
+        if ($this->status !== '') {
+            $filterParts[] = 'Status: ' . ucfirst($this->status);
+        }
+        if ($this->originator !== '') {
+            $filterParts[] = 'Originator: ' . $this->originator;
+        }
+        if ($this->dateFrom !== '' || $this->dateTo !== '') {
+            $filterParts[] = 'Effectivity: ' . ($this->dateFrom ?: '…') . ' to ' . ($this->dateTo ?: '…');
+        }
+
+        return [
+            'title' => $title,
+            'generatedAt' => now()->format('M d, Y g:i A'),
+            'filterSummary' => implode(' · ', $filterParts),
+            'headers' => $headers,
+            'rows' => $rows,
+            'totalRows' => $totalRows,
+        ];
+    }
+
+    public function setCustomReportPreset(string $preset): void
+    {
+        $this->customReportError = '';
+        $catalog = $this->customReportCatalog();
+        if ($preset === 'all') {
+            $this->customReportColumns = array_keys($catalog['headers']);
+        } elseif ($preset === 'none') {
+            $this->customReportColumns = [];
+        } else {
+            $this->customReportColumns = [0, 2, 3, 4, 5, 6, 8, 10];
+        }
+    }
+
+    public function toggleCustomReportGroup(string $groupName): void
+    {
+        $this->customReportError = '';
+        $catalog = $this->customReportCatalog();
+        $groupCols = $catalog['groups'][$groupName] ?? [];
+        if ($groupCols === []) {
+            return;
+        }
+        $current = array_values(array_unique(array_map('intval', $this->customReportColumns)));
+        $missing = array_diff($groupCols, $current);
+        $next = $missing === []
+            ? array_values(array_diff($current, $groupCols))
+            : array_values(array_unique(array_merge($current, $groupCols)));
+        sort($next);
+        $this->customReportColumns = $next;
+    }
+
+    #[Renderless]
+    public function exportCustomReport(string $format, array $config = [])
+    {
+        RegisterQueryHelper::assertFullDcsUser('database');
+        $format = strtolower(trim($format));
+        if (! in_array($format, ['pdf', 'excel'], true)) {
+            return;
+        }
+
+        if ($config !== []) {
+            $this->applyCustomReportConfig($config);
+        }
+
+        $payload = $this->buildCustomReportPayload(null);
+        if (! empty($payload['error'])) {
+            return;
+        }
+
+        $title = $payload['title'];
+        $generatedAt = $payload['generatedAt'];
+        $filterSummary = $payload['filterSummary'];
+        $headers = $payload['headers'];
+        $rows = $payload['rows'];
+        $slug = \Illuminate\Support\Str::slug($title) ?: 'dcs-custom-report';
+
+        \App\Helpers\RegisterPersistHelper::logAdminChange(
+            'Generated custom database report (' . strtoupper($format) . ') — '
+            . count($rows) . ' row(s), ' . count($headers) . ' column(s)'
+        );
+
+        if ($format === 'excel') {
+            $filename = $slug . '-' . now()->format('Y-m-d') . '.xls';
+            return response()->streamDownload(function () use ($title, $generatedAt, $filterSummary, $headers, $rows) {
+                echo "\xEF\xBB\xBF";
+                echo '<html xmlns:o="urn:schemas-microsoft-com:office:office" xmlns:x="urn:schemas-microsoft-com:office:excel" xmlns="http://www.w3.org/TR/REC-html40">';
+                echo '<head><meta charset="UTF-8"><style>';
+                echo 'body{font-family:Arial,Calibri,sans-serif;font-size:10pt;}';
+                echo 'table{border-collapse:collapse;width:100%;}';
+                echo 'th{background:#8db3e2;color:#000000;font-weight:bold;border:1px solid #334155;padding:6px 8px;text-align:left;}';
+                echo 'td{border:1px solid #94a3b8;padding:5px 8px;vertical-align:top;mso-number-format:"\@";}';
+                echo 'tr.even td{background:#f8fafc;}';
+                echo '.org{font-size:10pt;color:#000;border:none;text-align:center;}';
+                echo '.org-bold{font-size:10pt;font-weight:bold;color:#000;border:none;text-align:center;}';
+                echo '.title{font-size:13pt;font-weight:bold;color:#000;border:none;text-align:center;}';
+                echo '.meta{font-size:9pt;color:#475569;border:none;text-align:center;}';
+                echo '</style></head><body>';
+                $colspan = max(1, count($headers));
+                echo '<table>';
+                echo '<tr><td class="org" colspan="' . $colspan . '">Republic of the Philippines</td></tr>';
+                echo '<tr><td class="org-bold" colspan="' . $colspan . '">CAMARINES SUR POLYTECHNIC COLLEGES</td></tr>';
+                echo '<tr><td class="org" colspan="' . $colspan . '">Nabua, Camarines Sur</td></tr>';
+                echo '<tr><td style="border:none;border-top:2px solid #0071BC;" colspan="' . $colspan . '">&nbsp;</td></tr>';
+                echo '<tr><td class="title" colspan="' . $colspan . '">' . e(mb_strtoupper($title)) . '</td></tr>';
+                echo '<tr><td class="meta" colspan="' . $colspan . '">Generated ' . e($generatedAt) . ' · ' . count($rows) . ' record(s)' . ($filterSummary !== '' ? ' · ' . e($filterSummary) : '') . '</td></tr>';
+                echo '<tr><td style="border:none;" colspan="' . $colspan . '">&nbsp;</td></tr>';
+                echo '<thead><tr>';
+                foreach ($headers as $h) {
+                    echo '<th>' . e($h) . '</th>';
+                }
+                echo '</tr></thead><tbody>';
+                foreach ($rows as $idx => $r) {
+                    echo '<tr' . ($idx % 2 === 1 ? ' class="even"' : '') . '>';
+                    foreach ($r['cells'] as $val) {
+                        echo '<td>' . e($val !== '' ? $val : '—') . '</td>';
+                    }
+                    echo '</tr>';
+                }
+                echo '</tbody></table></body></html>';
+            }, $filename, [
+                'Content-Type' => 'application/vnd.ms-excel; charset=UTF-8',
+            ]);
+        }
+
+        // PDF export via DomPDF
+        $logoPath = public_path('images/logo.png');
+        $logoSrc = is_file($logoPath)
+            ? ('data:image/png;base64,' . base64_encode((string) file_get_contents($logoPath)))
+            : '';
+
+        $html = view('pages.dcs.database.custom-report-pdf', [
+            'title' => $title,
+            'generatedAt' => $generatedAt,
+            'filterSummary' => $filterSummary,
+            'headers' => $headers,
+            'rows' => $rows,
+            'logoSrc' => $logoSrc,
+        ])->render();
+
+        $options = new \Dompdf\Options();
+        $options->set('isRemoteEnabled', false);
+        $options->set('isHtml5ParserEnabled', true);
+        $dompdf = new \Dompdf\Dompdf($options);
+        $dompdf->loadHtml($html);
+        $orientation = $this->customReportOrientation === 'portrait' ? 'portrait' : 'landscape';
+        $paper = match ($this->customReportPaperSize) {
+            'short' => 'letter',
+            'long' => [0, 0, 612, 936], // 8.5 x 13 in (Folio / Long bond)
+            'legal' => 'legal',
+            default => 'A4',
+        };
+        $dompdf->setPaper($paper, $orientation);
+        $dompdf->render();
+        $pdfBytes = $dompdf->output();
+        $filename = $slug . '-' . now()->format('Y-m-d') . '.pdf';
+
+        return response()->streamDownload(function () use ($pdfBytes) {
+            echo $pdfBytes;
+        }, $filename, [
+            'Content-Type' => 'application/pdf',
+        ]);
     }
 
     /**
@@ -253,6 +573,7 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
             'groupColspans' => DcsDatabaseColumns::BUILTIN_COUNTS,
             'groupLabels' => DcsDatabaseColumns::GROUP_LABELS,
             'receivedByOfficeName' => $receivedByOfficeName,
+            'customReportCatalog' => $this->customReportCatalog(),
         ]);
     }
 
@@ -2371,6 +2692,10 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
                     <span class="db-filter-dot" title="Received By filter active"></span>
                 @endif
             </button>
+            <button class="db-custom-rpt-btn" type="button" @click="$dispatch('open-db-custom-report')" title="Choose columns and generate a PDF or Excel report">
+                <i class="fa-solid fa-file-export"></i>
+                <span class="btn-label">Custom Report</span>
+            </button>
             <button class="db-export-btn" type="button" wire:click="export" title="Download CSV using the current filters">
                 <i class="fa-solid fa-download"></i>
                 <span class="btn-label">Export CSV</span>
@@ -2607,6 +2932,345 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
         ])
 
     </section>
+<div
+    x-data="{
+        open: false,
+        previewMode: false,
+        loadingPreview: false,
+        exporting: '',
+        title: 'DOCUMENT MASTERLIST',
+        paperSize: 'a4',
+        orientation: 'landscape',
+        includeRevisions: true,
+        columns: [0, 2, 3, 4, 5, 6, 8, 10],
+        error: '',
+        previewData: null,
+        catalog: @js($customReportCatalog),
+        openModal() {
+            this.error = '';
+            this.previewMode = false;
+            if (this.columns.length === 0) {
+                this.columns = [0, 2, 3, 4, 5, 6, 8, 10];
+            }
+            this.open = true;
+        },
+        closeModal() {
+            this.open = false;
+            this.previewMode = false;
+            this.error = '';
+        },
+        toggleCol(idx) {
+            idx = Number(idx);
+            this.error = '';
+            if (this.columns.includes(idx)) {
+                this.columns = this.columns.filter(c => c !== idx);
+            } else {
+                this.columns = [...this.columns, idx].sort((a, b) => a - b);
+            }
+        },
+        setPreset(preset) {
+            this.error = '';
+            if (preset === 'all') {
+                this.columns = this.catalog.headers.map((_, i) => i);
+            } else if (preset === 'none') {
+                this.columns = [];
+            } else {
+                this.columns = [0, 2, 3, 4, 5, 6, 8, 10];
+            }
+        },
+        groupAllChecked(grpName) {
+            const cols = this.catalog.groups[grpName] || [];
+            return cols.length > 0 && cols.every(c => this.columns.includes(c));
+        },
+        toggleGroup(grpName) {
+            this.error = '';
+            const cols = this.catalog.groups[grpName] || [];
+            if (this.groupAllChecked(grpName)) {
+                this.columns = this.columns.filter(c => !cols.includes(c));
+            } else {
+                const merged = new Set([...this.columns, ...cols]);
+                this.columns = Array.from(merged).sort((a, b) => a - b);
+            }
+        },
+        configPayload() {
+            return {
+                title: this.title,
+                paperSize: this.paperSize,
+                orientation: this.orientation,
+                includeRevisions: this.includeRevisions,
+                columns: this.columns,
+            };
+        },
+        async showPreview() {
+            if (this.columns.length === 0) {
+                this.error = 'Select at least one column to preview the report.';
+                return;
+            }
+            this.error = '';
+            this.previewMode = true;
+            this.loadingPreview = true;
+            try {
+                const res = await $wire.loadCustomReportPreview(this.configPayload());
+                if (res && res.error) {
+                    this.error = res.error;
+                    this.previewMode = false;
+                } else {
+                    this.previewData = res;
+                }
+            } catch (e) {
+                this.error = 'Could not load preview. Please try again.';
+                this.previewMode = false;
+            } finally {
+                this.loadingPreview = false;
+            }
+        },
+        async runExport(format) {
+            if (this.columns.length === 0) {
+                this.error = 'Select at least one column to generate the report.';
+                return;
+            }
+            this.error = '';
+            this.exporting = format;
+            try {
+                await $wire.exportCustomReport(format, this.configPayload());
+            } finally {
+                this.exporting = '';
+            }
+        },
+        paperLabel() {
+            const map = { a4: 'A4 (8.27 × 11.69 in)', short: 'Short / Letter (8.5 × 11 in)', long: 'Long / Folio (8.5 × 13 in)', legal: 'Legal (8.5 × 14 in)' };
+            return map[this.paperSize] || 'A4';
+        }
+    }"
+    @open-db-custom-report.window="openModal()"
+    @keydown.escape.window="if (open) closeModal()"
+>
+<template x-teleport="body">
+<div class="db-crpt-backdrop" x-show="open" x-cloak @click.self="closeModal()" role="dialog" aria-modal="true" aria-labelledby="dbCrptTitle">
+    <div class="db-crpt-modal" :class="{ 'db-crpt-modal--preview': previewMode }">
+        <div class="db-crpt-head">
+            <div class="db-crpt-title-wrap">
+                <span class="db-crpt-icon"><i class="fa-solid" :class="previewMode ? 'fa-eye' : 'fa-file-export'" aria-hidden="true"></i></span>
+                <div>
+                    <h3 id="dbCrptTitle" x-text="previewMode ? 'Report Preview' : 'Custom Generate Report'"></h3>
+                    <p x-text="previewMode ? 'Review the letterhead, bond paper size, and orientation before exporting.' : 'Select the exact database columns to include. Uses your current active filters.'"></p>
+                </div>
+            </div>
+            <div class="db-crpt-head-right">
+                <div class="db-crpt-step-tabs" role="tablist">
+                    <button type="button" :class="{ 'is-active': !previewMode }" @click="previewMode = false">
+                        <i class="fa-solid fa-sliders" aria-hidden="true"></i> Columns
+                    </button>
+                    <button type="button" :class="{ 'is-active': previewMode }" @click="showPreview()">
+                        <i class="fa-solid fa-eye" aria-hidden="true"></i> Preview
+                    </button>
+                </div>
+                <button type="button" class="db-crpt-close" @click="closeModal()" aria-label="Close">
+                    <i class="fa-solid fa-xmark"></i>
+                </button>
+            </div>
+        </div>
+
+        <div class="db-crpt-body">
+            <div class="db-crpt-err" x-show="error !== ''" x-cloak role="alert">
+                <i class="fa-solid fa-triangle-exclamation" aria-hidden="true"></i>
+                <span x-text="error"></span>
+            </div>
+
+            <div x-show="previewMode" x-cloak>
+                <div class="db-crpt-preview-bar">
+                    <div class="db-crpt-preview-controls">
+                        <select class="db-crpt-paper-select" x-model="paperSize" aria-label="Bond paper size">
+                            <option value="a4">A4 (8.27 × 11.69 in)</option>
+                            <option value="short">Short / Letter (8.5 × 11 in)</option>
+                            <option value="long">Long / Folio (8.5 × 13 in)</option>
+                            <option value="legal">Legal (8.5 × 14 in)</option>
+                        </select>
+                        <div class="db-crpt-orient-switch" role="group" aria-label="Page orientation">
+                            <button type="button" :class="{ 'is-active': orientation === 'portrait' }" @click="orientation = 'portrait'">
+                                <i class="fa-regular fa-file" aria-hidden="true"></i> Portrait
+                            </button>
+                            <button type="button" :class="{ 'is-active': orientation === 'landscape' }" @click="orientation = 'landscape'">
+                                <i class="fa-regular fa-file-lines" aria-hidden="true"></i> Landscape
+                            </button>
+                        </div>
+                    </div>
+                    <span class="db-crpt-preview-meta" x-show="previewData">
+                        <span x-text="paperLabel()"></span> ·
+                        <span x-text="orientation === 'portrait' ? 'Portrait' : 'Landscape'"></span> ·
+                        Showing <span x-text="previewData ? previewData.rows.length : 0"></span> of <span x-text="previewData ? previewData.totalRows : 0"></span> records
+                    </span>
+                </div>
+
+                <div class="db-crpt-paper-stage">
+                    <div class="db-crpt-loading" x-show="loadingPreview">
+                        <i class="fa-solid fa-spinner fa-spin" aria-hidden="true"></i>
+                        <span>Preparing preview…</span>
+                    </div>
+
+                    <div
+                        class="db-crpt-paper"
+                        x-show="!loadingPreview && previewData"
+                        :class="[orientation === 'portrait' ? 'is-portrait' : 'is-landscape', 'is-paper-' + paperSize]"
+                    >
+                        <div class="db-crpt-cspc-hdr">
+                            <div class="db-crpt-cspc-brand">
+                                <img src="{{ asset('images/logo.png') }}" alt="CSPC" class="db-crpt-cspc-logo">
+                                <div class="db-crpt-cspc-text">
+                                    <div>Republic of the Philippines</div>
+                                    <div class="db-crpt-cspc-name">CAMARINES SUR POLYTECHNIC COLLEGES</div>
+                                    <div>Nabua, Camarines Sur</div>
+                                </div>
+                            </div>
+                            <div class="db-crpt-cspc-rule"></div>
+                        </div>
+
+                        <div class="db-crpt-paper-title" x-text="(title || 'DOCUMENT MASTERLIST').toUpperCase()"></div>
+                        <div class="db-crpt-paper-sub" x-show="previewData">
+                            Generated <span x-text="previewData?.generatedAt"></span> · <span x-text="previewData?.totalRows"></span> record(s)
+                        </div>
+
+                        <div class="db-crpt-paper-filters" x-show="previewData && previewData.filterSummary">
+                            <strong>Active Filters:</strong> <span x-text="previewData?.filterSummary"></span>
+                        </div>
+
+                        <div class="db-crpt-paper-table-wrap">
+                            <table class="db-crpt-paper-table">
+                                <thead>
+                                    <tr>
+                                        <template x-for="(h, hi) in (previewData?.headers || [])" :key="hi">
+                                            <th x-text="h"></th>
+                                        </template>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    <template x-if="(previewData?.rows || []).length === 0">
+                                        <tr>
+                                            <td :colspan="Math.max(1, (previewData?.headers || []).length)" style="text-align:center; padding:18px; color:#64748b;">
+                                                No matching documents found for the current filters.
+                                            </td>
+                                        </tr>
+                                    </template>
+                                    <template x-for="(r, ri) in (previewData?.rows || [])" :key="ri">
+                                        <tr :class="{ 'is-child': r.is_child }">
+                                            <template x-for="(val, ci) in r.cells" :key="ci">
+                                                <td x-text="val !== '' ? val : '—'"></td>
+                                            </template>
+                                        </tr>
+                                    </template>
+                                </tbody>
+                            </table>
+                        </div>
+                        <div class="db-crpt-paper-more" x-show="previewData && previewData.totalRows > previewData.rows.length">
+                            Preview shows the first <span x-text="previewData?.rows.length"></span> rows. Exporting will include all <span x-text="previewData?.totalRows"></span> records.
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <div x-show="!previewMode" class="db-crpt-config-wrap">
+                <div class="db-crpt-options">
+                    <div class="db-crpt-field db-crpt-field--grow">
+                        <label for="dbCrptTitleInput">Report Title</label>
+                        <input id="dbCrptTitleInput" type="text" x-model="title" placeholder="DOCUMENT MASTERLIST">
+                    </div>
+                    <div class="db-crpt-field">
+                        <label for="dbCrptPaper">Bond Paper Size</label>
+                        <select id="dbCrptPaper" x-model="paperSize">
+                            <option value="a4">A4 (8.27 × 11.69 in)</option>
+                            <option value="short">Short / Letter (8.5 × 11 in)</option>
+                            <option value="long">Long / Folio (8.5 × 13 in)</option>
+                            <option value="legal">Legal (8.5 × 14 in)</option>
+                        </select>
+                    </div>
+                    <div class="db-crpt-field">
+                        <label for="dbCrptOrient">Orientation</label>
+                        <select id="dbCrptOrient" x-model="orientation">
+                            <option value="landscape">Landscape</option>
+                            <option value="portrait">Portrait</option>
+                        </select>
+                    </div>
+                    <label class="db-crpt-toggle">
+                        <input type="checkbox" x-model="includeRevisions">
+                        <span>Include superseded/obsolete rows</span>
+                    </label>
+                </div>
+
+                <div class="db-crpt-presets">
+                    <span class="db-crpt-count"><strong x-text="columns.length"></strong> of <span x-text="catalog.headers.length"></span> columns selected</span>
+                    <div class="db-crpt-preset-btns">
+                        <button type="button" @click="setPreset('default')">Default</button>
+                        <button type="button" @click="setPreset('all')">Select all</button>
+                        <button type="button" @click="setPreset('none')">Clear all</button>
+                    </div>
+                </div>
+
+                <div class="db-crpt-groups">
+                    @foreach($customReportCatalog['groups'] as $grpName => $colIndexes)
+                        <div class="db-crpt-group">
+                            <div class="db-crpt-group-head">
+                                <span>{{ $grpName }}</span>
+                                <button type="button" @click="toggleGroup(@js($grpName))" x-text="groupAllChecked(@js($grpName)) ? 'Unselect group' : 'Select group'"></button>
+                            </div>
+                            <div class="db-crpt-cols">
+                                @foreach($colIndexes as $cIdx)
+                                    <label class="db-crpt-col-chip">
+                                        <input type="checkbox" :checked="columns.includes({{ $cIdx }})" @change="toggleCol({{ $cIdx }})">
+                                        <span>{{ $customReportCatalog['headers'][$cIdx] }}</span>
+                                    </label>
+                                @endforeach
+                            </div>
+                        </div>
+                    @endforeach
+                </div>
+            </div>
+        </div>
+
+        <div class="db-crpt-foot">
+            <button type="button" class="db-crpt-btn-cancel" @click="closeModal()">Cancel</button>
+            <div class="db-crpt-export-btns">
+                <button
+                    type="button"
+                    class="db-crpt-btn-preview"
+                    x-show="!previewMode"
+                    @click="showPreview()"
+                >
+                    <i class="fa-solid fa-eye" aria-hidden="true"></i> Preview
+                </button>
+                <button
+                    type="button"
+                    class="db-crpt-btn-cancel"
+                    x-show="previewMode"
+                    x-cloak
+                    @click="previewMode = false"
+                >
+                    <i class="fa-solid fa-arrow-left" aria-hidden="true"></i> Edit Columns
+                </button>
+                <button
+                    type="button"
+                    class="db-crpt-btn-excel"
+                    :disabled="exporting !== ''"
+                    @click="runExport('excel')"
+                >
+                    <i class="fa-solid fa-file-excel" aria-hidden="true"></i>
+                    <span x-text="exporting === 'excel' ? 'Generating…' : 'Export Excel'"></span>
+                </button>
+                <button
+                    type="button"
+                    class="db-crpt-btn-pdf"
+                    :disabled="exporting !== ''"
+                    @click="runExport('pdf')"
+                >
+                    <i class="fa-solid fa-file-pdf" aria-hidden="true"></i>
+                    <span x-text="exporting === 'pdf' ? 'Generating…' : 'Export PDF'"></span>
+                </button>
+            </div>
+        </div>
+    </div>
+</div>
+</template>
+</div>
+
 </main>
 
 {{-- Fixed menus outside .db-page overflow; actions bound via document click (survives Livewire morph) --}}

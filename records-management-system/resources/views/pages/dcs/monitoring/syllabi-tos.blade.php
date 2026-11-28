@@ -85,12 +85,12 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
             $courseType = null;
         }
 
-        $contextYears = SyllabiMonitoringHelper::yearLevelsForContext($collegeId, $semesterId, $courseType);
+        $contextYears = SyllabiMonitoringHelper::yearLevelsForContext($collegeId, $semesterId, $courseType, $schoolYearId);
 
-        $lookups = Cache::remember('dcs.syllabi.lookups.v1', 90, function () {
+        $lookups = Cache::remember('dcs.syllabi.lookups.v2', 90, function () {
             return [
                 'colleges' => DB::table('dcs_colleges')->orderBy('college_name')->get(['id', 'college_code', 'college_name']),
-                'schoolYears' => DB::table('dcs_school_years')->orderBy('school_year', 'desc')->get(['id', 'school_year']),
+                'schoolYears' => DB::table('dcs_school_years')->orderBy('school_year', 'asc')->get(['id', 'school_year']),
                 'semesters' => DB::table('dcs_semesters')->orderBy('id')->get(['id', 'semester_name']),
             ];
         });
@@ -111,8 +111,20 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
     openSyllabiDrf: false,
     openTos: false,
     openTosDrf: false,
+    expandedLacking: {},
     cols(open, full) { return open ? full : 1; },
     hasLeaf() { return this.openSyllabi || this.openSyllabiDrf || this.openTos || this.openTosDrf; },
+    allOpen() { return this.openSyllabi && this.openSyllabiDrf && this.openTos && this.openTosDrf; },
+    toggleAllGroups() {
+        const next = !this.allOpen();
+        this.openSyllabi = next;
+        this.openSyllabiDrf = next;
+        this.openTos = next;
+        this.openTosDrf = next;
+    },
+    toggleLacking(key) {
+        this.expandedLacking = { ...this.expandedLacking, [key]: !this.expandedLacking[key] };
+    },
     groupRowspan(open) { return open ? 1 : (this.hasLeaf() ? 2 : 1); },
     remarkRowspan() { return this.hasLeaf() ? 2 : 1; },
     syllabiSpan() { return this.cols(this.openSyllabi, 8) + this.cols(this.openSyllabiDrf, 6) + 1; },
@@ -199,6 +211,61 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
             <p class="rpt-template-status">Select a college, academic year, and semester to load the monitoring table.</p>
         </section>
     @else
+        @php
+            $tSylActual = (int) ($report['totals']['syllabi_actual'] ?? 0);
+            $tSylTarget = (int) ($report['totals']['syllabi_target'] ?? 0);
+            $tSylPct = $tSylTarget > 0 ? round(($tSylActual / $tSylTarget) * 100, 1) : 0;
+            $tTosActual = (int) ($report['totals']['tos_actual'] ?? 0);
+            $tTosTarget = (int) ($report['totals']['tos_target'] ?? 0);
+            $tTosPct = $tTosTarget > 0 ? round(($tTosActual / $tTosTarget) * 100, 1) : 0;
+            $tTotalLacking = max(0, $tSylTarget - $tSylActual) + max(0, $tTosTarget - $tTosActual);
+        @endphp
+        <section
+            class="mon-kpi-strip"
+            aria-label="Submission summary"
+            wire:loading.class="is-dimmed"
+            wire:target="collegeId,schoolYearId,semesterId,courseType,saveRemark"
+        >
+            <div class="mon-kpi-card">
+                <span class="mon-kpi-icon" aria-hidden="true"><i class="fa-solid fa-graduation-cap"></i></span>
+                <div class="mon-kpi-body">
+                    <span class="mon-kpi-label">Programs</span>
+                    <strong class="mon-kpi-val">{{ count($report['rows']) }}</strong>
+                    <span class="mon-kpi-sub">{{ $report['meta']['semester'] }} · {{ $report['meta']['school_year'] }}</span>
+                </div>
+            </div>
+            <div class="mon-kpi-card is-syllabi">
+                <span class="mon-kpi-icon" aria-hidden="true"><i class="fa-solid fa-book-open"></i></span>
+                <div class="mon-kpi-body">
+                    <span class="mon-kpi-label">Syllabi Progress</span>
+                    <div class="mon-kpi-row">
+                        <strong class="mon-kpi-val">{{ $tSylActual }} / {{ $tSylTarget }}</strong>
+                        <span class="mon-kpi-pct">{{ rtrim(rtrim(number_format($tSylPct, 1), '0'), '.') }}%</span>
+                    </div>
+                    <div class="mon-kpi-bar"><span style="width: {{ min(100, $tSylPct) }}%"></span></div>
+                </div>
+            </div>
+            <div class="mon-kpi-card is-tos">
+                <span class="mon-kpi-icon" aria-hidden="true"><i class="fa-solid fa-clipboard-check"></i></span>
+                <div class="mon-kpi-body">
+                    <span class="mon-kpi-label">TOS / Rubrics Progress</span>
+                    <div class="mon-kpi-row">
+                        <strong class="mon-kpi-val">{{ $tTosActual }} / {{ $tTosTarget }}</strong>
+                        <span class="mon-kpi-pct">{{ rtrim(rtrim(number_format($tTosPct, 1), '0'), '.') }}%</span>
+                    </div>
+                    <div class="mon-kpi-bar"><span style="width: {{ min(100, $tTosPct) }}%"></span></div>
+                </div>
+            </div>
+            <div class="mon-kpi-card {{ $tTotalLacking > 0 ? 'is-lacking' : 'is-complete' }}">
+                <span class="mon-kpi-icon" aria-hidden="true"><i class="fa-solid {{ $tTotalLacking > 0 ? 'fa-triangle-exclamation' : 'fa-circle-check' }}"></i></span>
+                <div class="mon-kpi-body">
+                    <span class="mon-kpi-label">Total Lacking</span>
+                    <strong class="mon-kpi-val">{{ $tTotalLacking }}</strong>
+                    <span class="mon-kpi-sub">{{ $tTotalLacking > 0 ? 'Syllabi + TOS pending' : 'All targets met' }}</span>
+                </div>
+            </div>
+        </section>
+
         <section
             class="rpt-results"
             wire:loading.class="is-dimmed"
@@ -227,6 +294,10 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
                         @endif
                     </span>
                 </div>
+                <button type="button" class="mon-expand-all-btn" @click="toggleAllGroups()">
+                    <i class="fa-solid" :class="allOpen() ? 'fa-compress' : 'fa-expand'" aria-hidden="true"></i>
+                    <span x-text="allOpen() ? 'Collapse details' : 'Expand all details'"></span>
+                </button>
             </div>
 
             <div class="rpt-table-scroll mon-table-wrap mon-table-wrap--simple" :class="{ 'is-all-collapsed': !hasLeaf() }">
@@ -344,11 +415,22 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
                                 <td x-show="openSyllabi" x-cloak>{{ $row['syllabi_actual'] }}</td>
                                 <td x-show="openSyllabi" x-cloak>{!! $this->pctSpan($row['syllabi_pct']) !!}</td>
                                 <td x-show="openSyllabi" x-cloak class="mon-list">
-                                    @forelse($row['syllabi_lacking_names'] as $course)
-                                        <div>{{ $course }}</div>
-                                    @empty
+                                    @if(count($row['syllabi_lacking_groups']) > 0)
+                                        <div class="mon-lack-groups">
+                                            @foreach($row['syllabi_lacking_groups'] as $grp)
+                                                <div class="mon-lack-group">
+                                                    <div class="mon-lack-year">{{ $grp['year'] }}</div>
+                                                    <ul class="mon-lack-list">
+                                                        @foreach($grp['courses'] as $course)
+                                                            <li>{{ $course }}</li>
+                                                        @endforeach
+                                                    </ul>
+                                                </div>
+                                            @endforeach
+                                        </div>
+                                    @else
                                         <span class="rpt-na">—</span>
-                                    @endforelse
+                                    @endif
                                 </td>
                                 <td x-show="openSyllabi" x-cloak>{{ $row['submission_dates'] !== '' ? $row['submission_dates'] : '—' }}</td>
                                 <td x-show="openSyllabi" x-cloak>{{ $row['effectivity_date'] !== '' ? $row['effectivity_date'] : '—' }}</td>
@@ -366,11 +448,22 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
                                 <td x-show="openSyllabiDrf" x-cloak>{{ $row['drf_actual'] }}</td>
                                 <td x-show="openSyllabiDrf" x-cloak>{!! $this->pctSpan($row['drf_pct']) !!}</td>
                                 <td x-show="openSyllabiDrf" x-cloak class="mon-list">
-                                    @forelse($row['drf_lacking_names'] as $course)
-                                        <div>{{ $course }}</div>
-                                    @empty
+                                    @if(count($row['drf_lacking_groups']) > 0)
+                                        <div class="mon-lack-groups">
+                                            @foreach($row['drf_lacking_groups'] as $grp)
+                                                <div class="mon-lack-group">
+                                                    <div class="mon-lack-year">{{ $grp['year'] }}</div>
+                                                    <ul class="mon-lack-list">
+                                                        @foreach($grp['courses'] as $course)
+                                                            <li>{{ $course }}</li>
+                                                        @endforeach
+                                                    </ul>
+                                                </div>
+                                            @endforeach
+                                        </div>
+                                    @else
                                         <span class="rpt-na">—</span>
-                                    @endforelse
+                                    @endif
                                 </td>
                                 <td x-show="openSyllabiDrf" x-cloak>{{ $row['drf_received'] !== '' ? $row['drf_received'] : '—' }}</td>
 
@@ -401,11 +494,22 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
                                 <td x-show="openTos" x-cloak>{{ $row['tos_actual'] }}</td>
                                 <td x-show="openTos" x-cloak>{!! $this->pctSpan($row['tos_pct']) !!}</td>
                                 <td x-show="openTos" x-cloak class="mon-list">
-                                    @forelse($row['tos_lacking_names'] as $course)
-                                        <div>{{ $course }}</div>
-                                    @empty
+                                    @if(count($row['tos_lacking_groups']) > 0)
+                                        <div class="mon-lack-groups">
+                                            @foreach($row['tos_lacking_groups'] as $grp)
+                                                <div class="mon-lack-group">
+                                                    <div class="mon-lack-year">{{ $grp['year'] }}</div>
+                                                    <ul class="mon-lack-list">
+                                                        @foreach($grp['courses'] as $course)
+                                                            <li>{{ $course }}</li>
+                                                        @endforeach
+                                                    </ul>
+                                                </div>
+                                            @endforeach
+                                        </div>
+                                    @else
                                         <span class="rpt-na">—</span>
-                                    @endforelse
+                                    @endif
                                 </td>
                                 <td x-show="openTos" x-cloak>{{ $row['tos_submission_dates'] !== '' ? $row['tos_submission_dates'] : '—' }}</td>
                                 <td x-show="openTos" x-cloak>{{ $row['tos_effectivity_date'] !== '' ? $row['tos_effectivity_date'] : '—' }}</td>
@@ -423,11 +527,22 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
                                 <td x-show="openTosDrf" x-cloak>{{ $row['tos_drf_actual'] }}</td>
                                 <td x-show="openTosDrf" x-cloak>{!! $this->pctSpan($row['tos_drf_pct']) !!}</td>
                                 <td x-show="openTosDrf" x-cloak class="mon-list">
-                                    @forelse($row['tos_drf_lacking_names'] as $course)
-                                        <div>{{ $course }}</div>
-                                    @empty
+                                    @if(count($row['tos_drf_lacking_groups']) > 0)
+                                        <div class="mon-lack-groups">
+                                            @foreach($row['tos_drf_lacking_groups'] as $grp)
+                                                <div class="mon-lack-group">
+                                                    <div class="mon-lack-year">{{ $grp['year'] }}</div>
+                                                    <ul class="mon-lack-list">
+                                                        @foreach($grp['courses'] as $course)
+                                                            <li>{{ $course }}</li>
+                                                        @endforeach
+                                                    </ul>
+                                                </div>
+                                            @endforeach
+                                        </div>
+                                    @else
                                         <span class="rpt-na">—</span>
-                                    @endforelse
+                                    @endif
                                 </td>
                                 <td x-show="openTosDrf" x-cloak>{{ $row['tos_drf_received'] !== '' ? $row['tos_drf_received'] : '—' }}</td>
 

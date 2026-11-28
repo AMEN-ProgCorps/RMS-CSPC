@@ -855,50 +855,38 @@ class RegisterPersistHelper
             return [];
         }
 
-        $known = [];
+        // Lookup canonical casing for existing single-person faculty rows (ignoring any legacy comma rows).
+        $knownByLower = [];
         if (Schema::hasTable('dcs_faculties')) {
             $q = DB::table('dcs_faculties');
             if (class_exists(SettingsRecycleHelper::class)) {
                 SettingsRecycleHelper::applyNotDeleted($q, 'dcs_faculties');
             }
-            $known = $q->pluck('faculty_name')->filter()->map(fn ($n) => trim((string) $n))->values()->all();
-            usort($known, fn ($a, $b) => mb_strlen($b) <=> mb_strlen($a));
-        }
-
-        foreach ($known as $name) {
-            if (strcasecmp($name, $raw) === 0) {
-                return [$name];
-            }
-        }
-
-        $parts = preg_split('/\s*,\s*/', $raw) ?: [];
-        $matched = [];
-        $buffer = '';
-        foreach ($parts as $part) {
-            $candidate = $buffer === '' ? $part : ($buffer.', '.$part);
-            $hit = null;
-            foreach ($known as $name) {
-                if (strcasecmp($name, trim($candidate)) === 0) {
-                    $hit = $name;
-                    break;
+            foreach ($q->pluck('faculty_name') as $n) {
+                $trimmed = trim((string) $n);
+                if ($trimmed !== '' && ! str_contains($trimmed, ',')) {
+                    $knownByLower[mb_strtolower($trimmed)] = $trimmed;
                 }
             }
-            if ($hit !== null) {
-                $matched[] = $hit;
-                $buffer = '';
-            } else {
-                $buffer = $candidate;
+        }
+
+        $parts = preg_split('/\s*,\s*/u', $raw) ?: [];
+        $result = [];
+        $seen = [];
+        foreach ($parts as $part) {
+            $part = trim((string) $part);
+            if ($part === '') {
+                continue;
             }
+            $key = mb_strtolower($part);
+            if (isset($seen[$key])) {
+                continue;
+            }
+            $seen[$key] = true;
+            $result[] = $knownByLower[$key] ?? $part;
         }
 
-        if ($matched === []) {
-            return [$raw];
-        }
-        if (trim($buffer) !== '') {
-            $matched[] = trim($buffer);
-        }
-
-        return array_values(array_filter($matched, fn ($n) => $n !== ''));
+        return $result;
     }
 
     /**

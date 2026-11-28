@@ -31,7 +31,6 @@ class CourseTypeRules
         '2nd Year',
         '3rd Year',
         '4th Year',
-        '5th Year',
     ];
 
     /** @var array<string, list<string>> */
@@ -149,6 +148,205 @@ class CourseTypeRules
         self::$yearLevelsMemo = $clean;
 
         return $clean;
+    }
+
+    /**
+     * Full year level records including optional college/program assignment.
+     *
+     * @return list<array{id: ?int, name: string, college_id: ?int, program_id: ?int, scope_type: string, scope_label: string}>
+     */
+    public static function yearLevelRecords(): array
+    {
+        if (Schema::hasTable('dcs_year_levels')) {
+            $hasCollege = Schema::hasColumn('dcs_year_levels', 'college_id');
+            $hasProgram = Schema::hasColumn('dcs_year_levels', 'program_id');
+            $q = DB::table('dcs_year_levels as yl')
+                ->orderBy('yl.sort_order')
+                ->orderBy('yl.id');
+            $cols = ['yl.id', 'yl.year_level_name'];
+            if ($hasCollege) {
+                $q->leftJoin('dcs_colleges as c', 'c.id', '=', 'yl.college_id');
+                $cols[] = 'yl.college_id';
+                $cols[] = 'c.college_code';
+                $cols[] = 'c.college_name';
+            }
+            if ($hasProgram) {
+                $q->leftJoin('dcs_programs as p', 'p.id', '=', 'yl.program_id');
+                $q->leftJoin('dcs_colleges as pc', 'pc.id', '=', 'p.college_id');
+                $cols[] = 'yl.program_id';
+                $cols[] = 'p.program_code';
+                $cols[] = 'p.program_name';
+                $cols[] = 'pc.college_code as prog_college_code';
+            }
+
+            $rows = $q->get($cols);
+            if ($rows->isNotEmpty()) {
+                return $rows->map(function ($r) use ($hasCollege, $hasProgram) {
+                    $cid = $hasCollege && ! empty($r->college_id) ? (int) $r->college_id : null;
+                    $pid = $hasProgram && ! empty($r->program_id) ? (int) $r->program_id : null;
+                    $scopeType = 'all';
+                    $scopeLabel = 'Default · All Colleges';
+                    if ($pid !== null) {
+                        $scopeType = 'program';
+                        $pLabel = trim((string) ($r->program_code ?: $r->program_name ?: "Program #{$pid}"));
+                        $cCode = trim((string) ($r->prog_college_code ?? ''));
+                        $scopeLabel = $cCode !== '' ? "Program: {$pLabel} ({$cCode})" : "Program: {$pLabel}";
+                    } elseif ($cid !== null) {
+                        $scopeType = 'college';
+                        $cLabel = trim((string) ($r->college_code ?: $r->college_name ?: "College #{$cid}"));
+                        $scopeLabel = "College: {$cLabel}";
+                    }
+
+                    return [
+                        'id' => (int) $r->id,
+                        'name' => trim((string) $r->year_level_name),
+                        'college_id' => $cid,
+                        'program_id' => $pid,
+                        'scope_type' => $scopeType,
+                        'scope_label' => $scopeLabel,
+                    ];
+                })->values()->all();
+            }
+        }
+
+        return array_map(fn (string $lvl) => [
+            'id' => null,
+            'name' => $lvl,
+            'college_id' => null,
+            'program_id' => null,
+            'scope_type' => 'all',
+            'scope_label' => 'Default · All Colleges',
+        ], self::allYearLevels());
+    }
+
+    /**
+     * Save or update a year level with optional college/program assignment.
+     */
+    public static function saveYearLevelRecord(?int $id, string $name, ?int $collegeId = null, ?int $programId = null): void
+    {
+        $name = trim($name);
+        if ($name === '') {
+            throw new \InvalidArgumentException('Year level name is required.');
+        }
+
+        if ($programId !== null && $programId > 0) {
+            if ($collegeId === null || $collegeId < 1) {
+                $collegeId = (int) (DB::table('dcs_programs')->where('id', $programId)->value('college_id') ?? 0) ?: null;
+            }
+        } else {
+            $programId = null;
+        }
+
+        if ($collegeId !== null && $collegeId < 1) {
+            $collegeId = null;
+        }
+
+        if (! Schema::hasTable('dcs_year_levels')) {
+            $levels = self::allYearLevels();
+            if (! in_array($name, $levels, true)) {
+                $levels[] = $name;
+                self::saveYearLevels($levels);
+            }
+
+            return;
+        }
+
+        $now = now();
+        $payload = [
+            'year_level_name' => $name,
+            'updated_at' => $now,
+        ];
+        if (Schema::hasColumn('dcs_year_levels', 'college_id')) {
+            $payload['college_id'] = $collegeId;
+        }
+        if (Schema::hasColumn('dcs_year_levels', 'program_id')) {
+            $payload['program_id'] = $programId;
+        }
+
+        if ($id !== null && $id > 0) {
+            DB::table('dcs_year_levels')->where('id', $id)->update($payload);
+        } else {
+            $maxOrder = (int) (DB::table('dcs_year_levels')->max('sort_order') ?? 0);
+            $payload['sort_order'] = $maxOrder + 1;
+            $payload['created_at'] = $now;
+            DB::table('dcs_year_levels')->insert($payload);
+        }
+
+        self::$yearLevelsMemo = null;
+    }
+
+    /**
+     * Delete a year level record by ID (or by label fallback).
+     */
+    public static function deleteYearLevelRecord(?int $id, string $fallbackLabel = ''): void
+    {
+        if (Schema::hasTable('dcs_year_levels') && $id !== null && $id > 0) {
+            DB::table('dcs_year_levels')->where('id', $id)->delete();
+            self::$yearLevelsMemo = null;
+
+            return;
+        }
+
+        if ($fallbackLabel !== '') {
+            $levels = array_values(array_filter(
+                self::allYearLevels(),
+                fn ($lvl) => $lvl !== trim($fallbackLabel)
+            ));
+            if ($levels !== []) {
+                self::saveYearLevels($levels);
+            }
+        }
+    }
+
+    /**
+     * Year levels applicable to a given college and/or program (includes global levels).
+     *
+     * @return list<string>
+     */
+    public static function yearLevelsForScope(?int $collegeId = null, ?int $programId = null): array
+    {
+        $records = self::yearLevelRecords();
+        $out = [];
+        $seen = [];
+        foreach ($records as $rec) {
+            $rc = $rec['college_id'];
+            $rp = $rec['program_id'];
+            $matches = ($rc === null && $rp === null)
+                || ($programId !== null && $rp === $programId)
+                || ($collegeId !== null && $rp === null && $rc === $collegeId);
+            if (! $matches) {
+                continue;
+            }
+            $key = mb_strtolower($rec['name']);
+            if (! isset($seen[$key])) {
+                $seen[$key] = true;
+                $out[] = $rec['name'];
+            }
+        }
+
+        return $out !== [] ? $out : self::DEFAULT_YEAR_LEVELS;
+    }
+
+    /**
+     * Allowed year levels for a course type within a specific college and/or program scope.
+     * Only includes default (global) year levels plus those assigned to that college or program.
+     *
+     * @return list<string>
+     */
+    public static function allowedYearLevelsForScope(?string $courseType, ?int $collegeId = null, ?int $programId = null): array
+    {
+        if ($programId !== null && $programId > 0 && ($collegeId === null || $collegeId < 1)) {
+            $collegeId = (int) (DB::table('dcs_programs')->where('id', $programId)->value('college_id') ?? 0) ?: null;
+        }
+        $scoped = self::yearLevelsForScope($collegeId, $programId);
+        $type = trim((string) $courseType);
+        if ($type !== '' && isset(self::FIXED_YEAR_CAPS[$type])) {
+            $cap = array_values(array_intersect($scoped, self::FIXED_YEAR_CAPS[$type]));
+
+            return $cap !== [] ? $cap : self::FIXED_YEAR_CAPS[$type];
+        }
+
+        return $scoped;
     }
 
     /**
